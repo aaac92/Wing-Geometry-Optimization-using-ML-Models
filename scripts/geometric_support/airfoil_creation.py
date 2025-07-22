@@ -24,13 +24,13 @@ class Airfoil_Generator:
         show_plot (bool, optional): If True, displays a plot of the airfoils. Defaults to False.
     """
     def __init__(self, base_airfoil_csv, n_cst, cst_coeffs, output_dir, file_name, x_len=150, show_plot=False):
-        if not isinstance(cst_coeffs, (list, np.ndarray)) or len(cst_coeffs) != 6:
-            raise ValueError("cst_coeffs must be a list or numpy array of 6 elements.")
+        if not isinstance(cst_coeffs, (list, np.ndarray)) or len(cst_coeffs) != n_cst*2:
+            raise ValueError(f"cst_coeffs must be a list or numpy array of {n_cst*2} elements.")
 
         self.base_airfoil_csv = base_airfoil_csv
         self.n_cst = n_cst
-        self.cmb_l = np.array(cst_coeffs[:3])
-        self.cmb_u = np.array(cst_coeffs[3:])
+        self.cmb_l = np.array(cst_coeffs[:n_cst])
+        self.cmb_u = np.array(cst_coeffs[n_cst:])
         self.output_dir = output_dir
         self.file_name = file_name
         self.x_len = x_len

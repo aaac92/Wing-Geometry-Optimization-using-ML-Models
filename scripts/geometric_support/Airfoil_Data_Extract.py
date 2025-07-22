@@ -6,40 +6,37 @@ from tqdm import tqdm
 class Airfoil_Tools_Exctract:
         
     def __init__(self):
-        # Ubicación (carpeta raiz del código en este caso) y nombre del archivo.
-        self.file= file = str()
-
-        # Initialización de listas para coordenadas y variable para la cuerda
+        self.file= file = str() # File source
         self.name = name = str()
         self.C = C = None
         self.X_UPPER, self.Z_UPPER = X_UPPER, Z_UPPER = [], []
         self.X_LOWER, self.Z_LOWER = X_LOWER, Z_LOWER = [], []
 
     def airfoil_coords(self):
-        # Lectura de información
+        # Reading from Airfoiltools.com CSV
         file_path = self.file
         with open(file_path, 'r', newline='') as csvfile:
-            reader = csv.reader(csvfile) #Almacena info del csv
-            lines = list(reader) #Convierte lineas del CSV en una lista
+            reader = csv.reader(csvfile)
+            lines = list(reader)
 
-            # Extracción del Nombre
+            # Exrtact Airfoil name
             name_start = lines[0]
             if name_start[0].startswith("Name"):
                 self.name = str(name_start[1])
 
-            # Extrae la longitud de la cuerda de la linea 2 (index 1)
+            # Extracts chord length
             chord_line = lines[1]
             if chord_line[0].startswith("Chord(mm)"):
-                self.C = float(chord_line[1])  # Extrae unicamente el valor numerico después de la coma
-            # Buscamos las coordenadas del perfil
+                self.C = float(chord_line[1])
+            # Airfoil coordinate search
             for i, line in enumerate(lines):
                 if line and line[0].strip() == "Airfoil surface":
-                    coord_start = i + 2  # Las coordenadas inician 2 lineas despues 
+                    coord_start = i + 2 
                     break
             else:
                 raise ValueError("Could not find 'Airfoil surface' marker in file")
 
-            # Extracción de coordenadas
+            # Coordinate Extraction
             surface = 'upper'
             tot_coords = len(lines[coord_start:])
             airfoil_pbar = tqdm(total = tot_coords, desc= 'Extracting ' + self.name + '\'s coordinates: ')
@@ -51,9 +48,9 @@ class Airfoil_Tools_Exctract:
                     x = float(row[0])
                     z = float(row[1])
                 except ValueError:
-                    airfoil_pbar.update(tot_coords - (i + 1)) #Fills remaining steps of progress bar
+                    airfoil_pbar.update(tot_coords - (i + 1))
                     airfoil_pbar.close #Closes progress bar if the break is triggered
-                    break  # Rompe condicional al encontrar valores no numericos como:"Camber Line"
+                    break  # Break when finding non-numeric values like:"Camber Line"
 
                 if surface == 'upper':
                     self.X_UPPER.append(x)
@@ -70,7 +67,7 @@ class Airfoil_Tools_Exctract:
                 
 
     def ate_verif(self):
-        # Verificación de Resultados
+        # Result Verification
         print(f"Chord length: {self.C} mm")
         print(f"Upper surface points: {len(self.X_UPPER)}")
         print(f"Lower surface points: {len(self.X_LOWER)}")
@@ -80,7 +77,7 @@ class Airfoil_Tools_Exctract:
         print('Z LOWER: ' + str(self.Z_LOWER))
 
     def ate_plt(self):
-        #Grafica de los puntos geometricos del perfil
+        # Plots extracted airfoil
         plt.scatter(self.X_UPPER, self.Z_UPPER, label = "Upper Surface", color = 'blue')
         plt.scatter(self.X_LOWER, self.Z_LOWER, label = "Lower Surface", color = 'red')
         plt.legend('Airfoil: ' + self.name)
@@ -88,12 +85,11 @@ class Airfoil_Tools_Exctract:
         plt.show()
 
     def ate_upscaling(self, x_res, n = 15):
-        # Genera mas puntos en caso de tener pocos para evitar errores usando el metodo CST
-        #Encontrar el polinomio de regresion del perfil base para superficie superior
-        pol_coeff_foil_u = np.polyfit(self.X_UPPER, self.Z_UPPER, n) #Regresa coeficientes del polinomio que se ajusta a los puntos con el grado determinado
-        poly_Airfoil_u = np.poly1d(pol_coeff_foil_u) #Construye un polinomio mas "normal" con los valores de la lista como coeficientes lista[0]*x^n + lista[1]*x^n-1 ...
+        # This function can "upscale" an airfoil if needed for obtaining better CST parameters
+
+        pol_coeff_foil_u = np.polyfit(self.X_UPPER, self.Z_UPPER, n)
+        poly_Airfoil_u = np.poly1d(pol_coeff_foil_u)
         
-        #Encontrar el polinomio de regresion del perfil base para superficie inferior
         pol_coeff_foil_l = np.polyfit(self.X_LOWER, self.Z_LOWER, n)
         poly_Airfoil_l = np.poly1d(pol_coeff_foil_l)
 
@@ -103,4 +99,3 @@ class Airfoil_Tools_Exctract:
         up_Z_LOWER = poly_Airfoil_l(up_X_LOWER)
 
         return(up_X_UPPER, up_X_LOWER, up_Z_UPPER, up_Z_LOWER)
-        #return(poly_Airfoil_u, poly_Airfoil_l)
