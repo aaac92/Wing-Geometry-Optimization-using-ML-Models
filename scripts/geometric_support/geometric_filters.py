@@ -2,7 +2,7 @@ import numpy as np
 from itertools import product
 
 # Filter Function to create combinations of values given a range for critical areas
-def create_modification_combinations(n_cst, ranges_upper, ranges_lower):
+def create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=False):
     """
     Creates all valid airfoil modification combinations for upper and lower surfaces.
 
@@ -36,7 +36,7 @@ def create_modification_combinations(n_cst, ranges_upper, ranges_lower):
         # Return an iterator of all combinations for the surface
         return product(*val_options)
 
-    # 1. Generate iterators for upper and lower surface combinations
+    # Generate iterators for upper and lower surface combinations
     combos_upper_iter = _get_surface_combos(n_cst, ranges_upper)
     combos_lower_iter = _get_surface_combos(n_cst, ranges_lower)
     
@@ -44,19 +44,21 @@ def create_modification_combinations(n_cst, ranges_upper, ranges_lower):
     combos_upper = list(combos_upper_iter)
     combos_lower = list(combos_lower_iter)
     
-    print(f"Combinations for Upper Surface: {len(combos_upper)}")
-    print(f"Combinations for Lower Surface: {len(combos_lower)}")
-    print("-" * 30)
+    if debug:
+        print(f"[INFO] Combinations for Upper Surface: {len(combos_upper)}")
+        print(f"[INFO] Combinations for Lower Surface: {len(combos_lower)}")
+        print("-" * 30)
 
-    # 2. Create all pairs of (upper_combo, lower_combo) and concatenate them
+    # Create all pairs of (upper_combo, lower_combo) and concatenate them
     # This is the most memory-efficient way to build the final large array
     final_combos = np.array([
         np.concatenate(combo_pair)
         for combo_pair in product(combos_lower, combos_upper)
     ])
 
-    # 3. Reporting
-    total_combos = final_combos.shape[0]
-    print(f"Total airfoil combinations generated: {total_combos}")
+    # Reporting
+    if debug:
+        total_combos = final_combos.shape[0]
+        print(f"[INFO] Total airfoil combinations generated: {total_combos}")
 
     return final_combos

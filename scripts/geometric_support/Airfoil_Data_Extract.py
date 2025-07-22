@@ -6,20 +6,24 @@ from tqdm import tqdm
 class Airfoil_Tools_Exctract:
         
     def __init__(self):
-        self.file= file = str() # File source
-        self.name = name = str()
-        self.C = C = None
-        self.X_UPPER, self.Z_UPPER = X_UPPER, Z_UPPER = [], []
-        self.X_LOWER, self.Z_LOWER = X_LOWER, Z_LOWER = [], []
+        self.file = str() # File source
+        self.name = str()
+        self.C = None
+        self.X_UPPER, self.Z_UPPER = [], []
+        self.X_LOWER, self.Z_LOWER = [], []
 
-    def airfoil_coords(self):
+    def airfoil_coords(self, verbose: bool = True):
+        '''
+        Reads airfoil coordinates from an Airfoiltools.com CSV file.
+        A verbose flag is included to toggle the tqdm progress bar.
+        '''
         # Reading from Airfoiltools.com CSV
         file_path = self.file
         with open(file_path, 'r', newline='') as csvfile:
             reader = csv.reader(csvfile)
             lines = list(reader)
 
-            # Exrtact Airfoil name
+            # Extract Airfoil name
             name_start = lines[0]
             if name_start[0].startswith("Name"):
                 self.name = str(name_start[1])
@@ -39,7 +43,10 @@ class Airfoil_Tools_Exctract:
             # Coordinate Extraction
             surface = 'upper'
             tot_coords = len(lines[coord_start:])
-            airfoil_pbar = tqdm(total = tot_coords, desc= 'Extracting ' + self.name + '\'s coordinates: ')
+            
+            # MODIFIED: Added 'disable=not verbose' to conditionally hide the progress bar
+            airfoil_pbar = tqdm(total=tot_coords, desc='Extracting ' + self.name + '\'s coordinates: ', disable=not verbose)
+            
             for i, row in enumerate(lines[coord_start:]):
                 airfoil_pbar.update(1)
                 if len(row) < 2:
@@ -49,7 +56,7 @@ class Airfoil_Tools_Exctract:
                     z = float(row[1])
                 except ValueError:
                     airfoil_pbar.update(tot_coords - (i + 1))
-                    airfoil_pbar.close #Closes progress bar if the break is triggered
+                    airfoil_pbar.close() # CORRECTED: Changed .close to .close()
                     break  # Break when finding non-numeric values like:"Camber Line"
 
                 if surface == 'upper':
@@ -63,7 +70,7 @@ class Airfoil_Tools_Exctract:
                     self.X_LOWER.append(x)
                     self.Z_LOWER.append(z)
             else:
-                airfoil_pbar.close #Closes progress bar
+                airfoil_pbar.close() # CORRECTED: Changed .close to .close()
                 
 
     def ate_verif(self):

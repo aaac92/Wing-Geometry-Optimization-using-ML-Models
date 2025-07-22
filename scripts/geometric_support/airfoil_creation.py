@@ -23,75 +23,80 @@ class Airfoil_Generator:
         x_len (int, optional): The number of points for the airfoil coordinates. Defaults to 150.
         show_plot (bool, optional): If True, displays a plot of the airfoils. Defaults to False.
     """
-    def __init__(self, base_airfoil_csv, n_cst, cst_coeffs, output_dir, file_name, x_len=150, show_plot=False):
-        if not isinstance(cst_coeffs, (list, np.ndarray)) or len(cst_coeffs) != n_cst*2:
-            raise ValueError(f"cst_coeffs must be a list or numpy array of {n_cst*2} elements.")
+    def __init__(self, base_airfoil_csv, n_cst, x_len=150, verbose=False):
 
         self.base_airfoil_csv = base_airfoil_csv
-        self.n_cst = n_cst
-        self.cmb_l = np.array(cst_coeffs[:n_cst])
-        self.cmb_u = np.array(cst_coeffs[n_cst:])
-        self.output_dir = output_dir
-        self.file_name = file_name
         self.x_len = x_len
-        self.show_plot = show_plot
-
-    def generate(self):
-        """
-        Runs the full airfoil generation process.
-        """
-        # 1. Extract coordinates from the base airfoil file
+        self.n_cst = n_cst
+        self.verbose = verbose
+        # Extract coordinates from the base airfoil file
         ate = Airfoil_Tools_Exctract()
         ate.file = self.base_airfoil_csv
-        ate.airfoil_coords()
-
-        # 2. Normalize coordinates
+        ate.airfoil_coords(verbose=self.verbose)
+        self.airfoil_base_name = ate.name
+        # Normalize coordinates
         chord = ate.C
         x_upper_norm = np.array(ate.X_UPPER) / chord
         z_upper_norm = np.array(ate.Z_UPPER) / chord
         x_lower_norm = np.array(ate.X_LOWER) / chord
         z_lower_norm = np.array(ate.Z_LOWER) / chord
-
-        # 3. Fit original airfoil with CST
+        # Fit original airfoil with CST
         x_values = np.linspace(0, 1, self.x_len)
         z_upper_flip = np.flip(z_upper_norm)
         a_gain_u, a_gain_l = cst_foil_fit(x_upper_norm, z_upper_flip * (-1), x_lower_norm, z_lower_norm, self.n_cst)
-        
-        # 4. Reconstruct the airfoil from CST coefficients
-        x_cst, z_cst_u, z_cst_l, _, _ = cst_foil(self.x_len, a_gain_u, a_gain_l, x=x_values)
-        
-        # 5. Modify the CST-reconstructed airfoil
-        if not check_validity(x_cst, z_cst_u, z_cst_l):
+        # Reconstruct the airfoil from CST coefficients
+        self.x_cst, self.z_cst_u, self.z_cst_l, _, _ = cst_foil(self.x_len, a_gain_u, a_gain_l, x=x_values)
+
+    def generate(self, cst_coeffs, output_dir, file_name, show_plot=False, debug=False):
+        """
+        Runs the full airfoil generation process.
+        """
+        # Check for correct format
+        if not isinstance(cst_coeffs, (list, np.ndarray)) or len(cst_coeffs) != self.n_cst*2:
+            raise ValueError(f"cst_coeffs must be a list or numpy array of {self.n_cst*2} elements.")
+        # Create modification object from CST-reconstructed airfoil for higher resolution
+        if not check_validity(self.x_cst, self.z_cst_u, self.z_cst_l, verbose=self.verbose):
             print("Warning: The CST-reconstructed airfoil may not be valid.")
+        if debug:
+            print('[DEBUG] Creating new modification object...')
+        mod_airfoil = FoilModification(self.x_cst, self.z_cst_u, self.z_cst_l, verbose=self.verbose)
+        if debug:
+            print('[DEBUG] New modification object created!!')
         
-        mod_airfoil = FoilModification(x_cst, z_cst_u, z_cst_l)
-        mod_airfoil.add_cst_incremental_curves(self.cmb_u, self.cmb_l, True)
+        output_dir = output_dir
+        file_name = file_name
+        cmb_l = np.array(cst_coeffs[:self.n_cst])
+        cmb_u = np.array(cst_coeffs[self.n_cst:])
+        if debug:
+            print(f"[DEBUG] Using cmb_l: {cmb_l} and cmb_u: {cmb_u}")
+
+        mod_airfoil.add_cst_incremental_curves(cmb_u, cmb_l)
         
         x_mod = mod_airfoil.x
         yu_mod = mod_airfoil.yu
         yl_mod = mod_airfoil.yl
         
-        if not check_validity(x_mod, yu_mod, yl_mod):
-            print("Warning: The modified airfoil may not be valid.")
+        if not check_validity(x_mod, yu_mod, yl_mod, verbose=self.verbose) and debug:
+            print("[WARNING] The modified airfoil may not be valid.")
 
         # 6. Save the modified airfoil to a file
-        self._create_dat_file(x_mod, yu_mod, yl_mod, ate.name)
+        self._create_dat_file(output_dir, cmb_l, cmb_u, x_mod, yu_mod, yl_mod, file_name, debug)
 
         # 7. Optionally display a plot
-        if self.show_plot:
-            self._plot_airfoils(x_cst, z_cst_u, z_cst_l, x_mod, yu_mod, yl_mod)
+        if show_plot:
+            self._plot_airfoils(x_mod, yu_mod, yl_mod)
 
-    def _create_dat_file(self, x, yu, yl, base_name):
+    def _create_dat_file(self, output_dir, cmb_l, cmb_u, x, yu, yl, file_name, debug=False):
         """Helper method to write the airfoil coordinates to a .dat file."""
-        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
         
         # Construct the full filename with coefficients
-        coeff_str = f"[{self.cmb_l[0]:.4f}, {self.cmb_l[1]:.4f}, {self.cmb_l[2]:.4f}, {self.cmb_u[0]:.4f}, {self.cmb_u[1]:.4f}, {self.cmb_u[2]:.4f}]"
-        full_file_name = f"{self.file_name}.dat"
-        file_path = os.path.join(self.output_dir, full_file_name)
+        coeff_str = f"[{cmb_l[0]:.4f}, {cmb_l[1]:.4f}, {cmb_l[2]:.4f}, {cmb_u[0]:.4f}, {cmb_u[1]:.4f}, {cmb_u[2]:.4f}]"
+        full_file_name = f"{file_name}.dat"
+        file_path = os.path.join(output_dir, full_file_name)
 
         with open(file_path, "w") as f:
-            f.write(f"{self.file_name} based on {base_name} using coefficients: {coeff_str}\n")
+            f.write(f"{file_name} based on {self.airfoil_base_name} using coefficients: {coeff_str}\n")
             # Write upper surface from trailing edge to leading edge
             for xi, yi in zip(x[::-1], yu[::-1]):
                 f.write(f"{xi:.6f} {yi:.6f}\n")
@@ -99,13 +104,14 @@ class Airfoil_Generator:
             # Skip the first point to avoid duplicating the leading edge
             for xi, yi in zip(x[1:], yl[1:]):
                 f.write(f"{xi:.6f} {yi:.6f}\n")
-        print(f"Successfully created airfoil file: {file_path}")
+        if debug:
+            print(f"Successfully created airfoil file: {file_path}")
 
-    def _plot_airfoils(self, x_cst, z_cst_u, z_cst_l, x_mod, yu_mod, yl_mod):
+    def _plot_airfoils(self, x_mod, yu_mod, yl_mod):
         """Helper method to visualize the airfoils."""
         plt.figure(figsize=(15, 6))
-        plt.plot(x_cst, z_cst_u, label='CST Airfoil', color='red', linestyle='--')
-        plt.plot(x_cst, z_cst_l, color='red', linestyle='--')
+        plt.plot(self.x_cst, self.z_cst_u, label='CST Airfoil', color='red', linestyle='--')
+        plt.plot(self.x_cst, self.z_cst_l, color='red', linestyle='--')
         plt.plot(x_mod, yu_mod, label='Modified Airfoil', color='green')
         plt.plot(x_mod, yl_mod, color='green')
         plt.axis('equal')
