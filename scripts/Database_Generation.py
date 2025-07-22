@@ -45,16 +45,24 @@ ranges = {
     'last': (-1, 1, 0.25)     # range for value closest to TE
 }
 cmb_datalist = create_modification_combinations(n_cst, ranges, ranges)
+# Random number for test
 random_number = random.randint(0, int(cmb_datalist.shape[0]))
 print(cmb_datalist[random_number])
 
-airfoil_creator = Airfoil_Generator(
-    base_airfoil_csv=base_airfoil,
-    n_cst=n_cst,
-    cst_coeffs=cmb_datalist[random_number],
-    output_dir=airfoils_dir,
-    file_name=f"delete_test",
-    show_plot=True  # Set to True to see the plot
-)
-# Run the generation process
-airfoil_creator.generate()
+def Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, random_number):
+
+    airfoil_creator = Airfoil_Generator(
+        base_airfoil_csv=base_airfoil,
+        n_cst=n_cst,
+        cst_coeffs=cmb_datalist[random_number],
+        output_dir=airfoils_dir,
+        file_name=f"delete_test",
+        show_plot=True  # Set to True to see the plot
+    )
+    # Run the generation process
+    airfoil_creator.generate()
+
+    return
+
+if __name__ == "__main__":
+    Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, random_number)
