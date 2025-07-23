@@ -1,2 +1,1 @@
-from .File_Manipulation import File_Manipulation
-from .File_Manipulation import xfoil_rel_path
+from .File_Manipulation import File_Manipulation, create_rar_from_folder, xfoil_rel_path
