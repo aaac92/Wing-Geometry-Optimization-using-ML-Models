@@ -22,6 +22,7 @@ class Airfoil_Generator:
         file_name (str): The base name for the output file.
         x_len (int, optional): The number of points for the airfoil coordinates. Defaults to 150.
         show_plot (bool, optional): If True, displays a plot of the airfoils. Defaults to False.
+        verbose(bool, optional): True to toggle debug and error/warning messages.
     """
     def __init__(self, base_airfoil_csv, n_cst, x_len=150, verbose=False):
 
@@ -47,7 +48,7 @@ class Airfoil_Generator:
         # Reconstruct the airfoil from CST coefficients
         self.x_cst, self.z_cst_u, self.z_cst_l, _, _ = cst_foil(self.x_len, a_gain_u, a_gain_l, x=x_values)
 
-    def generate(self, cst_coeffs, output_dir, file_name, show_plot=False, debug=False):
+    def generate(self, cst_coeffs, show_plot=False, debug=False):
         """
         Runs the full airfoil generation process.
         """
@@ -63,35 +64,31 @@ class Airfoil_Generator:
         if debug:
             print('[DEBUG] New modification object created!!')
         
-        output_dir = output_dir
-        file_name = file_name
-        cmb_l = np.array(cst_coeffs[:self.n_cst])
-        cmb_u = np.array(cst_coeffs[self.n_cst:])
+        #output_dir = output_dir
+        #file_name = file_name
+        self.cmb_l = np.array(cst_coeffs[:self.n_cst])
+        self.cmb_u = np.array(cst_coeffs[self.n_cst:])
         if debug:
-            print(f"[DEBUG] Using cmb_l: {cmb_l} and cmb_u: {cmb_u}")
+            print(f"[DEBUG] Using cmb_l: {self.cmb_l} and cmb_u: {self.cmb_u}")
 
-        mod_airfoil.add_cst_incremental_curves(cmb_u, cmb_l)
+        mod_airfoil.add_cst_incremental_curves(self.cmb_u, self.cmb_l)
         
         x_mod = mod_airfoil.x
         yu_mod = mod_airfoil.yu
         yl_mod = mod_airfoil.yl
-        
-        if not check_validity(x_mod, yu_mod, yl_mod, verbose=self.verbose) and debug:
-            print("[WARNING] The modified airfoil may not be valid.")
 
-        # 6. Save the modified airfoil to a file
-        self._create_dat_file(output_dir, cmb_l, cmb_u, x_mod, yu_mod, yl_mod, file_name, debug)
-
-        # 7. Optionally display a plot
+        # Optionally display a plot
         if show_plot:
             self._plot_airfoils(x_mod, yu_mod, yl_mod)
 
-    def _create_dat_file(self, output_dir, cmb_l, cmb_u, x, yu, yl, file_name, debug=False):
+        return x_mod, yu_mod, yl_mod
+
+    def _create_dat_file(self, output_dir, x, yu, yl, file_name, debug=False):
         """Helper method to write the airfoil coordinates to a .dat file."""
         os.makedirs(output_dir, exist_ok=True)
         
         # Construct the full filename with coefficients
-        coeff_str = f"[{cmb_l[0]:.4f}, {cmb_l[1]:.4f}, {cmb_l[2]:.4f}, {cmb_u[0]:.4f}, {cmb_u[1]:.4f}, {cmb_u[2]:.4f}]"
+        coeff_str = f"[{self.cmb_l[0]:.4f}, {self.cmb_l[1]:.4f}, {self.cmb_l[2]:.4f}, {self.cmb_u[0]:.4f}, {self.cmb_u[1]:.4f}, {self.cmb_u[2]:.4f}]"
         full_file_name = f"{file_name}.dat"
         file_path = os.path.join(output_dir, full_file_name)
 

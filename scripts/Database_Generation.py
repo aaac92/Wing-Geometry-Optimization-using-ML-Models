@@ -17,7 +17,7 @@ from cst_modeling.foil import FoilModification, FoilGeoFeatures, check_validity
 # Import de Clases creadas para este proyecto
 from simulation_support import XFoilRunner as XR
 from simulation_support import Key_Point_Extraction, RecWingGeo_Creation, AVL_Run_Case
-from geometric_support import Airfoil_Tools_Exctract, Airfoil_Generator, create_modification_combinations
+from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from file_mainp import File_Manipulation, xfoil_rel_path
 
 # For custom package:
@@ -51,22 +51,89 @@ for i in range(10):
     random_number = random.randint(0, int(cmb_datalist.shape[0]))
     index_test.append(random_number)
 
-def Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, index):
+def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, index):
+    '''
+    Fills a folder wuth generated airfoils matching the combination list and filtered for real plausible airfoils
+    
+    Parameters
+    ----------
+    base_airfoil_path : str, rstr
+        Takes the absolute path to the base airfoil for modification
 
+    n_cst : int
+        Order of CST coefficients
+
+    cmb_datalist : np.ndarray
+        A list containing rows of cst coeeffiecients, format in Airfoil_Generator
+    
+    [TEMP] index : list
+        Temporary limited list of random cmb_datalist values, will be replaced by 'for cmb in cmb_datalist'
+    '''
     airfoil_creator = Airfoil_Generator(
-            base_airfoil_csv=base_airfoil,
+            base_airfoil_csv=base_airfoil_path,
             n_cst=n_cst,
             verbose=False    
         )
     for i in index:
         # Run the generation process
-        airfoil_creator.generate(
+        airfoil_name = f"Test_{i}"
+        x_mod, yu_mod, yl_mod = airfoil_creator.generate(
             cst_coeffs=cmb_datalist[i],
-            output_dir=airfoils_dir,
-            file_name=f"Test_{i}", 
-            show_plot=True,
+            show_plot=False,
             debug=False
             )
+        
+        # Silent check_validity before creating mod airfoil
+        log_reason = None
+        validity = check_validity(x_mod, yu_mod, yl_mod, verbose=False)
+
+        if validity == True:
+            valid = 'valid'
+            try: # Wrapped in try block in case FoilGeoFeatures raises an unexpected error
+                va = Validate_Airfoil(
+                    x=x_mod, 
+                    yu=yu_mod, 
+                    yl=yl_mod,
+                    cst_coeffs=cmb_datalist[i],
+                    n_cst=n_cst,
+                    name=airfoil_name,
+                    verbose=False
+                    )
+                
+                if valid == 'valid':
+                    valid, log_reason = va.thickness_filters(th_t_min=0.03, th_t_x=0.6)
+                if valid == 'valid':
+                    valid, log_reason = va.sharpness_filter(curv_cont=True, th_rLE=0.005)
+                if valid == 'valid':
+                    valid, log_reason = va.monotonic_thickness_filter()
+                if valid == 'valid':
+                    valid, log_reason = va.camber_filters(th_c_max=0.4, th_c_min=-0.4)
+
+                if valid == 'invalid':
+                    validity = False
+
+                if validity:
+                    airfoil_creator._create_dat_file(
+                        output_dir=airfoils_dir, 
+                        x=x_mod,
+                        yl=yl_mod,
+                        yu=yu_mod,
+                        file_name=airfoil_name,
+                        debug=False
+                        )
+            except ValueError as e:
+                print(f"Could not create Geo Features Object due to unexpected error: {e}")
+        else:
+            cst_coeffs = cmb_datalist[i]
+            cmb_l = np.array(cst_coeffs[:n_cst])
+            cmb_u = np.array(cst_coeffs[n_cst:])
+            reason = "Check_validity failed"
+            log_line = f"{airfoil_name}.dat: cmb_l = {cmb_l}, cmb_u = {cmb_u} | Reason: {reason}\n"
+            valid, log_reason = 'invalid', log_line
+
+        # to do: Change this print into a log file in the output_dir
+        if validity == False:
+            print(log_reason)
 
     return
 

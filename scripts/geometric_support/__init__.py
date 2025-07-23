@@ -1,3 +1,4 @@
 from .airfoil_creation import Airfoil_Generator
 from .Airfoil_Data_Extract import Airfoil_Tools_Exctract
-from .geometric_filters import create_modification_combinations
+from .geometric_filters import Validate_Airfoil, create_modification_combinations
+from .custom_filters import LE_angular_curvature_continuity, monotonic_airfoil_thickness
