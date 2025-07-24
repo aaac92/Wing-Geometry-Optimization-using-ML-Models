@@ -11,7 +11,7 @@ class RecWingGeo_Creation:
     Creates AVL geometry files for rectangular wings based on key aerodynamic points.
     """
 
-    def __init__(self, key_points_data: list, airfoil_abs_paths: list, output_dir: str):
+    def __init__(self, key_points_data: list, airfoil_abs_paths: list, output_dir: str, verbose=False):
         """
         Initializes the geometry file creator.
 
@@ -21,7 +21,9 @@ class RecWingGeo_Creation:
                                       to the airfoil .dat files.
             output_dir (str): The path to the directory where .avl geometry
                               files will be saved.
+            verbose (bool): Toggles tqdm progress bars and information prints
         """
+        self.verbose = verbose
         self.key_points_data = key_points_data
         self.output_dir = Path(output_dir)
         self.errors = []
@@ -44,7 +46,7 @@ class RecWingGeo_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files"):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.verbose):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)

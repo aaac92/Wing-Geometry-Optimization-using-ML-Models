@@ -6,6 +6,7 @@ import sys
 import io
 import random
 import subprocess
+import shutil
 from pathlib import Path
 from multiprocessing import Pool, cpu_count, get_context
 from contextlib import redirect_stdout, redirect_stderr, contextmanager
@@ -190,7 +191,7 @@ def Polar_Database_Generation(verbose=False):
                 main_dir=training_temp_root,
                 airfoil_dir=airfoils_temp_dir,
                 polar_dir=polars_temp_dir,
-                verbose=True
+                verbose=False
                 )
     
             # Run the simulation
@@ -217,6 +218,59 @@ def Polar_Database_Generation(verbose=False):
     
     return
 
+def Geometric_File_Creation():
+    polars_abs_paths = get_all_files_from(polars_temp_dir)
+    
+    key_points = Key_Point_Extraction(
+        polar_file_paths=polars_abs_paths
+        )
+    
+    key_points_data = key_points.process_files()
+    KP_error_log = os.path.join(polars_temp_dir, 'KP_error_log.txt')
+    key_points.save_error_log(KP_error_log)
+    
+    airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
+    geo_creator = RecWingGeo_Creation(
+                key_points_data=key_points_data,
+                airfoil_abs_paths=airfoil_abs_paths,
+                output_dir=str(geo_files_temp_dir),
+                verbose=False
+            )
+    geo_creator.create_geo_files()
+    geo_error = os.path.join(geo_files_temp_dir, 'geo_error_log.txt')
+    geo_creator.save_error_log(geo_error)
+
+    geo_files_name = "geo_files_dataset_15"
+    create_rar_from_folder(geo_files_temp_dir, geo_files_dir, geo_files_name, verbose=False)
+
+    return
+
+def Final_Coefficient_Generation():
+    avl_exe = os.path.join(support_files_dir, 'avl.exe')
+    case_file = os.path.join(support_files_dir, "sq_wing.run")
+    support_files_temp_dir.mkdir(exist_ok=True)
+    case_file_temp = os.path.join(support_files_temp_dir, "sq_wing.run")
+    shutil.copyfile(case_file, case_file_temp)
+    geo_abs_paths = get_all_files_from(geo_files_temp_dir, extension='avl')
+
+    # Set up instance for simulation
+    avl_case = AVL_Run_Case(
+            geo_files=geo_abs_paths,
+            case_file=case_file_temp,
+            avl_exe_path=avl_exe,
+            output_dir=force_files_temp_dir,
+            debug=True
+        )
+    # Run the simulation.
+    avl_case.run()
+
+    force_files_name = "force_files_dataset_15"
+    create_rar_from_folder(force_files_temp_dir, force_files_dir, force_files_name, verbose=False)
+
+    return
+
 if __name__ == "__main__":
     #Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True)
-    Polar_Database_Generation()
+    #Polar_Database_Generation()
+    #Geometric_File_Creation()
+    Final_Coefficient_Generation()

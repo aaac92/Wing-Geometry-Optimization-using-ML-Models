@@ -13,19 +13,25 @@ warnings.filterwarnings("ignore", category=UserWarning)
 class InsufficientPointsError(Exception):
     pass
 
+class PoorDistributionError(ValueError):
+    """Custom exception for poorly distributed data points."""
+    pass
+
 class Key_Point_Extraction:
     """
     A class to process XFOIL polar files, interpolate the data using a
     Gaussian Process Regressor, and extract key aerodynamic points.
     """
 
-    def __init__(self, polar_file_paths: list):
+    def __init__(self, polar_file_paths: list, verbose=False):
         """
         Initializes the processor with a list of paths to polar files.
 
         Args:
             polar_file_paths (list): A list of string paths to the .txt polar files.
         """
+
+        self.verbose = verbose
         if not isinstance(polar_file_paths, list):
             raise TypeError("polar_file_paths must be a list of strings.")
         self.polar_file_paths = polar_file_paths
@@ -136,10 +142,29 @@ class Key_Point_Extraction:
         alpha_list, cl_list, cd_list = self._polar_extract(path_to_file)
         alpha_array, cl_array, cd_array = self._polar_cleanup(alpha_list, cl_list, cd_list)
 
+        # Check for minimum amount of points
         if len(alpha_array) < 10:
             raise InsufficientPointsError(f"File has only {len(alpha_array)} valid data points, which is less than the required 10.")
+        
+        # Check for point distribution in key alpha ranges
+        conditions = {
+            "2 points between (0, 10]": np.sum((alpha_array > 0) & (alpha_array <= 10)) >= 2,
+            "2 points between [-10, 0)": np.sum((alpha_array >= -10) & (alpha_array < 0)) >= 2,
+            "1 point between [11, 15]": np.sum((alpha_array >= 11) & (alpha_array <= 15)) >= 1,
+            "1 point between [-15, -11]": np.sum((alpha_array >= -15) & (alpha_array <= -11)) >= 1,
+            "1 point between [16, 20]": np.sum((alpha_array >= 16) & (alpha_array <= 20)) >= 1,
+            "1 point between [-20, -16]": np.sum((alpha_array >= -20) & (alpha_array <= -16)) >= 1,
+        }
+
+        # Check if all conditions are met
+        if not all(conditions.values()):
+            # Find which conditions failed to provide a detailed error message
+            failed_conditions = [desc for desc, met in conditions.items() if not met]
+            error_message = f"Poor data point distribution. Missing: {'; '.join(failed_conditions)}."
+            raise PoorDistributionError(error_message)
 
         CD_values, CL_values = self._gpr_polar_fit(alpha_array, cl_array, cd_array)
+
         return self._critical_point_extract(CL_values, CD_values)
 
     def process_files(self):
@@ -156,7 +181,7 @@ class Key_Point_Extraction:
         self.results = []
         self.errors = []
         
-        for file_path in tqdm(self.polar_file_paths, desc="Extracting Key Points"):
+        for file_path in tqdm(self.polar_file_paths, desc="Extracting Key Points", disable=not self.verbose):
             try:
                 low_cl_point, high_cl_point, min_cd_point = self._interpolate_and_extract(file_path)
                 

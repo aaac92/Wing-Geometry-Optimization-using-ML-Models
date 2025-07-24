@@ -24,7 +24,7 @@ class Xfoil_Polar_Creator:
 
         # Validate the original XFOIL path
         if not os.path.exists(xfoil_exe_path):
-            raise FileNotFoundError(f"Original XFOIL executable not found at: {xfoil_exe_path}")
+            raise FileNotFoundError(f"XFOIL executable not found at: {xfoil_exe_path}")
 
         # Set up directory paths
         self.main_dir = main_dir
