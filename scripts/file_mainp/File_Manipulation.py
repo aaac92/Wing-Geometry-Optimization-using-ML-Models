@@ -111,8 +111,8 @@ class File_Manipulation:
                 print(f"Could not process file {file_path.name}: {e}")
         
         return results_list
-    
-    def get_all_files_from(self, folder_path, extension="*", names_only=False):
+
+def get_all_files_from(folder_path, extension="*", names_only=False):
         files = list(folder_path.glob(f"*.{extension}")) if extension != "*" else list(folder_path.glob("*"))
 
         if names_only:

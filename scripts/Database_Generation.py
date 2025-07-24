@@ -16,10 +16,10 @@ from cst_modeling.section import cst_foil_fit, cst_foil
 from cst_modeling.foil import FoilGeoFeatures
 from cst_modeling.foil import FoilModification, FoilGeoFeatures, check_validity
 # Import de Clases creadas para este proyecto
-from simulation_support import XFoilRunner as XR
+from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, RecWingGeo_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
-from file_mainp import File_Manipulation, create_rar_from_folder, xfoil_rel_path
+from file_mainp import File_Manipulation,get_all_files_from, create_rar_from_folder, xfoil_rel_path
 
 # For custom package:
 # Get the path to the parent directory (xfoil_project).
@@ -56,7 +56,7 @@ ranges = {
     'middle': (-1, 0, 1),  # range for middle points
     'last': (-1, 0, 1)     # range for value closest to TE
 }
-cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=True)
+cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=False)
 
 def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False):
     '''
@@ -156,14 +156,64 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
 
     # Save airfoils to main path in compressed form
     dataset_name = "airfoils_dataset_15"
-    create_rar_from_folder(airfoils_temp_dir, airfoils_dir, dataset_name, verbose=True)
+    create_rar_from_folder(airfoils_temp_dir, airfoils_dir, dataset_name, verbose=False)
 
     return
 
-def Polar_Database_Generation():
+def Polar_Database_Generation(verbose=False):
+    # --- File preparation for class ---
+    xfoil_exe = os.path.join(support_files_dir, 'xfoil.exe')
+    print(xfoil_exe)
+    
+    airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
+    #for file in airfoil_abs_paths:
+    #    print(file)
+    
+    polar_abs_paths = []
+    for file in airfoil_abs_paths:
+        airfoil_name = os.path.splitext(os.path.basename(file))[0]
+        polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
+        polar_abs_paths.append(polar_abs_path)
+    #print(polar_abs_paths[1])
+    
+    # --- ANGLE OF ATTACK SEQUENCE ---
+    ASEQ = [-20, 20, 1]
+    num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
+    ANGLES = [ASEQ[0] + i * ASEQ[2] for i in range(num_steps)]
+    # ---------------------------------
+    
+    for i, file in enumerate(airfoil_abs_paths): 
+        try:
+            # Create an instance of the runner
+            xfoil_case = XPR(
+                xfoil_exe_path=xfoil_exe,
+                main_dir=training_temp_root,
+                airfoil_dir=airfoils_temp_dir,
+                polar_dir=polars_temp_dir,
+                verbose=True
+                )
+    
+            # Run the simulation
+            sim_success = xfoil_case.run_simulation(
+                airfoil_file_path=airfoil_abs_paths[i],
+                polar_file_path = polar_abs_paths[i],
+                alfa_sequence = ANGLES
+            )
+    
+            if sim_success and verbose:
+                print(f"\nSimulation successful! Output saved to {polar_abs_paths[i]}")
+            else:
+                if verbose:
+                    print(f"\nSimulation failed. Check logs.")
+    
+        except FileNotFoundError as e:
+            print(f"\n[ERROR] A file was not found: {e}")
+        except Exception as e:
+            print(f"\n[ERROR] A critical error occurred: {e}")
 
     return
 
 if __name__ == "__main__":
-    Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True)
-    Polar_Database_Generation()
+    #Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True)
+    Polar_Database_Generation() # To do: Upgrade simulation logic to restart xfoil after a timeout in an alfa command, this removes the necesity for the "INIT" command.
+                                # Add polar handling, meaning compressing directory and sendind to source
