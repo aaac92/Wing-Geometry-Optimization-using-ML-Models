@@ -211,9 +211,12 @@ def Polar_Database_Generation(verbose=False):
         except Exception as e:
             print(f"\n[ERROR] A critical error occurred: {e}")
 
+    # Save polars to main path in compressed form
+    polar_dataset_name = "polars_dataset_15"
+    create_rar_from_folder(polars_temp_dir, polars_dir, polar_dataset_name, verbose=False)
+    
     return
 
 if __name__ == "__main__":
     #Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True)
-    Polar_Database_Generation() # To do: Upgrade simulation logic to restart xfoil after a timeout in an alfa command, this removes the necesity for the "INIT" command.
-                                # Add polar handling, meaning compressing directory and sendind to source
+    Polar_Database_Generation()

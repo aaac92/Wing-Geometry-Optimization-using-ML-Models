@@ -50,7 +50,27 @@ class Xfoil_Polar_Creator:
             print(f"  - Polar Temp Dir: {self.polar_dir}")
             print("="*50)
 
+    def initialize_xfoil(self, airfoil_file_path, polar_file_path, iter, visc, mach):
+        # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
+        proc = PtyProcess.spawn([str(self.xfoil_path)])
 
+        # --- SCRIPTED XFOIL COMMANDS --- #
+        if not self._send_command(proc, f"LOAD {airfoil_file_path}"): return False
+        if not self._send_command(proc, "PANE"): return False
+        if not self._send_command(proc, "OPER", expect_prompt=".OPERi   c>"): return False
+        if not self._send_command(proc, f"ITER {iter}", expect_prompt=".OPERi   c>"): return False
+        if not self._send_command(proc, f"VISC {visc}", expect_prompt=".OPERv   c>"): return False
+        if not self._send_command(proc, f"MACH {mach}", expect_prompt=".OPERv   c>"): return False
+
+        # Set up polar accumulation using the temporary polar path
+        if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): return False
+        if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): return False
+        if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): return False
+
+
+        return proc
+
+    
     def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200):
         """
         Executes an XFOIL simulation for a single airfoil file.
@@ -74,28 +94,29 @@ class Xfoil_Polar_Creator:
 
         proc = None
         try:
-            # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
-            proc = PtyProcess.spawn([str(self.xfoil_path)])
-
-            # --- SCRIPTED XFOIL COMMANDS --- #
-            if not self._send_command(proc, f"LOAD {airfoil_file_path}"): return False
-            if not self._send_command(proc, "PANE"): return False
-            if not self._send_command(proc, "OPER", expect_prompt=".OPERi   c>"): return False
-            if not self._send_command(proc, f"ITER {iter}", expect_prompt=".OPERi   c>"): return False
-            if not self._send_command(proc, f"VISC {visc}", expect_prompt=".OPERv   c>"): return False
-            if not self._send_command(proc, f"MACH {mach}", expect_prompt=".OPERv   c>"): return False
-
-            # Set up polar accumulation using the temporary polar path
-            if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): return False
-            if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): return False
-            if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): return False
+            # Initialize xfoil with given values
+            proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
 
             # Run the angle of attack sequence
             for alfa in alfa_sequence:
-                if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
-                    print(f"[WARNING] Could not execute ALFA {alfa}. Re-initializing and continuing.")
-                    self._send_command(proc, "INIT", expect_prompt=".OPERva   c>")
-                    continue
+                # Check for a valid process variable
+                if proc != None:
+                    if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
+                        # Close process and make proc variable invalid, in case of failure.
+                        print(f"[WARNING] Could not execute ALFA {alfa}. Re-initializing and continuing.")
+                        proc.close()
+                        proc = None
+                        continue
+                else:
+                    # Reinitilaize XFOIL and run current ALFA angle for invalid proc variable
+                    proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+                    if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
+                        # Repeat failure logic
+                        print(f"[WARNING] Could not execute ALFA {alfa}. Re-initializing and continuing.")
+                        proc.close()
+                        proc = None
+                        continue    
+
 
             # --- FINISH AND CLEAN UP PROCESS ---
             print("[INFO] Finalizing XFOIL process.")
