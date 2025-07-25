@@ -213,3 +213,4 @@ class Training_Data_Generator:
             self._log_and_print("No data available to create classification file.", 'warning')
 
         self._log_and_print("--- Data generation complete. ---")
+        logging.shutdown()

@@ -4,6 +4,7 @@ import os
 import sys
 import subprocess
 import shutil
+import json
 from pathlib import Path
 from cst_modeling.foil import check_validity
 # Import de Clases creadas para este proyecto
@@ -18,15 +19,15 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, project_root)
-# Define final folders
+# Define final directories
 airfoils_dir = project_root / "airfoils"
 force_files_dir = project_root / "force files"
 polars_dir = project_root / "polars"
 AI_results_dir = project_root / "AI results"
 support_files_dir = project_root / "support_files"
 geo_files_dir = project_root / "geometry files"
-# Define temp folders
-# Temp folders with a short path are needed for XFOIL and AVL
+# Define temp directories
+# Temp directories with a short path are needed for XFOIL and AVL
 training_temp_root = Path(r'P:\training_temp') # Uses my personal 'P' drive, any drive can be used
 os.makedirs(training_temp_root, exist_ok=True)
 subprocess.run(['attrib', '+h', training_temp_root], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -38,19 +39,20 @@ support_files_temp_dir = training_temp_root / "support_files"
 geo_files_temp_dir = training_temp_root / "geometry files"
 training_files_temp_dir = training_temp_root / "training files"
 
-# === Geometric Generation Setup === #
-base_airfoil = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
-n_cst = 3
+# Recovery Logic
+recovery_file = project_root / "recovery_status.json"
+def get_recovery_status():
+    if recovery_file.exists():
+        with open(recovery_file, 'r') as f:
+            return json.load(f)
+    return {}
 
-# Ranges for values that modify CST Curves (starting_value, end_value, step)
-ranges = {
-    'first': (-1, 0, 1),   # range for value closest to LE
-    'middle': (-1, 0, 1),  # range for middle points
-    'last': (-1, 0, 1)     # range for value closest to TE
-}
-cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=False)
+def save_recovery_status(status):
+    with open(recovery_file, 'w') as f:
+        json.dump(status, f, indent=4)
 
-def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False):
+# Database Logic
+def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False, **kwargs):
     '''
     Fills a folder wuth generated airfoils matching the combination list and filtered for real plausible airfoils
     
@@ -64,12 +66,46 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
 
     cmb_datalist : np.ndarray
         A list containing rows of cst coeeffiecients, format in Airfoil_Generator
-    
-    [TEMP] index : list
-        Temporary limited list of random cmb_datalist values, will be replaced by 'for cmb in cmb_datalist'
     '''
+    # Unpack filter parameters
+    threshold_min_t = kwargs.get('threshold_min_t')
+    threshold_t_x = kwargs.get('threshold_t_x')
+    activate_curvature_cont = kwargs.get('activate_curvature_cont')
+    threshold_rLE = kwargs.get('threshold_rLE')
+    monotonic_activation = kwargs.get('monotonic_activation')
+    threshold_max_camber = kwargs.get('threshold_max_camber')
+    threshold_min_camber = kwargs.get('threshold_min_camber')
+
+    dataset_name = f"airfoils_dataset_{dataset_num}"
+    if (airfoils_dir / f"{dataset_name}.rar").exists():
+        print("Compressed airfoil dataset already exists. Skipping generation.")
+        return
+
     invalid_output_dir = airfoils_temp_dir / "invalid airfoils"
     log_file_path = airfoils_temp_dir / "Invalid_airfoils_log.txt"
+
+    # --- Recovery Logic ---
+    existing_airfoils = {os.path.splitext(f.name)[0] for f in airfoils_temp_dir.glob('*.dat')}
+    start_index = 0
+    if existing_airfoils:
+        # Find the highest numbered existing airfoil to resume
+        max_num = 0
+        for name in existing_airfoils:
+            try:
+                num = int(name.split('_')[-1])
+                if num > max_num:
+                    max_num = num
+            except (ValueError, IndexError):
+                continue
+        start_index = max_num
+
+        # Delete the last airfoil file to prevent corruption issues
+        last_airfoil_path = airfoils_temp_dir / f"Test_{start_index}.dat"
+        if last_airfoil_path.exists():
+            last_airfoil_path.unlink()
+            start_index -= 1
+
+        print(f"Resuming geometric database generation from airfoil Test_{start_index + 1}")
 
     airfoil_creator = Airfoil_Generator(
             base_airfoil_csv=base_airfoil_path,
@@ -103,13 +139,14 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
                     )
                 
                 if valid == 'valid':
-                    valid, log_reason = va.thickness_filters(th_t_min=0.03, th_t_x=0.6)
+                    valid, log_reason = va.thickness_filters(th_t_min=threshold_min_t, th_t_x=threshold_t_x)
                 if valid == 'valid':
-                    valid, log_reason = va.sharpness_filter(curv_cont=True, th_rLE=0.005)
+                    valid, log_reason = va.sharpness_filter(curv_cont=activate_curvature_cont, th_rLE=threshold_rLE)
                 if valid == 'valid':
-                    valid, log_reason = va.monotonic_thickness_filter()
+                    if monotonic_activation:
+                        valid, log_reason = va.monotonic_thickness_filter()
                 if valid == 'valid':
-                    valid, log_reason = va.camber_filters(th_c_max=0.4, th_c_min=-0.4)
+                    valid, log_reason = va.camber_filters(th_c_max=threshold_max_camber, th_c_min=threshold_min_camber)
 
                 if valid == 'invalid':
                     validity = False
@@ -147,34 +184,80 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
                 log.write(f"{log_reason}\n")
 
     # Save airfoils to main path in compressed form
-    dataset_name = "airfoils_dataset_15"
     create_rar_from_folder(airfoils_temp_dir, airfoils_dir, dataset_name, verbose=False)
 
     return
 
-def Polar_Database_Generation(verbose=False):
+def Polar_Database_Generation(ASEQ, verbose=False):
+    '''
+    Runs XFOIL to create drag polars for each airfoil.
+
+    Parameters:
+    ==============
+    ASEQ (list): List containing: 
+                    ASEQ[0]: Smallest angle of attack to test.
+                    ASEQ[1]: Largest angle of attack to test.
+                    ASEQ[2]: Resolution for intermediate angles of attack.
+    verbose (bool): Toggles prints and tqdm if any are present.
+    '''
+    polar_dataset_name = f"polars_dataset_{dataset_num}"
+    if (polars_dir / f"{polar_dataset_name}.rar").exists():
+        print("Compressed polar dataset already exists. Skipping generation.")
+        return
     # --- File preparation for class ---
     xfoil_exe = os.path.join(support_files_dir, 'xfoil.exe')
-    print(xfoil_exe)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-    #for file in airfoil_abs_paths:
-    #    print(file)
     
     polar_abs_paths = []
     for file in airfoil_abs_paths:
         airfoil_name = os.path.splitext(os.path.basename(file))[0]
         polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
         polar_abs_paths.append(polar_abs_path)
-    #print(polar_abs_paths[1])
     
-    # --- ANGLE OF ATTACK SEQUENCE ---
-    ASEQ = [-20, 20, 1]
-    num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
-    ANGLES = [ASEQ[0] + i * ASEQ[2] for i in range(num_steps)]
-    # ---------------------------------
-    
-    for i, file in enumerate(airfoil_abs_paths): 
+    # --- ANGLE OF ATTACK SEQUENCE
+    for i, file in enumerate(airfoil_abs_paths):
+        # --- Recovery Logic for each polar file ---
+        completion_flag = "XFOIL process completed successfully"
+        if os.path.exists(polar_abs_paths[i]):
+            with open(polar_abs_paths[i], 'r') as f:
+                if completion_flag in f.read():
+                    continue # Skip if already completed
+            
+            # --- Incomplete file, determine where to resume ---
+            with open(polar_abs_paths[i], 'r') as f:
+                lines = f.readlines()
+            
+            last_alfa = -999
+            for line in reversed(lines):
+                try:
+                    # Assuming alpha is the first column in the data section
+                    current_alfa = float(line.strip().split()[0])
+                    last_alfa = current_alfa
+                    break
+                except (ValueError, IndexError):
+                    continue
+            
+            if last_alfa > -999:
+                start_angle = last_alfa + ASEQ[2]
+                print(f"Resuming polar generation for {os.path.basename(file)} from alfa = {start_angle}")
+                num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
+                ANGLES = [start_angle + j * ASEQ[2] for j in range(num_steps)]
+                append_mode = True
+            else: # File exists but is empty or corrupt
+                num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
+                ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
+                append_mode = False
+
+        else: # File doesn't exist yet
+             num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
+             ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
+             append_mode = False
+
+        if not ANGLES: # Nothing to compute
+            continue
+        
+        # Calculate polar
         try:
             # Create an instance of the runner
             xfoil_case = XPR(
@@ -204,12 +287,19 @@ def Polar_Database_Generation(verbose=False):
             print(f"\n[ERROR] A critical error occurred: {e}")
 
     # Save polars to main path in compressed form
-    polar_dataset_name = "polars_dataset_15"
     create_rar_from_folder(polars_temp_dir, polars_dir, polar_dataset_name, verbose=False)
     
     return
 
 def Geometric_File_Creation():
+    '''
+    Generates AVL's .geo files that build our wing, since all wing should be the same except for the airfoil used
+    we only add the relevant information (Polar data and airfoil path).
+    '''
+    geo_files_name = f"geo_files_dataset_{dataset_num}"
+    if (geo_files_dir / f"{geo_files_name}.rar").exists():
+        print("Compressed geometric files already exist. Skipping generation.")
+        return
     polars_abs_paths = get_all_files_from(polars_temp_dir)
     
     key_points = Key_Point_Extraction(
@@ -227,22 +317,47 @@ def Geometric_File_Creation():
                 output_dir=str(geo_files_temp_dir),
                 verbose=False
             )
+    
+    # --- Recovery Logic ---
+    existing_geo_files = {os.path.splitext(f.name)[0] for f in geo_files_temp_dir.glob('*.avl')}
+    if existing_geo_files:
+        last_geo_file = f"RecWing_{len(existing_geo_files)}"
+        last_geo_path = geo_files_temp_dir / f"{last_geo_file}.avl"
+        if last_geo_path.exists():
+            last_geo_path.unlink()
+    
     geo_creator.create_geo_files()
     geo_error = os.path.join(geo_files_temp_dir, 'geo_error_log.txt')
     geo_creator.save_error_log(geo_error)
 
-    geo_files_name = "geo_files_dataset_15"
     create_rar_from_folder(geo_files_temp_dir, geo_files_dir, geo_files_name, verbose=False)
 
     return
 
 def Final_Coefficient_Generation():
+    '''
+    Uses AVL to calculate the force coefficients from each geometric file using our global case file.
+    '''
+    force_files_name = f"force_files_dataset_{dataset_num}"
+    if (force_files_dir / f"{force_files_name}.rar").exists():
+        print("Compressed force files already exist. Skipping generation.")
+        return
+
     avl_exe = os.path.join(support_files_dir, 'avl.exe')
     case_file = os.path.join(support_files_dir, "sq_wing.run")
     support_files_temp_dir.mkdir(exist_ok=True)
     case_file_temp = os.path.join(support_files_temp_dir, "sq_wing.run")
     shutil.copyfile(case_file, case_file_temp)
     geo_abs_paths = get_all_files_from(geo_files_temp_dir, extension='avl')
+
+    # --- Recovery Logic ---
+    existing_force_files = {os.path.splitext(f.name)[0] for f in force_files_temp_dir.glob('*.txt')}
+    geo_files_to_process = [g for g in geo_abs_paths if os.path.splitext(os.path.basename(g))[0] not in existing_force_files]
+
+    if not geo_files_to_process:
+        print("All force files seem to be generated. Compressing now.")
+        create_rar_from_folder(force_files_temp_dir, force_files_dir, force_files_name, verbose=False)
+        return
 
     # Set up instance for simulation
     avl_case = AVL_Run_Case(
@@ -255,42 +370,129 @@ def Final_Coefficient_Generation():
     # Run the simulation.
     avl_case.run()
 
-    force_files_name = "force_files_dataset_15"
     create_rar_from_folder(force_files_temp_dir, force_files_dir, force_files_name, verbose=False)
 
     return
 
 def Final_Database_Generation():
+    '''
+    Creates the final training files for the classifier and regressor models.
+    '''
+    training_files_name = f"trining_files_dataset_{dataset_num}"
+    if (project_root / f"{training_files_name}.rar").exists():
+        print("Compressed training files already exist. Skipping generation.")
+        return
 
     invalid_airfoils_dir = airfoils_temp_dir / "Invalid_airfoils_log.txt"
 
-    generator_eff = Training_Data_Generator(
-        force_files_dir = force_files_temp_dir,
-        airfoils_dir = airfoils_temp_dir,
-        invalid_airfoils_path = invalid_airfoils_dir,
-        output_dir = training_files_temp_dir,
-        verbose = False,
-        output_mode = 'Efficiency'
-    )
+    regression_file = 'Airfoils_for_Regressor_E_Dataset_15.csv'
+    classification_file = 'Airfoils_for_Classifier_Dataset_15.csv'
 
-    generator_eff.generate_training_files(
-        regression_filename='Airfoils_for_Regressor_E_Dataset_15.csv',
-        classification_filename='Airfoils_for_Classifier_Dataset_15.csv'
-    )
+    # Check if files need to be generated
+    generate_regression = not (training_files_temp_dir / regression_file).exists() or (training_files_temp_dir / regression_file).stat().st_size == 0
+    generate_classification = not (training_files_temp_dir / classification_file).exists() or (training_files_temp_dir / classification_file).stat().st_size == 0
 
-    training_files_name = "trining_files_dataset_15"
+    if generate_regression or generate_classification:
+        generator_eff = Training_Data_Generator(
+            force_files_dir = force_files_temp_dir,
+            airfoils_dir = airfoils_temp_dir,
+            invalid_airfoils_path = invalid_airfoils_dir,
+            output_dir = training_files_temp_dir,
+            verbose = False,
+            output_mode = 'Efficiency'
+        )
+
+        generator_eff.generate_training_files(
+            regression_filename=regression_file,
+            classification_filename=classification_file
+            )
+
     create_rar_from_folder(training_files_temp_dir, project_root, training_files_name, verbose=False)
 
     return
 
 if __name__ == "__main__":
-    Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True)
-    Polar_Database_Generation()
-    Geometric_File_Creation()
-    Final_Coefficient_Generation()
-    Final_Database_Generation()
-    shutil.rmtree(training_temp_root)
+    # === Geometric Generation Setup === #
+    base_airfoil = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
+    n_cst = 3
 
-    # To do: Simplify temp folder handling
-    #        Add recovery logic for polar creation
-    #        Add multiprocessing
+    # Ranges for values that modify CST Curves (starting_value, end_value, step)
+    ranges = {
+        'first': (0, 1, 1),   # range for value closest to LE
+        'middle': (0, 1, 1),  # range for middle points
+        'last': (0, 1, 1)     # range for value closest to TE
+    }
+    cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=False)
+
+    # Geometric Filters thresholds and activations
+    geo_filt_parm = {
+        'threshold_min_t': 0.03,
+        'threshold_t_x': 0.6,
+        'activate_curvature_cont': True,
+        'threshold_rLE': 0.005,
+        'monotonic_activation': True,
+        'threshold_max_camber': 0.4,
+        'threshold_min_camber': -0.4
+    }
+
+    threshold_min_t = geo_filt_parm['threshold_min_t']
+    threshold_t_x = geo_filt_parm['threshold_t_x']
+    activate_curvature_cont = geo_filt_parm['activate_curvature_cont']
+    threshold_rLE = geo_filt_parm['threshold_rLE']
+    monotonic_activation = geo_filt_parm['monotonic_activation']
+    threshold_max_camber = geo_filt_parm['threshold_max_camber']
+    threshold_min_camber = geo_filt_parm['threshold_min_camber']
+
+    # === Polar Alpha Range === #
+    ASEQ = [-20, 20, 1]
+
+    # === Dataset Parameter Logging === #
+    dataset_num = 15 
+    num_combinations = cmb_datalist.shape[0]
+    log_filename = project_root / f"Dataset_{dataset_num}_{num_combinations}_data_points.log"
+
+    if not log_filename.exists():
+        with open(log_filename, 'w') as log_file:
+            log_file.write(f"Dataset {dataset_num} Generation Parameters\n")
+            log_file.write("="*30 + "\n")
+            log_file.write(f"CST Order (n_cst): {n_cst}\n")
+            log_file.write("\nGeometric Filters:\n")
+            log_file.write(f"  thickness_filters: threshold_min_t = {threshold_min_t}, threshold_t_x = {threshold_t_x}\n")
+            log_file.write(f"  sharpness_filters: activate_curvature_cont = {activate_curvature_cont}, threshold_rLE = {threshold_rLE}\n")
+            log_file.write(f"  monotonic_thickness_filter: {monotonic_activation}\n")
+            log_file.write(f"  camber_filters: threshold_max_camber = {threshold_max_camber}, threshold_min_camber = {threshold_min_camber}\n")
+            log_file.write("\nCST Coefficient Ranges:\n")
+            log_file.write(f"  {ranges}\n")
+
+    # === Execution with Recovery === #
+    status = get_recovery_status()
+
+    if not status.get('geometric_database_generation_complete'):
+        Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True, **geo_filt_parm)
+        status['geometric_database_generation_complete'] = True
+        save_recovery_status(status)
+
+    if not status.get('polar_database_generation_complete'):
+        Polar_Database_Generation(ASEQ)
+        status['polar_database_generation_complete'] = True
+        save_recovery_status(status)
+
+    if not status.get('geometric_file_creation_complete'):
+        Geometric_File_Creation()
+        status['geometric_file_creation_complete'] = True
+        save_recovery_status(status)
+
+    if not status.get('final_coefficient_generation_complete'):
+        Final_Coefficient_Generation()
+        status['final_coefficient_generation_complete'] = True
+        save_recovery_status(status)
+
+    if not status.get('final_database_generation_complete'):
+        Final_Database_Generation()
+        status['final_database_generation_complete'] = True
+        save_recovery_status(status)
+
+    shutil.rmtree(training_temp_root)
+    recovery_file.unlink() # Clean up recovery file on successful completion
+
+    # To do: Add multiprocessing
