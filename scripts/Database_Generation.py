@@ -1,26 +1,16 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import contextlib
 import sys
-import io
-import random
 import subprocess
 import shutil
 from pathlib import Path
-from multiprocessing import Pool, cpu_count, get_context
-from contextlib import redirect_stdout, redirect_stderr, contextmanager
-from itertools import product
-from tqdm import tqdm
-from scipy.interpolate import interp1d
-from cst_modeling.section import cst_foil_fit, cst_foil
-from cst_modeling.foil import FoilGeoFeatures
-from cst_modeling.foil import FoilModification, FoilGeoFeatures, check_validity
+from cst_modeling.foil import check_validity
 # Import de Clases creadas para este proyecto
 from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, RecWingGeo_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
-from file_mainp import File_Manipulation,get_all_files_from, create_rar_from_folder, xfoil_rel_path
+from file_handling_support import Training_Data_Generator, get_all_files_from, create_rar_from_folder
 
 # For custom package:
 # Get the path to the parent directory (xfoil_project).
@@ -46,6 +36,7 @@ polars_temp_dir = training_temp_root / "polars"
 AI_results_temp_dir = training_temp_root / "AI results"
 support_files_temp_dir = training_temp_root / "support_files"
 geo_files_temp_dir = training_temp_root / "geometry files"
+training_files_temp_dir = training_temp_root / "training files"
 
 # === Geometric Generation Setup === #
 base_airfoil = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
@@ -259,7 +250,7 @@ def Final_Coefficient_Generation():
             case_file=case_file_temp,
             avl_exe_path=avl_exe,
             output_dir=force_files_temp_dir,
-            debug=True
+            debug=False
         )
     # Run the simulation.
     avl_case.run()
@@ -269,8 +260,37 @@ def Final_Coefficient_Generation():
 
     return
 
+def Final_Database_Generation():
+
+    invalid_airfoils_dir = airfoils_temp_dir / "Invalid_airfoils_log.txt"
+
+    generator_eff = Training_Data_Generator(
+        force_files_dir = force_files_temp_dir,
+        airfoils_dir = airfoils_temp_dir,
+        invalid_airfoils_path = invalid_airfoils_dir,
+        output_dir = training_files_temp_dir,
+        verbose = False,
+        output_mode = 'Efficiency'
+    )
+
+    generator_eff.generate_training_files(
+        regression_filename='Airfoils_for_Regressor_E_Dataset_15.csv',
+        classification_filename='Airfoils_for_Classifier_Dataset_15.csv'
+    )
+
+    training_files_name = "trining_files_dataset_15"
+    create_rar_from_folder(training_files_temp_dir, project_root, training_files_name, verbose=False)
+
+    return
+
 if __name__ == "__main__":
-    #Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True)
-    #Polar_Database_Generation()
-    #Geometric_File_Creation()
+    Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True)
+    Polar_Database_Generation()
+    Geometric_File_Creation()
     Final_Coefficient_Generation()
+    Final_Database_Generation()
+    shutil.rmtree(training_temp_root)
+
+    # To do: Simplify temp folder handling
+    #        Add recovery logic for polar creation
+    #        Add multiprocessing
