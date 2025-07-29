@@ -521,9 +521,9 @@ if __name__ == "__main__":
 
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
     ranges = {
-        'first': (0, 0.25, 0.25),   # range for value closest to LE
-        'middle': (0, 0.25, 0.25),  # range for middle points
-        'last': (0, 0.25, 0.25)     # range for value closest to TE
+        'first': (-0.375, 0.375, 0.125),   # range for value closest to LE
+        'middle': (-0.375, 0.375, 0.125),  # range for middle points
+        'last': (-0.375, 0.375, 0.125)     # range for value closest to TE
     }
     cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=False)
 
@@ -600,5 +600,3 @@ if __name__ == "__main__":
 
     end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Cleanup complete, script completed at {end_time}.")
-
-    # To do: Add multiprocessing
