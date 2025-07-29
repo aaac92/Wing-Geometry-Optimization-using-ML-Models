@@ -5,13 +5,18 @@ import sys
 import subprocess
 import shutil
 import json
+import threading
+from tqdm import tqdm
+from datetime import datetime
 from pathlib import Path
 from cst_modeling.foil import check_validity
-# Import de Clases creadas para este proyecto
+from multiprocessing import Pool, Manager, cpu_count
+# Import custom package class and methods
 from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, RecWingGeo_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from file_handling_support import Training_Data_Generator, get_all_files_from, create_rar_from_folder
+from ux_support import Progress_GUI
 
 # For custom package:
 # Get the path to the parent directory (xfoil_project).
@@ -112,7 +117,7 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
             n_cst=n_cst,
             verbose=False    
         )
-    for i, cmb in enumerate(cmb_datalist):
+    for i, cmb in enumerate(tqdm(cmb_datalist, desc="Generating Airfoils", disable=False)):
         # Run the generation process
         airfoil_name = f"Test_{i+1}"
         x_mod, yu_mod, yl_mod = airfoil_creator.generate(
@@ -186,11 +191,90 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
     # Save airfoils to main path in compressed form
     create_rar_from_folder(airfoils_temp_dir, airfoils_dir, dataset_name, verbose=False)
 
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Geometric database generation completed at {current_time}.")
+
     return
+
+def polar_worker(args):
+    '''
+    Worker function to run XFOIL simulation for a single airfoil.
+    '''
+    airfoil_abs_path, polar_abs_path, ASEQ, support_files_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list = args
+
+    # Obtain airfoil name for GUI
+    airfoil_name = os.path.basename(airfoil_abs_path)
+    worker_status_list[index] = airfoil_name
+    
+    # --- Recovery Logic for each polar file ---
+    completion_flag = "XFOIL process completed successfully"
+    if os.path.exists(polar_abs_path):
+        with open(polar_abs_path, 'r') as f:
+            if completion_flag in f.read():
+                if progress_queue:
+                    progress_queue.put(1)
+                return  # Skip if already completed
+        
+        # --- Incomplete file, determine where to resume ---
+        with open(polar_abs_path, 'r') as f:
+            lines = f.readlines()
+        
+        last_alfa = -999
+        for line in reversed(lines):
+            try:
+                # Assuming alpha is the first column in the data section
+                current_alfa = float(line.strip().split()[0])
+                last_alfa = current_alfa
+                break
+            except (ValueError, IndexError):
+                continue
+        
+        if last_alfa > -999:
+            start_angle = last_alfa + ASEQ[2]
+            num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
+            ANGLES = [start_angle + j * ASEQ[2] for j in range(num_steps)]
+        else: # File exists but is empty or corrupt
+            num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
+            ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
+
+    else: # File doesn't exist yet
+         num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
+         ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
+
+    if not ANGLES: # Nothing to compute
+        if progress_queue:
+            progress_queue.put(1)
+            worker_status_list[index] = "Idle"
+        return
+
+    # Calculate polar
+    try:
+        xfoil_exe = os.path.join(support_files_dir, 'xfoil.exe')
+        # Create an instance of the runner
+        xfoil_case = XPR(
+            xfoil_exe_path=xfoil_exe,
+            main_dir=training_temp_root,
+            airfoil_dir=airfoils_temp_dir,
+            polar_dir=polars_temp_dir,
+            verbose=False
+            )
+
+        # Run the simulation
+        xfoil_case.run_simulation(
+            airfoil_file_path=airfoil_abs_path,
+            polar_file_path=polar_abs_path,
+            alfa_sequence=ANGLES
+        )
+
+    except Exception as e:
+        print(f"\n[ERROR] A critical error occurred while processing {os.path.basename(airfoil_abs_path)}: {e}")
+    finally:
+        if progress_queue:
+            progress_queue.put(1)
 
 def Polar_Database_Generation(ASEQ, verbose=False):
     '''
-    Runs XFOIL to create drag polars for each airfoil.
+    Runs XFOIL to create drag polars for each airfoil using multiprocessing and a GUI.
 
     Parameters:
     ==============
@@ -204,91 +288,53 @@ def Polar_Database_Generation(ASEQ, verbose=False):
     if (polars_dir / f"{polar_dataset_name}.rar").exists():
         print("Compressed polar dataset already exists. Skipping generation.")
         return
-    # --- File preparation for class ---
-    xfoil_exe = os.path.join(support_files_dir, 'xfoil.exe')
-    
+
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-    
-    polar_abs_paths = []
-    for file in airfoil_abs_paths:
-        airfoil_name = os.path.splitext(os.path.basename(file))[0]
-        polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
-        polar_abs_paths.append(polar_abs_path)
-    
-    # --- ANGLE OF ATTACK SEQUENCE
-    for i, file in enumerate(airfoil_abs_paths):
-        # --- Recovery Logic for each polar file ---
-        completion_flag = "XFOIL process completed successfully"
-        if os.path.exists(polar_abs_paths[i]):
-            with open(polar_abs_paths[i], 'r') as f:
-                if completion_flag in f.read():
-                    continue # Skip if already completed
-            
-            # --- Incomplete file, determine where to resume ---
-            with open(polar_abs_paths[i], 'r') as f:
-                lines = f.readlines()
-            
-            last_alfa = -999
-            for line in reversed(lines):
-                try:
-                    # Assuming alpha is the first column in the data section
-                    current_alfa = float(line.strip().split()[0])
-                    last_alfa = current_alfa
-                    break
-                except (ValueError, IndexError):
-                    continue
-            
-            if last_alfa > -999:
-                start_angle = last_alfa + ASEQ[2]
-                print(f"Resuming polar generation for {os.path.basename(file)} from alfa = {start_angle}")
-                num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
-                ANGLES = [start_angle + j * ASEQ[2] for j in range(num_steps)]
-                append_mode = True
-            else: # File exists but is empty or corrupt
-                num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
-                ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
-                append_mode = False
+    if not airfoil_abs_paths:
+        print("No airfoils found to process for polar generation.")
+        return
 
-        else: # File doesn't exist yet
-             num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
-             ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
-             append_mode = False
+    num_workers = min(cpu_count() - 1, len(airfoil_abs_paths))
 
-        if not ANGLES: # Nothing to compute
-            continue
-        
-        # Calculate polar
-        try:
-            # Create an instance of the runner
-            xfoil_case = XPR(
-                xfoil_exe_path=xfoil_exe,
-                main_dir=training_temp_root,
-                airfoil_dir=airfoils_temp_dir,
-                polar_dir=polars_temp_dir,
-                verbose=False
-                )
-    
-            # Run the simulation
-            sim_success = xfoil_case.run_simulation(
-                airfoil_file_path=airfoil_abs_paths[i],
-                polar_file_path = polar_abs_paths[i],
-                alfa_sequence = ANGLES
-            )
-    
-            if sim_success and verbose:
-                print(f"\nSimulation successful! Output saved to {polar_abs_paths[i]}")
-            else:
-                if verbose:
-                    print(f"\nSimulation failed. Check logs.")
-    
-        except FileNotFoundError as e:
-            print(f"\n[ERROR] A file was not found: {e}")
-        except Exception as e:
-            print(f"\n[ERROR] A critical error occurred: {e}")
+    with Manager() as manager:
+        progress_queue = manager.Queue()
+        worker_status_list = manager.list(["Initializing..."] * num_workers)
 
-    # Save polars to main path in compressed form
+        tasks = []
+        for i, file in enumerate(airfoil_abs_paths):
+            airfoil_name = os.path.splitext(os.path.basename(file))[0]
+            polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
+            # Add index and worker_status_list to the arguments tuple
+            tasks.append((file, polar_abs_path, ASEQ, support_files_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
+
+        # Define the processing job to run in a separate thread
+        def processing_job():
+            with Pool(processes=num_workers) as pool:
+                pool.map(polar_worker, tasks)
+
+        # --- Setup and run GUI ---
+        header = f"Creating polars from {ASEQ[0]}° to {ASEQ[1]}° (Resolution: {ASEQ[2]}°)"
+        gui = Progress_GUI(
+            total_files=len(tasks),
+            progress_queue=progress_queue,
+            worker_status_list=worker_status_list,
+            num_workers=num_workers,
+            window_title="Polar Calculation Progress",
+            header_text=header
+        )
+
+        # Start the processing in a background thread
+        proc_thread = threading.Thread(target=processing_job)
+        proc_thread.start()
+
+        # Run the GUI in the main thread
+        gui.run()
+
+        proc_thread.join() # Wait for the background process to finish
+
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[INFO] Polar database generation completed at {current_time}.")
     create_rar_from_folder(polars_temp_dir, polars_dir, polar_dataset_name, verbose=False)
-    
     return
 
 def Geometric_File_Creation():
@@ -307,7 +353,7 @@ def Geometric_File_Creation():
         )
     
     key_points_data = key_points.process_files()
-    KP_error_log = os.path.join(polars_temp_dir, 'KP_error_log.txt')
+    KP_error_log = os.path.join(geo_files_temp_dir, 'KP_error_log.txt')
     key_points.save_error_log(KP_error_log)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
@@ -315,7 +361,8 @@ def Geometric_File_Creation():
                 key_points_data=key_points_data,
                 airfoil_abs_paths=airfoil_abs_paths,
                 output_dir=str(geo_files_temp_dir),
-                verbose=False
+                verbose=False, 
+                pb=True
             )
     
     # --- Recovery Logic ---
@@ -332,15 +379,44 @@ def Geometric_File_Creation():
 
     create_rar_from_folder(geo_files_temp_dir, geo_files_dir, geo_files_name, verbose=False)
 
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Geometric file for AVL database generated at {current_time}.")
+
     return
 
-def Final_Coefficient_Generation():
+def avl_worker(args):
+    '''
+    Worker function to run AVL simulation for a single geometry file.
+    '''
+    geo_path, case_file, avl_exe, output_dir, progress_queue, index, worker_status_list = args
+
+    # Obtain geometric file for GUI
+    geo_name = os.path.basename(geo_path)
+    worker_status_list[index] = geo_name
+    
+    try:
+        avl_case = AVL_Run_Case(
+            geo_files=[geo_path],
+            case_file=case_file,
+            avl_exe_path=avl_exe,
+            output_dir=output_dir,
+            debug=False
+        )
+        avl_case.run()
+    except Exception as e:
+        print(f"\n[ERROR] A critical error occurred while processing {os.path.basename(geo_path)}: {e}")
+    finally:
+        worker_status_list[index] = "Idle"
+        if progress_queue:
+            progress_queue.put(1)
+
+def Final_Coefficient_Generation(verbose=False):
     '''
     Uses AVL to calculate the force coefficients from each geometric file using our global case file.
     '''
     force_files_name = f"force_files_dataset_{dataset_num}"
     if (force_files_dir / f"{force_files_name}.rar").exists():
-        print("Compressed force files already exist. Skipping generation.")
+        print("Compressed force files already exists. Skipping generation.")
         return
 
     avl_exe = os.path.join(support_files_dir, 'avl.exe')
@@ -348,29 +424,52 @@ def Final_Coefficient_Generation():
     support_files_temp_dir.mkdir(exist_ok=True)
     case_file_temp = os.path.join(support_files_temp_dir, "sq_wing.run")
     shutil.copyfile(case_file, case_file_temp)
-    geo_abs_paths = get_all_files_from(geo_files_temp_dir, extension='avl')
 
-    # --- Recovery Logic ---
-    existing_force_files = {os.path.splitext(f.name)[0] for f in force_files_temp_dir.glob('*.txt')}
-    geo_files_to_process = [g for g in geo_abs_paths if os.path.splitext(os.path.basename(g))[0] not in existing_force_files]
+    geo_abs_paths = get_all_files_from(geo_files_temp_dir, extension='avl')
+    existing_force_files = {os.path.splitext(f.name)[0].replace("RecWing", "Test") for f in force_files_temp_dir.glob('*.txt')}
+    geo_files_to_process = [g for g in geo_abs_paths if os.path.splitext(os.path.basename(g))[0].replace("RecWing_", "") not in existing_force_files]
 
     if not geo_files_to_process:
-        print("All force files seem to be generated. Compressing now.")
+        print("All force files appear to be generated. Compressing now.")
         create_rar_from_folder(force_files_temp_dir, force_files_dir, force_files_name, verbose=False)
         return
 
-    # Set up instance for simulation
-    avl_case = AVL_Run_Case(
-            geo_files=geo_abs_paths,
-            case_file=case_file_temp,
-            avl_exe_path=avl_exe,
-            output_dir=force_files_temp_dir,
-            debug=False
+    num_workers = min(cpu_count(), len(geo_files_to_process))
+
+    with Manager() as manager:
+        progress_queue = manager.Queue()
+        worker_status_list = manager.list(["Initializing..."] * num_workers)
+
+        tasks = [(path, case_file_temp, avl_exe, force_files_temp_dir, progress_queue, i % num_workers, worker_status_list) for i, path in enumerate(geo_files_to_process)]
+
+        def processing_job():
+            with Pool(processes=num_workers) as pool:
+                pool.map(avl_worker, tasks)
+
+        # --- Setup and run GUI ---
+        with open(case_file_temp, 'r') as f:
+            header = f.readline().strip() # Read first line for header
+
+        gui = Progress_GUI(
+            total_files=len(tasks),
+            progress_queue=progress_queue,
+            worker_status_list=worker_status_list,
+            num_workers=num_workers,
+            window_title="AVL Coefficient Calculation",
+            header_text=header
         )
-    # Run the simulation.
-    avl_case.run()
+
+        proc_thread = threading.Thread(target=processing_job)
+        proc_thread.start()
+
+        gui.run()
+
+        proc_thread.join()
 
     create_rar_from_folder(force_files_temp_dir, force_files_dir, force_files_name, verbose=False)
+
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Final simulation completed at {current_time}.")
 
     return
 
@@ -409,18 +508,22 @@ def Final_Database_Generation():
 
     create_rar_from_folder(training_files_temp_dir, project_root, training_files_name, verbose=False)
 
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Training files completed at {current_time}.")
+
     return
+
 
 if __name__ == "__main__":
     # === Geometric Generation Setup === #
     base_airfoil = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
-    n_cst = 3
+    n_cst = 5
 
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
     ranges = {
-        'first': (0, 1, 1),   # range for value closest to LE
-        'middle': (0, 1, 1),  # range for middle points
-        'last': (0, 1, 1)     # range for value closest to TE
+        'first': (0, 0.25, 0.25),   # range for value closest to LE
+        'middle': (0, 0.25, 0.25),  # range for middle points
+        'last': (0, 0.25, 0.25)     # range for value closest to TE
     }
     cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=False)
 
@@ -431,8 +534,8 @@ if __name__ == "__main__":
         'activate_curvature_cont': True,
         'threshold_rLE': 0.005,
         'monotonic_activation': True,
-        'threshold_max_camber': 0.4,
-        'threshold_min_camber': -0.4
+        'threshold_max_camber': 0.45,
+        'threshold_min_camber': -0.35
     }
 
     threshold_min_t = geo_filt_parm['threshold_min_t']
@@ -494,5 +597,8 @@ if __name__ == "__main__":
 
     shutil.rmtree(training_temp_root)
     recovery_file.unlink() # Clean up recovery file on successful completion
+
+    end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Cleanup complete, script completed at {end_time}.")
 
     # To do: Add multiprocessing

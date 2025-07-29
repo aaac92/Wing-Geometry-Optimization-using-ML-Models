@@ -119,7 +119,8 @@ class Xfoil_Polar_Creator:
 
 
             # --- FINISH AND CLEAN UP PROCESS ---
-            print("[INFO] Finalizing XFOIL process.")
+            if self.verbose:
+                print("[INFO] Finalizing XFOIL process.")
             if not self._send_command(proc, "PACC", expect_prompt=".OPERv   c>"): return False
             if not self._send_command(proc, ""): return False # Exit OPER mode
             if not self._send_command(proc, "QUIT", quit=True): return False
@@ -143,7 +144,8 @@ class Xfoil_Polar_Creator:
         try:
             with open(polar_path, "a") as f:
                 f.write("\nXFOIL process completed successfully")
-            print(f"[INFO] Completion flag added to {polar_path}")
+            if self.verbose:
+                print(f"[INFO] Completion flag added to {polar_path}")
         except IOError as e:
             print(f"[ERROR] Could not write completion flag to {polar_path}: {e}")
 
@@ -157,7 +159,8 @@ class Xfoil_Polar_Creator:
                 try:
                     return async_result.get(max_timeout)
                 except multiprocessing.TimeoutError:
-                    print(f"[ERROR] Function {item.__name__} timed out after {max_timeout} seconds.")
+                    if self.verbose:
+                        print(f"[ERROR] Function {item.__name__} timed out after {max_timeout} seconds.")
                     return None
                 finally:
                     pool.terminate()
@@ -168,8 +171,8 @@ class Xfoil_Polar_Creator:
         """
         Sends a command to the XFOIL process and waits for the expected prompt.
         """
-        # This function can remain as it was in your original script
-        print(f"[CMD] Sending: {command if command else '-> <enter>'}")
+        if self.verbose:
+            print(f"[CMD] Sending: {command if command else '-> <enter>'}")
         @self._timeout(max_timeout=timeout_sec)
         def timed_write(process, cmd, prompt):
             output_buffer = ""
@@ -185,10 +188,12 @@ class Xfoil_Polar_Creator:
 
         result_tuple = timed_write(proc, command, expect_prompt)
         if result_tuple is None:
-            print(f"[ERROR] Timeout waiting for prompt '{expect_prompt}' after sending '{command}'.")
+            if self.verbose:
+                print(f"[ERROR] Timeout waiting for prompt '{expect_prompt}' after sending '{command}'.")
             return False
         success, _ = result_tuple
         if not success and not quit:
-            print(f"[ERROR] Failed to get prompt '{expect_prompt}' after sending '{command}'.")
+            if self.verbose:
+                print(f"[ERROR] Failed to get prompt '{expect_prompt}' after sending '{command}'.")
             return False
         return True
