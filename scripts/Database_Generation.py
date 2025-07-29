@@ -521,11 +521,11 @@ if __name__ == "__main__":
 
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
     ranges = {
-        'first': (-0.375, 0.375, 0.125),   # range for value closest to LE
-        'middle': (-0.375, 0.375, 0.125),  # range for middle points
-        'last': (-0.375, 0.375, 0.125)     # range for value closest to TE
+        'first': (-0.375, 0.375, 0.25),   # range for value closest to LE
+        'middle': (-0.375, 0.375, 0.25),  # range for middle points
+        'last': (-0.375, 0.375, 0.25)     # range for value closest to TE
     }
-    cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=False)
+    cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=True)
 
     # Geometric Filters thresholds and activations
     geo_filt_parm = {

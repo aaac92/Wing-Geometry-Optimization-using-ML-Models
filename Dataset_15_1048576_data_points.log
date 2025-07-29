@@ -1,0 +1,12 @@
+Dataset 15 Generation Parameters
+==============================
+CST Order (n_cst): 5
+
+Geometric Filters:
+  thickness_filters: threshold_min_t = 0.03, threshold_t_x = 0.6
+  sharpness_filters: activate_curvature_cont = True, threshold_rLE = 0.005
+  monotonic_thickness_filter: True
+  camber_filters: threshold_max_camber = 0.45, threshold_min_camber = -0.35
+
+CST Coefficient Ranges:
+  {'first': (-0.375, 0.375, 0.25), 'middle': (-0.375, 0.375, 0.25), 'last': (-0.375, 0.375, 0.25)}
