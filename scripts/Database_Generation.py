@@ -33,7 +33,7 @@ support_files_dir = project_root / "support_files"
 geo_files_dir = project_root / "geometry files"
 # Define temp directories
 # Temp directories with a short path are needed for XFOIL and AVL
-training_temp_root = Path(r'P:\training_temp') # Uses my personal 'P' drive, any drive can be used
+training_temp_root = Path(r'C:\training_temp') # Uses my personal 'P' drive, any drive can be used
 os.makedirs(training_temp_root, exist_ok=True)
 subprocess.run(['attrib', '+h', training_temp_root], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
 airfoils_temp_dir = training_temp_root / "airfoils"
