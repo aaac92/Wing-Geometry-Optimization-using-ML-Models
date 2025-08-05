@@ -15,8 +15,8 @@ from multiprocessing import Pool, Manager, cpu_count
 from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, RecWingGeo_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
-from file_handling_support import Training_Data_Generator, get_all_files_from, create_rar_from_folder
-from ux_support import Progress_GUI
+from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
+from ux_support import Progress_GUI, recovery_json, recovery_Fabius
 
 # For custom package:
 # Get the path to the parent directory (xfoil_project).
@@ -44,22 +44,17 @@ support_files_temp_dir = training_temp_root / "support_files"
 geo_files_temp_dir = training_temp_root / "geometry files"
 training_files_temp_dir = training_temp_root / "training files"
 
-# Recovery Logic
-recovery_file = project_root / "recovery_status.json"
-def get_recovery_status():
-    if recovery_file.exists():
-        with open(recovery_file, 'r') as f:
-            return json.load(f)
-    return {}
+# === Recovery Handling === #
+rec_json = recovery_json()
+rec_Fabius = recovery_Fabius()
 
-def save_recovery_status(status):
-    with open(recovery_file, 'w') as f:
-        json.dump(status, f, indent=4)
+# === Aux objects === #
+rar_Alma = compression_Alma()
 
-# Database Logic
+# === Database Logic === #
 def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False, **kwargs):
     '''
-    Fills a folder wuth generated airfoils matching the combination list and filtered for real plausible airfoils
+    Fills a folder with generated airfoils matching the combination list and filtered for real plausible airfoils
     
     Parameters
     ----------
@@ -82,10 +77,11 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
     threshold_min_camber = kwargs.get('threshold_min_camber')
 
     dataset_name = f"airfoils_dataset_{dataset_num}"
-    if (airfoils_dir / f"{dataset_name}.rar").exists():
-        print("Compressed airfoil dataset already exists. Skipping generation.")
-        return
+    rar_path = airfoils_dir / f"{dataset_name}.rar"
+    if rec_Fabius.check_stage_status("Geometric Database", rar_path, airfoils_temp_dir):
+        return # Skip this function if the stage is already complete
 
+    os.makedirs(airfoils_temp_dir, exist_ok=True)
     invalid_output_dir = airfoils_temp_dir / "invalid airfoils"
     log_file_path = airfoils_temp_dir / "Invalid_airfoils_log.txt"
 
@@ -159,6 +155,7 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
                 if validity:
                     airfoil_creator._create_dat_file(
                         output_dir=airfoils_temp_dir, 
+                        n_cst = n_cst,
                         x=x_mod,
                         yl=yl_mod,
                         yu=yu_mod,
@@ -179,6 +176,7 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
             if generate_invalid:
                 airfoil_creator._create_dat_file(
                     output_dir=invalid_output_dir,
+                    n_cst = n_cst,
                     x=x_mod,
                     yl=yl_mod,
                     yu=yu_mod,
@@ -189,7 +187,7 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
                 log.write(f"{log_reason}\n")
 
     # Save airfoils to main path in compressed form
-    create_rar_from_folder(airfoils_temp_dir, airfoils_dir, dataset_name, verbose=False)
+    rar_Alma.compress_folder(airfoils_temp_dir, airfoils_dir, dataset_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Geometric database generation completed at {current_time}.")
@@ -285,8 +283,8 @@ def Polar_Database_Generation(ASEQ, verbose=False):
     verbose (bool): Toggles prints and tqdm if any are present.
     '''
     polar_dataset_name = f"polars_dataset_{dataset_num}"
-    if (polars_dir / f"{polar_dataset_name}.rar").exists():
-        print("Compressed polar dataset already exists. Skipping generation.")
+    rar_path = polars_dir / f"{polar_dataset_name}.rar"
+    if rec_Fabius.check_stage_status("Polar Database", rar_path, polars_temp_dir):
         return
 
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
@@ -334,7 +332,8 @@ def Polar_Database_Generation(ASEQ, verbose=False):
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[INFO] Polar database generation completed at {current_time}.")
-    create_rar_from_folder(polars_temp_dir, polars_dir, polar_dataset_name, verbose=False)
+    rar_Alma.compress_folder(polars_temp_dir, polars_dir, polar_dataset_name)
+    
     return
 
 def Geometric_File_Creation():
@@ -343,8 +342,8 @@ def Geometric_File_Creation():
     we only add the relevant information (Polar data and airfoil path).
     '''
     geo_files_name = f"geo_files_dataset_{dataset_num}"
-    if (geo_files_dir / f"{geo_files_name}.rar").exists():
-        print("Compressed geometric files already exist. Skipping generation.")
+    rar_path = geo_files_dir / f"{geo_files_name}.rar"
+    if rec_Fabius.check_stage_status("AVL Geometric Database", rar_path, geo_files_temp_dir):
         return
     polars_abs_paths = get_all_files_from(polars_temp_dir)
     
@@ -377,7 +376,7 @@ def Geometric_File_Creation():
     geo_error = os.path.join(geo_files_temp_dir, 'geo_error_log.txt')
     geo_creator.save_error_log(geo_error)
 
-    create_rar_from_folder(geo_files_temp_dir, geo_files_dir, geo_files_name, verbose=False)
+    rar_Alma.compress_folder(geo_files_temp_dir, geo_files_dir, geo_files_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Geometric file for AVL database generated at {current_time}.")
@@ -415,8 +414,8 @@ def Final_Coefficient_Generation(verbose=False):
     Uses AVL to calculate the force coefficients from each geometric file using our global case file.
     '''
     force_files_name = f"force_files_dataset_{dataset_num}"
-    if (force_files_dir / f"{force_files_name}.rar").exists():
-        print("Compressed force files already exists. Skipping generation.")
+    rar_path = force_files_dir / f"{force_files_name}.rar"
+    if rec_Fabius.check_stage_status("AVL Force Database", rar_path, force_files_temp_dir):
         return
 
     avl_exe = os.path.join(support_files_dir, 'avl.exe')
@@ -431,7 +430,7 @@ def Final_Coefficient_Generation(verbose=False):
 
     if not geo_files_to_process:
         print("All force files appear to be generated. Compressing now.")
-        create_rar_from_folder(force_files_temp_dir, force_files_dir, force_files_name, verbose=False)
+        compression_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
         return
 
     num_workers = min(cpu_count(), len(geo_files_to_process))
@@ -466,7 +465,7 @@ def Final_Coefficient_Generation(verbose=False):
 
         proc_thread.join()
 
-    create_rar_from_folder(force_files_temp_dir, force_files_dir, force_files_name, verbose=False)
+    rar_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Final simulation completed at {current_time}.")
@@ -478,8 +477,8 @@ def Final_Database_Generation():
     Creates the final training files for the classifier and regressor models.
     '''
     training_files_name = f"trining_files_dataset_{dataset_num}"
-    if (project_root / f"{training_files_name}.rar").exists():
-        print("Compressed training files already exist. Skipping generation.")
+    rar_path = project_root / f"{training_files_name}.rar"
+    if rec_Fabius.check_stage_status("Training Database", rar_path, airfoils_temp_dir):
         return
 
     invalid_airfoils_dir = airfoils_temp_dir / "Invalid_airfoils_log.txt"
@@ -497,6 +496,7 @@ def Final_Database_Generation():
             airfoils_dir = airfoils_temp_dir,
             invalid_airfoils_path = invalid_airfoils_dir,
             output_dir = training_files_temp_dir,
+            n_cst = n_cst,
             verbose = False,
             output_mode = 'Efficiency'
         )
@@ -506,7 +506,7 @@ def Final_Database_Generation():
             classification_filename=classification_file
             )
 
-    create_rar_from_folder(training_files_temp_dir, project_root, training_files_name, verbose=False)
+    rar_Alma.compress_folder(training_files_temp_dir, project_root, training_files_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Training files completed at {current_time}.")
@@ -515,6 +515,9 @@ def Final_Database_Generation():
 
 
 if __name__ == "__main__":
+    # === Timer for Fun (?) === #
+    start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Database generation started at: {start_time}.")
     # === Geometric Generation Setup === #
     base_airfoil = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
     n_cst = 5
@@ -568,35 +571,36 @@ if __name__ == "__main__":
             log_file.write(f"  {ranges}\n")
 
     # === Execution with Recovery === #
-    status = get_recovery_status()
+    status = rec_json.get_recovery_status()
 
     if not status.get('geometric_database_generation_complete'):
-        Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, generate_invalid=True, **geo_filt_parm)
+        Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, **geo_filt_parm)
         status['geometric_database_generation_complete'] = True
-        save_recovery_status(status)
+        rec_json.save_recovery_status(status)
 
     if not status.get('polar_database_generation_complete'):
         Polar_Database_Generation(ASEQ)
         status['polar_database_generation_complete'] = True
-        save_recovery_status(status)
+        rec_json.save_recovery_status(status)
 
     if not status.get('geometric_file_creation_complete'):
         Geometric_File_Creation()
         status['geometric_file_creation_complete'] = True
-        save_recovery_status(status)
+        rec_json.save_recovery_status(status)
 
     if not status.get('final_coefficient_generation_complete'):
         Final_Coefficient_Generation()
         status['final_coefficient_generation_complete'] = True
-        save_recovery_status(status)
+        rec_json.save_recovery_status(status)
 
     if not status.get('final_database_generation_complete'):
         Final_Database_Generation()
         status['final_database_generation_complete'] = True
-        save_recovery_status(status)
+        rec_json.save_recovery_status(status)
 
-    shutil.rmtree(training_temp_root)
-    recovery_file.unlink() # Clean up recovery file on successful completion
+    # Execution completed successfully
+    #shutil.rmtree(training_temp_root)
+    rec_json.recover_cleanup()
 
     end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"Cleanup complete, script completed at {end_time}.")
+    print(f"Cleanup complete, database completed at {end_time}.")

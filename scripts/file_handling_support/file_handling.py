@@ -11,68 +11,72 @@ def get_all_files_from(folder_path, extension="*", names_only=False):
         else:
             return files
         
-def create_rar_from_folder(source_folder_path, dest_folder_path, rar_filename, verbose=False, rar_executable = r"C:\Program Files\WinRAR\Rar.exe"):
-    """
-    Compresses a folder into a .rar file and saves it to a destination folder.
-
-    Args:
-        source_folder_path (str): The absolute path of the folder to compress.
-        dest_folder_path (str): The absolute path of the folder to save the .rar file in.
-        rar_filename (str): The desired name for the output .rar file (without extension).
-        verbose, optional (bool): Toggles prints for information.
-        rar_executable, optional (rstr): Path to Rar.exe in a raw string.
-    """
-    # Ensure the RAR command-line tool is available
-    # For Windows, the executable is typically 'Rar.exe'
+class compression_Alma:
+    def __init__(self, rar_executable: str = r"C:\Program Files\WinRAR\Rar.exe"):
+        '''
+        Initializes the handler with the path to the RAR executable.
+        '''
+        if sys.platform != "win32":
+            # For Linux/macOS, it's typically 'rar'
+            self.rar_executable = "rar"
+        else:
+            self.rar_executable = rar_executable
     
-    if sys.platform != "win32":
-        # For Linux/macOS, it's typically 'rar'
-        rar_executable = "rar"
-    
-    # Add the '.rar' extension to the filename
-    if not rar_filename.endswith('.rar'):
-        rar_filename += '.rar'
+    def compress_folder(self, source_folder_path: Path, dest_folder_path: Path, rar_filename: str, verbose: bool = False):
+        """
+        Compresses a folder into a .rar file.
+        """
+        if not rar_filename.endswith('.rar'):
+            rar_filename += '.rar'
+        
+        output_rar_path = dest_folder_path / rar_filename
+        
+        if not source_folder_path.is_dir():
+            if verbose:
+                print(f"Error: Source folder not found at '{source_folder_path}'")
+            return
 
-    # Construct the full, absolute path for the output .rar file
-    output_rar_path = os.path.join(dest_folder_path, rar_filename)
-    if verbose:
-        print(f"Source folder: {source_folder_path}")
-        print(f"Output path: {output_rar_path}")
+        dest_folder_path.mkdir(exist_ok=True)
+        
+        command = [self.rar_executable, 'a', '-r', str(output_rar_path), '.']
 
-    # Check if the source folder exists
-    if not os.path.isdir(source_folder_path):
-        if verbose:
-            print(f"Error: Source folder not found at '{source_folder_path}'")
-        return
+        try:
+            if verbose:
+                print(f"Compressing '{source_folder_path.name}' to '{output_rar_path.name}'...")
+            subprocess.run(command, check=True, capture_output=True, text=True, cwd=source_folder_path)
+            if verbose:
+                print(f"Success! Archive '{rar_filename}' created.")
+        except FileNotFoundError:
+            if verbose:
+                print(f"Error: '{self.rar_executable}' not found. Make sure WinRAR is installed and its path is correct.")
+        except subprocess.CalledProcessError as e:
+            if verbose:
+                print(f"Error during compression:\n{e.stderr}")
 
-    # Create the destination directory if it doesn't exist
-    os.makedirs(dest_folder_path, exist_ok=True)
-    
-    # Construct the command for the command-line tool
-    # 'a' is the command to add files to an archive
-    # '-r' tells it to recurse into subdirectories
-    command = [
-        rar_executable,
-        'a',
-        '-r',
-        output_rar_path,
-        '.'
-    ]
+    def decompress_archive(self, rar_path: Path, destination_dir: Path, verbose: bool = False):
+        """
+        Decompresses a .rar file into a destination folder.
+        """
+        if not rar_path.exists():
+            if verbose:
+                print(f"Error: Archive not found at '{rar_path}'")
+            return
 
-    try:
-        if verbose:
-            print("Compressing folder... Please wait.")
-        # Execute the command
-        # 'capture_output=True' and 'text=True' help capture the output for debugging
-        subprocess.run(command, check=True, capture_output=True, text=True, cwd=source_folder_path)
-        if verbose:
-            print(f"Success! Archive '{rar_filename}' created in '{dest_folder_path}'")
-            # print("Output from Rar:\n", result.stdout) # Uncomment for detailed output
-    except FileNotFoundError:
-        if verbose:
-            print(f"Error: '{rar_executable}' not found. Make sure WinRAR is installed and in your system's PATH.")
-    except subprocess.CalledProcessError as e:
-        if verbose:
-            print(f"Error during compression:")
-            print(e.stderr) # Print the error output from the rar command
+        destination_dir.mkdir(exist_ok=True)
+        
+        # 'x' is the command to extract with full paths
+        # '-o+' ensures any existing files are overwritten without prompting
+        command = [self.rar_executable, 'x', '-o+', str(rar_path), str(destination_dir)]
 
+        try:
+            if verbose:
+                print(f"Decompressing '{rar_path.name}' to '{destination_dir.name}'...")
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            if verbose:
+                print("Decompression successful.")
+        except FileNotFoundError:
+            if verbose:
+                print(f"Error: '{self.rar_executable}' not found. Make sure WinRAR is installed and its path is correct.")
+        except subprocess.CalledProcessError as e:
+            if verbose:
+                print(f"Error during decompression:\n{e.stderr}")

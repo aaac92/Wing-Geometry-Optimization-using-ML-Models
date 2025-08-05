@@ -83,12 +83,12 @@ class Airfoil_Generator:
 
         return x_mod, yu_mod, yl_mod
 
-    def _create_dat_file(self, output_dir, x, yu, yl, file_name, debug=False):
+    def _create_dat_file(self, output_dir, n_cst, x, yu, yl, file_name, debug=False):
         """Helper method to write the airfoil coordinates to a .dat file."""
         os.makedirs(output_dir, exist_ok=True)
         
         # Construct the full filename with coefficients
-        coeff_str = f"[{self.cmb_l[0]:.4f}, {self.cmb_l[1]:.4f}, {self.cmb_l[2]:.4f}, {self.cmb_u[0]:.4f}, {self.cmb_u[1]:.4f}, {self.cmb_u[2]:.4f}]"
+        coeff_str = "[" + ", ".join(f"{coeff:.4f}" for coeff in list(self.cmb_l) + list(self.cmb_u)) + "]"
         full_file_name = f"{file_name}.dat"
         file_path = os.path.join(output_dir, full_file_name)
 

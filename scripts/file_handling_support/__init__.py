@@ -1,2 +1,2 @@
-from .file_handling import get_all_files_from, create_rar_from_folder
+from .file_handling import get_all_files_from, compression_Alma
 from .trining_csv_creator import Training_Data_Generator

@@ -16,6 +16,7 @@ class Training_Data_Generator:
                  airfoils_dir: str,
                  invalid_airfoils_path: str,
                  output_dir: str,
+                 n_cst: int,
                  verbose: bool = False,
                  output_mode: Literal['Efficiency', 'Coefficients'] = 'Efficiency'):
         """
@@ -46,8 +47,16 @@ class Training_Data_Generator:
             filename=self.log_path,
             filemode='a'
         )
-        # The specific CST headers you requested
-        self.cst_headers = ['cst_l_1', 'cst_l_2', 'cst_l_3', 'cst_u_1', 'cst_u_2', 'cst_u_3']
+        # CST headers
+        cst_headers = []
+        for i in range(n_cst):
+            header = f"cst_l_{i+1}"
+            cst_headers.append(header)
+        for i in range(n_cst):
+            header = f"cst_u_{i+1}"
+            cst_headers.append(header)
+        self.cst_headers = cst_headers
+        #self.cst_headers = ['cst_l_1', 'cst_l_2', 'cst_l_3', 'cst_u_1', 'cst_u_2', 'cst_u_3']
 
 
     def _log_and_print(self, message: str, level: str = 'info'):
