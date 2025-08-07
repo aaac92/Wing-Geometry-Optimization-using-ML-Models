@@ -77,6 +77,27 @@ class AVL_Run_Case:
                 print("[DEBUG] EOFError encountered.")
             return False
 
+    def _execute_avl_commands(self, proc, timed_send, geo_file, force_file_path):
+        """
+        Executes the sequence of AVL commands.
+        Returns True on success, False on timeout/failure.
+        """
+        try:
+            # --- AVL Command Sequence ---
+            if not timed_send(proc, f"LOAD {geo_file}"): return False
+            if not timed_send(proc, f"CASE {self.case_file}"): return False
+            if not timed_send(proc, "OPER", expect_prompt='.OPER (case 1/1)   c>'): return False
+            if not timed_send(proc, "X", expect_prompt='.OPER (case 1/1)   c>'): return False
+            if not timed_send(proc, "FT", expect_prompt='Enter filename, or <return> for screen output   s>'): return False
+            if not timed_send(proc, str(force_file_path), expect_prompt='.OPER (case 1/1)   c>'): return False
+            if not timed_send(proc, ""): return False # Advance to the AVL prompt
+            timed_send(proc, "QUIT")
+            return True
+        except TimeoutError:
+            if self.debug:
+                print("A command timed out.")
+            return False
+
     def run(self):
         """
         Orchestrates the entire batch simulation process.
@@ -85,32 +106,45 @@ class AVL_Run_Case:
         
         # A try...finally block ensures cleanup happens even if errors occur
         try:
-            timed_send = timeout(8)(self._send)
+            retry = 3
+            timed_send = timeout(10)(self._send)
 
             # --- Loop through each geometry file ---
             for geo_file in self.geo_files:
-                if self.debug:
-                    print(f"\n--- Processing {geo_file.name} ---")
+                success = False
+                for attempt in range(1, retry + 1):
+                    proc = None
+                    try:
+                        if self.debug:
+                            print(f"\n--- Processing {geo_file.name} (Attempt {attempt}/{retry}) ---")
 
-                airfoil_name = geo_file.stem 
-                force_file_path = self.output_dir / f"force_{airfoil_name}.txt"
+                        airfoil_name = geo_file.stem.replace("_geo", "")
+                        force_file_path = self.output_dir / f"force_{airfoil_name}.txt"
 
-                # Launch avl.exe using its absolute path from the temp directory
-                proc = PtyProcess.spawn([str(self.avl_exe)])
+                        # Launch avl.exe
+                        proc = PtyProcess.spawn([str(self.avl_exe)])
+
+                        # --- AVL Command Sequence (using absolute paths) ---
+                        if self._execute_avl_commands(proc, timed_send, geo_file, force_file_path):
+                            success = True
+                            if self.debug:
+                                print(f"--- Successfully processed {geo_file.name} ---")
+                            break
+                    except Exception as e:
+                        # Catch unexpected errors during an attempt
+                        if self.debug:
+                            print(f"An unexpected error occurred on attempt {attempt}: {e}")
+                    finally:
+                        # Cleanup: ensure the process is closed after each attempt
+                        if proc and proc.isalive():
+                            proc.close()
+                    if not success and self.debug:
+                        print(f"Attempt {attempt} failed. Retrying...")
                 
-                # --- AVL Command Sequence (using absolute paths) ---
-                if not timed_send(proc, f"LOAD {geo_file.resolve()}"): continue
-                if not timed_send(proc, f"CASE {self.case_file}"): continue
-                if not timed_send(proc, "OPER", expect_prompt='.OPER (case 1/1)   c>'): continue
-                if not timed_send(proc, "X", expect_prompt='.OPER (case 1/1)   c>'): continue
-                if not timed_send(proc, "FT", expect_prompt='Enter filename, or <return> for screen output   s>'): continue
-                if not timed_send(proc, str(force_file_path.resolve()), expect_prompt='.OPER (case 1/1)   c>'): continue
-                if not timed_send(proc, ""): continue 
-                timed_send(proc, "QUIT")
-                
-                proc.close()
-                if self.debug:
-                    print(f"--- Finished processing {geo_file.name} ---")
+                # After all retries, if still not successful, raise an error
+                if not success:
+                    # This exception will be caught and logged in the avl runner.
+                    raise RuntimeError(f"Failed to process {geo_file.name} after {retry} attempts.")
 
         except Exception as e:
             if self.debug:

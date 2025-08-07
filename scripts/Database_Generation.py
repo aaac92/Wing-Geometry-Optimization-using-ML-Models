@@ -404,6 +404,9 @@ def avl_worker(args):
         avl_case.run()
     except Exception as e:
         print(f"\n[ERROR] A critical error occurred while processing {os.path.basename(geo_path)}: {e}")
+        error_log_path = os.path.join(output_dir, "avl_error.log")
+        with open(error_log_path, "a") as log_file:
+            log_file.write(f"Failed to process {geo_name}: {e}\n")
     finally:
         worker_status_list[index] = "Idle"
         if progress_queue:
@@ -433,8 +436,10 @@ def Final_Coefficient_Generation(verbose=False):
         compression_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
         return
 
-    num_workers = min(cpu_count(), len(geo_files_to_process))
+    num_workers = min(cpu_count() - 1, len(geo_files_to_process))
 
+    chunksize = max(1, len(geo_files_to_process) // (num_workers * 4))
+    print(f"Distributing {len(geo_files_to_process)} tasks with a chunksize of {chunksize}.")
     with Manager() as manager:
         progress_queue = manager.Queue()
         worker_status_list = manager.list(["Initializing..."] * num_workers)
@@ -443,7 +448,7 @@ def Final_Coefficient_Generation(verbose=False):
 
         def processing_job():
             with Pool(processes=num_workers) as pool:
-                pool.map(avl_worker, tasks)
+                pool.map(avl_worker, tasks, chunksize=chunksize)
 
         # --- Setup and run GUI ---
         with open(case_file_temp, 'r') as f:
@@ -469,6 +474,9 @@ def Final_Coefficient_Generation(verbose=False):
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Final simulation completed at {current_time}.")
+    error_log_path = os.path.join(project_root, "avl_error.log")
+    if os.path.exists(error_log_path):
+        print(f"[WARNING] Some files failed to process. Check '{error_log_path}' for details.")
 
     return
 

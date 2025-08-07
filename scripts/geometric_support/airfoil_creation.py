@@ -143,7 +143,7 @@ class Airfoil_Generator:
         ax.plot(self.x_cst, self.z_cst_l, color='#4D4D4D', linestyle='--')
 
         # Plot the new, smoothed modified airfoil
-        ax.plot(x_smooth, yu_smooth, label='Modified Airfoil', color="#3EB489") # Navy Blue: #0966BD, Mint: 
+        ax.plot(x_smooth, yu_smooth, label='Modified Airfoil', color="#3EB489") # Navy Blue: #0966BD, Mint: #3EB489
         ax.plot(x_smooth, yl_smooth, color='#3EB489') 
 
         # --- Aesthetics and Formatting --- #
