@@ -107,7 +107,7 @@ class AVL_Run_Case:
         # A try...finally block ensures cleanup happens even if errors occur
         try:
             retry = 3
-            timed_send = timeout(10)(self._send)
+            timed_send = timeout(30)(self._send)
 
             # --- Loop through each geometry file ---
             for geo_file in self.geo_files:
@@ -136,8 +136,9 @@ class AVL_Run_Case:
                             print(f"An unexpected error occurred on attempt {attempt}: {e}")
                     finally:
                         # Cleanup: ensure the process is closed after each attempt
-                        if proc and proc.isalive():
-                            proc.close()
+                        if proc:
+                            if proc.isalive():
+                                proc.close(force=True)
                     if not success and self.debug:
                         print(f"Attempt {attempt} failed. Retrying...")
                 

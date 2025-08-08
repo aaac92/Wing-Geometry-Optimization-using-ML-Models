@@ -428,17 +428,23 @@ def Final_Coefficient_Generation(verbose=False):
     shutil.copyfile(case_file, case_file_temp)
 
     geo_abs_paths = get_all_files_from(geo_files_temp_dir, extension='avl')
-    existing_force_files = {os.path.splitext(f.name)[0].replace("RecWing", "Test") for f in force_files_temp_dir.glob('*.txt')}
-    geo_files_to_process = [g for g in geo_abs_paths if os.path.splitext(os.path.basename(g))[0].replace("RecWing_", "") not in existing_force_files]
+    existing_force_files = {
+        f.stem.replace("force_", "") for f in force_files_temp_dir.glob('force_*.txt')
+    }
+    geo_files_to_process = [
+        g for g in geo_abs_paths if Path(g).stem.replace("_geo", "") not in existing_force_files
+    ]
 
     if not geo_files_to_process:
         print("All force files appear to be generated. Compressing now.")
         compression_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
         return
 
-    num_workers = min(cpu_count() - 1, len(geo_files_to_process))
+    num_workers = min(cpu_count() - 2, len(geo_files_to_process))
 
     chunksize = max(1, len(geo_files_to_process) // (num_workers * 4))
+    if existing_force_files:
+        print(f"Resuming with {len(geo_files_to_process)} remaining simulations.")
     print(f"Distributing {len(geo_files_to_process)} tasks with a chunksize of {chunksize}.")
     with Manager() as manager:
         progress_queue = manager.Queue()
@@ -448,7 +454,8 @@ def Final_Coefficient_Generation(verbose=False):
 
         def processing_job():
             with Pool(processes=num_workers) as pool:
-                pool.map(avl_worker, tasks, chunksize=chunksize)
+                for _ in pool.imap_unordered(avl_worker, tasks, chunksize=chunksize):
+                    pass
 
         # --- Setup and run GUI ---
         with open(case_file_temp, 'r') as f:
