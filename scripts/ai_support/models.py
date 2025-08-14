@@ -8,6 +8,8 @@ import lightgbm as lgb
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, fbeta_score, mean_absolute_error, r2_score
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import make_pipeline
 import joblib
 import json
 
@@ -178,7 +180,7 @@ class Classifier:
         print(f"Model saved in folder: {folder_path} with prefix: {file_name_prefix}")
 
     @classmethod
-    def load_model(cls, folder_path, file_name_prefix):
+    def load_model(cls, folder_path, file_name_prefix, **kwargs):
         """Loads a model, scaler, and metadata from files."""
         model_path = os.path.join(folder_path, f"{file_name_prefix}_model.pth")
         scaler_path = os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib")
@@ -187,10 +189,10 @@ class Classifier:
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         
-        loaded_classifier = cls()
+        loaded_classifier = cls(**kwargs)
         loaded_classifier.input_dim = metadata['input_dim']
         
-        loaded_classifier.model = _PyTorchMLPClassifier(input_dim=loaded_classifier.input_dim)
+        loaded_classifier.model = _PyTorchMLPClassifier(input_dim=loaded_classifier.input_dim, hidden_size=loaded_classifier.hidden_size)
         loaded_classifier.model.load_state_dict(torch.load(model_path))
         loaded_classifier.model.to(loaded_classifier.device)
         loaded_classifier.model.eval()
@@ -452,7 +454,7 @@ class MLP_Regressor:
         print(f"Regressor model loaded successfully from folder: {folder_path}")
         return regressor
     
-class LGBMRegressor:
+class LGBM_Regressor:
     """
     A class to encapsulate the LightGBM Regressor.
     This class handles scaling and training with native early stopping.
@@ -592,3 +594,120 @@ class LGBMRegressor:
         
         print(f"LGBM model loaded successfully from folder: {folder_path}")
         return lgbm_regressor
+    
+class SKNN_Regressor:
+    """
+    A class to encapsulate a Scikit-learn Polynomial Linear Regression model.
+    It uses a pipeline to chain scaling, polynomial feature creation,
+    and linear regression.
+    """
+    def __init__(self,
+                 degree=2,
+                 test_size=0.2,
+                 random_state=42):
+        
+        # Hyperparameter for Grid Search
+        self.degree = degree
+        
+        # Other training parameters
+        self.test_size = test_size
+        self.random_state = random_state
+
+        # The entire pipeline (scaler, poly features, model) will be stored here
+        self.model = None
+        
+        print(f"SKNN_Regressor initialized with polynomial degree={self.degree}.")
+
+    def _load_and_prepare_data(self, data_path):
+        """
+        Loads data from a single CSV file with a header, assuming the
+        last column is the target.
+        """
+        df = pd.read_csv(data_path)
+        # All columns except the last one are features
+        X = df.iloc[:, :-1].values
+        # The very last column is the target. .ravel() makes it a 1D array.
+        y = df.iloc[:, -1].values.ravel()
+        
+        return X, y
+
+    def train(self, data_path):
+        """
+        Executes the full training pipeline for the SKNN regressor.
+        Returns a dictionary of performance metrics on the test set.
+        """
+        # Load data
+        X, y = self._load_and_prepare_data(data_path)
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=self.test_size, random_state=self.random_state
+        )
+        
+        # Initialize the Scikit-learn pipeline
+        # This one object handles all steps automatically.
+        self.model = make_pipeline(
+            StandardScaler(),
+            PolynomialFeatures(degree=self.degree),
+            LinearRegression()
+        )
+        
+        # Train the entire pipeline
+        print(f"Starting SKNN training for degree={self.degree} polynomial...")
+        self.model.fit(X_train, y_train)
+        
+        print("Training complete.")
+        return self.evaluate(X_test, y_test)
+
+    def evaluate(self, X_test, y_test):
+        """Calculates and returns performance metrics on the test set."""
+        # The pipeline handles the scaling and transformations automatically
+        y_preds = self.model.predict(X_test)
+        
+        mae = mean_absolute_error(y_test, y_preds)
+        r2 = r2_score(y_test, y_preds)
+        
+        metrics = {'MAE': mae, 'R2_Score': r2}
+        
+        print("\n--- SKNN Regressor Evaluation on Test Set ---")
+        for name, value in metrics.items():
+            print(f"{name:<10}: {value:.4f}")
+        print("-------------------------------------------\n")
+        
+        return metrics
+
+    def predict(self, X_new):
+        """Makes predictions on new, un-transformed data."""
+        if self.model is None:
+            raise RuntimeError("Model is not trained. Please call train() first.")
+        
+        return self.model.predict(X_new)
+        
+    def save_model(self, folder_path, file_name_prefix):
+        """Saves the entire trained pipeline."""
+        if self.model is None:
+            raise RuntimeError("Model not trained yet. Cannot save.")
+        
+        os.makedirs(folder_path, exist_ok=True)
+        
+        # Save the entire pipeline object
+        model_path = os.path.join(folder_path, f"{file_name_prefix}_pipeline.joblib")
+        joblib.dump(self.model, model_path)
+
+        print(f"SKNN pipeline saved to: {model_path}")
+
+    @classmethod
+    def load_model(cls, folder_path, file_name_prefix):
+        """Loads a trained pipeline."""
+        model_path = os.path.join(folder_path, f"{file_name_prefix}_pipeline.joblib")
+        
+        loaded_model = joblib.load(model_path)
+        
+        # Create a class instance and assign the loaded model to it
+        # We can find the degree from the loaded pipeline's parameters
+        degree = loaded_model.get_params()['polynomialfeatures__degree']
+        sknn_regressor = cls(degree=degree)
+        sknn_regressor.model = loaded_model
+        
+        print(f"SKNN pipeline loaded successfully from: {model_path}")
+        return sknn_regressor

@@ -1,0 +1,173 @@
+import numpy as np
+import pandas as pd
+import re
+import os
+import sys
+from pathlib import Path
+from ai_support import Classifier, MLP_Regressor, LGBM_Regressor, SKNN_Regressor
+
+def find_model_prefix(folder_path: Path, unique_suffix: str) -> str:
+    """
+    Scans a folder to find a single model file and returns its prefix.
+    """
+    if not os.path.isdir(folder_path):
+        raise FileNotFoundError(f"The specified model folder does not exist: {folder_path}")
+        
+    # Find all files in the directory that end with the unique suffix
+    model_files = [f for f in os.listdir(folder_path) if f.endswith(unique_suffix)]
+    
+    if len(model_files) == 0:
+        raise FileNotFoundError(f"AUTOMATION ERROR: No model file with suffix '{unique_suffix}' found in '{folder_path}'.")
+    
+    if len(model_files) > 1:
+        raise ValueError(f"AUTOMATION ERROR: Ambiguous files. Found {len(model_files)} models with suffix '{unique_suffix}' in '{folder_path}'. Please ensure only one optimized model is in this folder.")
+    
+    # Get the full filename (e.g., 'classifier_hs_256_model.pth')
+    full_filename = model_files[0]
+    
+    # Remove the unique suffix to get the prefix (e.g., 'classifier_hs_256')
+    prefix = full_filename.removesuffix(unique_suffix)
+    
+    print(f"Found model prefix in '{folder_path.name}': {prefix}")
+    return prefix
+
+def parse_mlp_prefix_for_hyperparams(prefix: str) -> dict:
+    """
+    Parses a filename prefix to extract hyperparameters needed
+    to reconstruct the MLP Regressor model.
+    """
+    try:
+        hidden_size = int(re.search(r'hs_(\d+)', prefix).group(1))
+        dropout_rate = float(re.search(r'dr_([0-9.]+)', prefix).group(1))
+        
+        hyperparams = {'hidden_size': hidden_size, 'dropout_rate': dropout_rate}
+        print(f"   - Parsed MLP hyperparameters: {hyperparams}")
+        return hyperparams
+    except AttributeError:
+        raise ValueError(f"Could not parse hyperparameters from MLP prefix: '{prefix}'.")
+    
+def parse_classifier_prefix_for_hyperparams(prefix: str) -> dict:
+    """
+    Parses a filename prefix to extract hidden_size for the Classifier.
+    """
+    try:
+        hidden_size = int(re.search(r'hs_(\d+)', prefix).group(1))
+        hyperparams = {'hidden_size': hidden_size}
+        print(f"   - Parsed Classifier hyperparameters: {hyperparams}")
+        return hyperparams
+    except AttributeError:
+        raise ValueError(f"Could not parse hidden_size from Classifier prefix: '{prefix}'.")
+
+def report_best_result(model_name: str, best_value: float, best_input: np.ndarray, feature_names: list):
+    """Helper function to print a formatted result for a model."""
+    print("\n" + "="*50)
+    print(f"Best Result from: {model_name}")
+    print("="*50)
+    print(f"Highest Predicted Output (E): {best_value:.4f}")
+    print("\nOptimal Input Parameters Found:")
+    
+    best_input_series = pd.Series(best_input, index=feature_names, name="Values")
+    print(best_input_series.to_string())
+    print("="*50)
+
+
+# === CONFIGURE MODEL FOLDERS === #
+# Define the root directory of project
+current_dir = Path(__file__).resolve().parent
+project_root = current_dir.parent
+# Add this path to the list of places Python looks for modules.
+sys.path.insert(0, project_root)
+# Path of data for ground truth
+REGRESSOR_DATA_PATH = project_root / 'Airfoils_for_Regressor_E_Dataset_15.csv'
+# Set the folder path for each of your 4 best models.
+# The script will automatically find the files inside these folders.
+CLASSIFIER_FOLDER = project_root / "optimized_classifier_model"
+MLP_REG_FOLDER = project_root / "optimized_MLP_regressor_model"
+LGBM_REG_FOLDER = project_root / "optimized_LGBM_regressor_model"
+SKNN_REG_FOLDER = project_root / "optimized_SKNN_regressor_model"
+
+
+# === INFERENCE EXECUTION === #
+print("# === Starting Final Automated Inference Pipeline === #")
+
+# Automatically find model prefixes
+try:
+    classifier_prefix = find_model_prefix(CLASSIFIER_FOLDER, '_model.pth')
+    mlp_reg_prefix = find_model_prefix(MLP_REG_FOLDER, '_model.pth')
+    lgbm_reg_prefix = find_model_prefix(LGBM_REG_FOLDER, '_model.joblib')
+    sknn_reg_prefix = find_model_prefix(SKNN_REG_FOLDER, '_pipeline.joblib')
+except (FileNotFoundError, ValueError) as e:
+    print(f"SETUP FAILED: {e}")
+    sys.exit()
+
+
+# Load All Models
+print("\n# === Loading all trained models... === #")
+classifier_hyperparams = parse_classifier_prefix_for_hyperparams(classifier_prefix)
+classifier = Classifier.load_model(CLASSIFIER_FOLDER, classifier_prefix, **classifier_hyperparams)
+mlp_hyperparams = parse_mlp_prefix_for_hyperparams(mlp_reg_prefix)
+mlp_regressor = MLP_Regressor.load_model(MLP_REG_FOLDER, mlp_reg_prefix, **mlp_hyperparams)
+lgbm_regressor = LGBM_Regressor.load_model(LGBM_REG_FOLDER, lgbm_reg_prefix)
+sknn_regressor = SKNN_Regressor.load_model(SKNN_REG_FOLDER, sknn_reg_prefix)
+
+# Generate Candidate Inputs
+print("\n# === Generating random candidate inputs... === #")
+num_samples = 500000
+num_features = classifier.input_dim
+candidate_inputs = np.random.uniform(low=-0.5, high=0.5, size=(num_samples, num_features)).astype(np.float32)
+print(f"Generated {num_samples} candidates.")
+
+# Classify and Filter Candidates
+print("\n# === Using classifier to find valid candidates... === #")
+validity_probs = classifier.predict_proba(candidate_inputs)
+validity_threshold = 0.98
+valid_indices = np.where(validity_probs.flatten() > validity_threshold)[0]
+
+if len(valid_indices) == 0:
+    print(f"No valid candidates found with a threshold > {validity_threshold}.")
+else:
+    valid_inputs = candidate_inputs[valid_indices]
+    print(f"Found {len(valid_inputs)} likely valid candidates.")
+
+    # Get Predictions from All Regressors
+    print("\n# === Getting predictions from all models... === #")
+    preds_mlp = mlp_regressor.predict(valid_inputs).flatten()
+    preds_lgbm = lgbm_regressor.predict(valid_inputs).flatten()
+    preds_sknn = sknn_regressor.predict(valid_inputs).flatten()
+
+    # Find and Report the Best Result for EACH Model
+    print("\n# === Analyzing results from each model... === #")
+    
+    feature_names = [f'cst_l_{i+1}' for i in range(num_features//2)] + \
+                    [f'cst_u_{i+1}' for i in range(num_features//2)]
+
+    try:
+        training_df = pd.read_csv(REGRESSOR_DATA_PATH)
+        best_actual_idx = training_df.iloc[:, -1].idxmax()
+        best_actual_row = training_df.loc[best_actual_idx]
+        best_actual_value = best_actual_row.iloc[-1]
+        best_actual_inputs = best_actual_row.iloc[:-1].values
+        
+        # This report serves as the "ground truth" baseline
+        report_best_result(
+            "Actual Best from Training Data",
+            best_actual_value,
+            best_actual_inputs,
+            feature_names
+        )
+    except FileNotFoundError:
+        print(f"\nCould not find regressor training data at '{REGRESSOR_DATA_PATH}'. Skipping the ground truth comparison.")
+
+    # MLP Result
+    best_idx_mlp = np.argmax(preds_mlp)
+    report_best_result("MLP Regressor", preds_mlp[best_idx_mlp], valid_inputs[best_idx_mlp], feature_names)
+
+    # LGBM Result
+    best_idx_lgbm = np.argmax(preds_lgbm)
+    report_best_result("LGBM Regressor", preds_lgbm[best_idx_lgbm], valid_inputs[best_idx_lgbm], feature_names)
+
+    # SKNN Result
+    best_idx_sknn = np.argmax(preds_sknn)
+    report_best_result("SKNN Regressor", preds_sknn[best_idx_sknn], valid_inputs[best_idx_sknn], feature_names)
+
+    print("\nPipeline finished successfully.")

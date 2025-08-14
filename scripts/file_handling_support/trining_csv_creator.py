@@ -56,7 +56,6 @@ class Training_Data_Generator:
             header = f"cst_u_{i+1}"
             cst_headers.append(header)
         self.cst_headers = cst_headers
-        #self.cst_headers = ['cst_l_1', 'cst_l_2', 'cst_l_3', 'cst_u_1', 'cst_u_2', 'cst_u_3']
 
 
     def _log_and_print(self, message: str, level: str = 'info'):
