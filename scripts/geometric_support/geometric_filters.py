@@ -159,15 +159,15 @@ class Validate_Airfoil:
                 return ("invalid", log_line)
         else:
             if self.verbose:
-                print(f"[INFO] Maximum thickness location threshold is {th_t_x_max} filter is inactive")
+                print(f"[INFO] Maximum thickness location back threshold is {th_t_x_max} filter is inactive")
         if th_t_x_min:
-            if t_x > th_t_x_min:
-                reason = f"Maximum thickness location found further back than {th_t_x_min}"
+            if t_x < th_t_x_min:
+                reason = f"Maximum thickness location found further front than {th_t_x_min}"
                 log_line = f"{self.name}.dat: cmb_l = {self.cmb_l}, cmb_u = {self.cmb_u} | Reason: {reason}\n"
                 return ("invalid", log_line)
         else:
             if self.verbose:
-                print(f"[INFO] Maximum thickness location threshold is {th_t_x_min} filter is inactive")
+                print(f"[INFO] Maximum thickness location front threshold is {th_t_x_min} filter is inactive")
         
 
         return ("valid", None)

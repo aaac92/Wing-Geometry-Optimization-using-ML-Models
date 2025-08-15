@@ -2,7 +2,7 @@ import numpy as np
 from itertools import product
 from cst_modeling.foil import FoilGeoFeatures, check_validity
 
-def LE_angular_curvature_continuity(x, zu, zl, n_points=10):
+def LE_angular_curvature_continuity(x, zu, zl, tolerance = 5, n_points=10):
     """
     Check if the LE has a sharp slope deviation relative to the average slope changes.
 
@@ -35,7 +35,7 @@ def LE_angular_curvature_continuity(x, zu, zl, n_points=10):
     first_vec_u, avg_angle_u = compute_slopes_and_angles(x_u, z_u)
     first_vec_l, avg_angle_l = compute_slopes_and_angles(x_l, z_l)
 
-    threshold = np.mean([avg_angle_l, avg_angle_u])
+    threshold = np.mean([avg_angle_l, avg_angle_u]) + tolerance
 
     vertical = np.array([0, 1])
 

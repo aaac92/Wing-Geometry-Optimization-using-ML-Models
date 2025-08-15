@@ -439,7 +439,7 @@ def Final_Coefficient_Generation(verbose=False):
 
     if not geo_files_to_process:
         print("All force files appear to be generated. Compressing now.")
-        compression_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
+        rar_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
         return
 
     num_workers = min(cpu_count() - 2, len(geo_files_to_process))
@@ -557,12 +557,12 @@ if __name__ == "__main__":
         'threshold_max_t': 0.25,
         'threshold_min_t': 0.03,
         'threshold_t_x_max': 0.45,
-        'threshold_t_x_min': 0.25,
+        'threshold_t_x_min': 0.15,
         'activate_curvature_cont': True,
-        'threshold_rLE': 0.005,
+        'threshold_rLE': 0.01,
         'monotonic_activation': True,
         'threshold_max_camber': 0.25,
-        'threshold_min_camber': 0.05
+        'threshold_min_camber': 0
     }
 
     threshold_max_t = geo_filt_parm['threshold_max_t']
