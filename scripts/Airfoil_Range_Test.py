@@ -17,8 +17,8 @@ support_files_dir = project_root / "support_files"
 if __name__ == "__main__":
     base_airfoil_path = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
     n_cst = 5
-    cmb = [-0.125, 0.375, 0.375, 0.375, 0.125, # Lower surface
-           0.375, 0.375, 0.375, 0.375, 0.125] # Upper surface
+    cmb = [-0.125, 0.125, 0.125, 0.125, 0.125, # Lower surface
+           0.125, 0.125, 0.125, 0.125, 0.125] # Upper surface
     
     airfoil = Airfoil_Generator(
             base_airfoil_csv=base_airfoil_path,

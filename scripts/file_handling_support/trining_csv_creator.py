@@ -192,7 +192,7 @@ class Training_Data_Generator:
         valid_data_for_regression = self._process_valid_airfoils()
         invalid_csts_for_classification = self._process_invalid_airfoils()
 
-        # --- 1. Generate the REGRESSION file (valid data only) ---
+        # --- Generate the REGRESSION file (valid data only) ---
         if valid_data_for_regression:
             if self.output_mode == 'Efficiency':
                 regr_header = self.cst_headers + ['E']
@@ -204,7 +204,7 @@ class Training_Data_Generator:
         else:
             self._log_and_print("No valid data processed for regression file.", 'warning')
 
-        # --- 2. Generate the CLASSIFICATION file (combined data) ---
+        # --- Generate the CLASSIFICATION file (combined data) ---
         # Get CSTs from the valid data and add the 'valid=1' flag
         valid_csts_for_classification = [row[:len(self.cst_headers)] + [1] for row in valid_data_for_regression]
         

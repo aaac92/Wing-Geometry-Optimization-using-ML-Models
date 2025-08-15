@@ -27,7 +27,7 @@ if not os.path.exists(DATA_PATH):
 # Define the grid of hyperparameters for the SKNN regressor.
 # The main parameter to tune is the polynomial degree.
 param_grid = {
-    'degree': [2, 3, 4],
+    'degree': [4, 5, 6],
 }
 
 

@@ -13,7 +13,7 @@ from cst_modeling.foil import check_validity
 from multiprocessing import Pool, Manager, cpu_count
 # Import custom package class and methods
 from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support import Key_Point_Extraction, RecWingGeo_Creation, AVL_Run_Case
+from simulation_support import Key_Point_Extraction, SpyeyeGeo_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
 from ux_support import Progress_GUI, recovery_json, recovery_Fabius
@@ -68,8 +68,10 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
         A list containing rows of cst coeeffiecients, format in Airfoil_Generator
     '''
     # Unpack filter parameters
+    threshold_max_t = kwargs.get('threshold_max_t')
     threshold_min_t = kwargs.get('threshold_min_t')
-    threshold_t_x = kwargs.get('threshold_t_x')
+    threshold_t_x_max = kwargs.get('threshold_t_x_max')
+    threshold_t_x_min = kwargs.get('threshold_t_x_min')
     activate_curvature_cont = kwargs.get('activate_curvature_cont')
     threshold_rLE = kwargs.get('threshold_rLE')
     monotonic_activation = kwargs.get('monotonic_activation')
@@ -140,7 +142,7 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
                     )
                 
                 if valid == 'valid':
-                    valid, log_reason = va.thickness_filters(th_t_min=threshold_min_t, th_t_x=threshold_t_x)
+                    valid, log_reason = va.thickness_filters(th_t_min=threshold_min_t, th_t_max=threshold_max_t, th_t_x_max=threshold_t_x_max, th_t_x_min=threshold_t_x_min)
                 if valid == 'valid':
                     valid, log_reason = va.sharpness_filter(curv_cont=activate_curvature_cont, th_rLE=threshold_rLE)
                 if valid == 'valid':
@@ -356,7 +358,7 @@ def Geometric_File_Creation():
     key_points.save_error_log(KP_error_log)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-    geo_creator = RecWingGeo_Creation(
+    geo_creator = SpyeyeGeo_Creation(
                 key_points_data=key_points_data,
                 airfoil_abs_paths=airfoil_abs_paths,
                 output_dir=str(geo_files_temp_dir),
@@ -538,26 +540,35 @@ if __name__ == "__main__":
     n_cst = 5
 
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
-    ranges = {
-        'first': (-0.375, 0.375, 0.25),   # range for value closest to LE
-        'middle': (-0.375, 0.375, 0.25),  # range for middle points
-        'last': (-0.375, 0.375, 0.25)     # range for value closest to TE
+    ranges_upper = {
+        'first': (0, 0.125, 0.0625),   # range for value closest to LE
+        'middle': (0, 0.125, 0.03125),  # range for middle points
+        'last': (0, 0.125, 0.125)     # range for value closest to TE
     }
-    cmb_datalist = create_modification_combinations(n_cst, ranges, ranges, debug=True)
+    ranges_lower = {
+        'first': (-0.125, 0, 0.0625),   # range for value closest to LE
+        'middle': (0, 0.125, 0.03125),  # range for middle points
+        'last': (0, 0.125, 0.125)     # range for value closest to TE
+    }
+    cmb_datalist = create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=True)
 
     # Geometric Filters thresholds and activations
     geo_filt_parm = {
+        'threshold_max_t': 0.25,
         'threshold_min_t': 0.03,
-        'threshold_t_x': 0.6,
+        'threshold_t_x_max': 0.45,
+        'threshold_t_x_min': 0.25,
         'activate_curvature_cont': True,
         'threshold_rLE': 0.005,
         'monotonic_activation': True,
-        'threshold_max_camber': 0.45,
-        'threshold_min_camber': -0.35
+        'threshold_max_camber': 0.25,
+        'threshold_min_camber': 0.05
     }
 
+    threshold_max_t = geo_filt_parm['threshold_max_t']
     threshold_min_t = geo_filt_parm['threshold_min_t']
-    threshold_t_x = geo_filt_parm['threshold_t_x']
+    threshold_t_x_max = geo_filt_parm['threshold_t_x_max']
+    threshold_t_x_min = geo_filt_parm['threshold_t_x_min']
     activate_curvature_cont = geo_filt_parm['activate_curvature_cont']
     threshold_rLE = geo_filt_parm['threshold_rLE']
     monotonic_activation = geo_filt_parm['monotonic_activation']
@@ -565,10 +576,10 @@ if __name__ == "__main__":
     threshold_min_camber = geo_filt_parm['threshold_min_camber']
 
     # === Polar Alpha Range === #
-    ASEQ = [-20, 20, 1]
+    ASEQ = [-20, 20, 0.5]
 
     # === Dataset Parameter Logging === #
-    dataset_num = 15 
+    dataset_num = 16 
     num_combinations = cmb_datalist.shape[0]
     log_filename = project_root / f"Dataset_{dataset_num}_{num_combinations}_data_points.log"
 
@@ -578,12 +589,15 @@ if __name__ == "__main__":
             log_file.write("="*30 + "\n")
             log_file.write(f"CST Order (n_cst): {n_cst}\n")
             log_file.write("\nGeometric Filters:\n")
-            log_file.write(f"  thickness_filters: threshold_min_t = {threshold_min_t}, threshold_t_x = {threshold_t_x}\n")
+            log_file.write(f"  thickness_filters: threshold_max_t = {threshold_max_t}, threshold_min_t = {threshold_min_t}, threshold_t_x_max = {threshold_t_x_max}, threshold_t_x_min = {threshold_t_x_min}\n")
             log_file.write(f"  sharpness_filters: activate_curvature_cont = {activate_curvature_cont}, threshold_rLE = {threshold_rLE}\n")
             log_file.write(f"  monotonic_thickness_filter: {monotonic_activation}\n")
             log_file.write(f"  camber_filters: threshold_max_camber = {threshold_max_camber}, threshold_min_camber = {threshold_min_camber}\n")
             log_file.write("\nCST Coefficient Ranges:\n")
-            log_file.write(f"  {ranges}\n")
+            log_file.write("\nLower surface:\n")
+            log_file.write(f"  {ranges_lower}\n")
+            log_file.write("\nUpper surface:\n")
+            log_file.write(f"  {ranges_upper}\n")
 
     # === Execution with Recovery === #
     status = rec_json.get_recovery_status()
@@ -614,8 +628,9 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     # Execution completed successfully
-    #shutil.rmtree(training_temp_root)
+    shutil.rmtree(training_temp_root)
     rec_json.recover_cleanup()
 
     end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Cleanup complete, database completed at {end_time}.")
+    print(f"Total execution time: {end_time - start_time}")
