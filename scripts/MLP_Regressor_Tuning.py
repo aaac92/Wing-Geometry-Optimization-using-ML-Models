@@ -1,7 +1,10 @@
 import torch
 import sys
 import os
+import re
+import json
 import itertools
+import random
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,20 +29,28 @@ project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, project_root)
 # Path to regressor dataset
-DATA_PATH = project_root / 'Airfoils_for_Regressor_E_Dataset_15.csv'
+Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
+DATA_PATH = project_root / Training_File
+match = re.search(r"(?<=Dataset_)\d+", Training_File)
+if match:
+    dataset_num = int(match.group())
 # Folder where the best trained models will be saved
-MODEL_SAVE_FOLDER = project_root / "optimized_MLP_regressor_model"
-
+MODEL_SAVE_FOLDER = project_root / "AI_Models" / f"Dataset_{dataset_num}" / "optimized_MLP_regressor_model"
+os.makedirs(MODEL_SAVE_FOLDER, exist_ok=True)
 if not os.path.exists(DATA_PATH):
     print(f"[ERROR] Dataset not found at '{DATA_PATH}'. Please check the file path.")
     sys.exit()
 
 # Define the grid of hyperparameters for the MLP regressor.
 param_grid = {
-    'hidden_size': [384, 512],
-    'dropout_rate': [0.2, 0.3],
-    'learning_rate': [0.01, 0.05],
-    'noise_level': [0.02]
+    'hidden_size': [384],
+    'dropout_rate': [0.05],
+    'learning_rate': [0.01],
+    'noise_level': [0.01],
+    'poly_degree': [3],
+    'weight': ['None', 'exponential'],
+    'os_mode': ['None', 'top', 'hybrid'],
+    'rep_factor': [10]
 }
 
 # === Grid Search Execution === #
@@ -51,25 +62,33 @@ parameter_combinations = list(itertools.product(
     param_grid['hidden_size'],
     param_grid['dropout_rate'],
     param_grid['learning_rate'],
-    param_grid['noise_level']
+    param_grid['noise_level'],
+    param_grid['poly_degree'],
+    param_grid['weight'],
+    param_grid['os_mode'],
+    param_grid['rep_factor']
 ))
 
 print(f"\nStarting Regressor Grid Search for {len(parameter_combinations)} Combinations...")
 
 for i, params in enumerate(parameter_combinations):
-    hs, dr, lr, nl = params
+    hs, dr, lr, nl, polyd, weight, mode, rep = params
     
-    print("\n" + "="*60)
+    print("\n" + "="*135)
     print(f"RUN {i+1}/{len(parameter_combinations)}")
-    print(f"PARAMETERS: HiddenSize={hs}, Dropout={dr}, LR={lr}, Noise={nl}")
-    print("="*60)
+    print(f"PARAMETERS: HiddenSize={hs}, Dropout={dr}, LR={lr}, Noise={nl}, Poly Features deg={polyd}, Weight Type={weight}, Oversampling Mode={mode}, Repetition Factor={rep}")
+    print("="*135)
 
     # Instantiate the regressor with the current set of parameters
     regressor = MLP_Regressor(
         hidden_size=hs,
         dropout_rate=dr,
         learning_rate=lr,
-        noise_level=nl
+        noise_level=nl,
+        poly_degree=polyd,
+        weight=weight,
+        os_mode=mode,
+        rep_factor=rep
     )
 
     # Train the model and get the final evaluation metrics
@@ -97,6 +116,10 @@ for i, params in enumerate(parameter_combinations):
         'dropout_rate': dr,
         'learning_rate': lr,
         'noise_level': nl,
+        'Polynomial Degree': polyd,
+        'Oversampling Mode': mode,
+        'Data repetition factor': rep,
+        'Weight Type':weight,
         'MAE': current_mae,
         'R2_Score': current_r2
     }
@@ -106,19 +129,51 @@ print("Grid Search Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
 # === Final Saving and Reporting === #
+# Create name lists for saving the model
+names = ["Murata", "Barbatos", "Beelzebul", "Buer", "Focalors", "Istaroth", "Phanes", "Asmoday", "Paimon", "Alice", "Ronnova"]
+best_mae_name = random.choice(names)
+best_r2_name = random.choice(names)
 # Save the Best Models
 print("--- Saving Best Performing Models ---")
 if best_mae_info['model']:
-    hs, dr, lr, nl = best_mae_info['params']
-    file_name = f"regressor_hs_{hs}_dr_{dr}_lr_{lr}_nl_{nl}"
-    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
+    hs, dr, lr, nl, polyd, weight, mode, rep = best_mae_info['params']
+    best_result = {
+        'hidden_size': hs,
+        'dropout_rate': dr,
+        'learning_rate': lr,
+        'noise_level': nl,
+        'Polynomial Degree': polyd,
+        'Oversamplig Mode': mode,
+        'Data repetition factor': rep,
+        'Weight Type':weight
+    }
+    json_name = f"{best_mae_name}_regressor_model_parameters.json"
+    param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
+    with open(param_file, 'w') as json_file:
+        json.dump(best_result, json_file, indent=4)
+    file_name_prefix = f"{best_mae_name}_regressor_model"
+    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
 else:
     print("No best MAE model was captured to save.")
 
 if best_r2_info['model']:
     if best_r2_info['model'] is not best_mae_info['model']:
-        hs, dr, lr, nl = best_r2_info['params']
-        file_name = f"regressor_hs_{hs}_dr_{dr}_lr_{lr}_nl_{nl}"
+        hs, dr, lr, nl, polyd, weight, mode, rep = best_r2_info['params']
+        best_result = {
+            'hidden_size': hs,
+            'dropout_rate': dr,
+            'learning_rate': lr,
+            'noise_level': nl,
+            'Polynomial Degree': polyd,
+            'Oversamplig Mode': mode,
+            'Data repetition factor': rep,
+            'Weight Type':weight
+        }
+        json_name = f"{best_r2_name}_regressor_model_parameters.json"
+        param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
+        with open(param_file, 'w') as json_file:
+            json.dump(best_result, json_file, indent=4)
+        file_name = f"{best_r2_name}_regressor_model"
         best_r2_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
     else:
         print("Best R2 model is the same as the best MAE model. Not saving a duplicate.")
@@ -131,9 +186,11 @@ best_mae_run = results_df.sort_values(by="MAE", ascending=True).iloc[0]
 best_r2_run = results_df.sort_values(by="R2_Score", ascending=False).iloc[0]
 
 print("\n--- Best Parameters Based on MAE (Relative to other models, lower is better) ---")
+print(f"\nName: {best_mae_name}")
 print(best_mae_run)
 
 print("\n--- Best Parameters Based on R2 Score From 0 to 1, 1 is best) ---")
+print(f"\nName: {best_r2_name}")
 print(best_r2_run)
 
 results_csv_path = MODEL_SAVE_FOLDER / "regressor_grid_search_results.csv"
@@ -150,7 +207,7 @@ print("#"*60 + "\n")
 # All provided regressor classes use test_size=0.2 and random_state=42.
 
 # Select the best model found during the grid search
-best_model = best_mae_info['model']
+best_model = best_r2_info['model']
 
 if best_model:
     # Load and split the data exactly as it was during training

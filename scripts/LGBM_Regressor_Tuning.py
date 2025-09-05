@@ -1,5 +1,8 @@
 import sys
 import os
+import re
+import json
+import random
 import itertools
 import pandas as pd
 import numpy as np
@@ -15,22 +18,30 @@ project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, project_root)
 # Path to regressor dataset
-DATA_PATH = project_root / 'Airfoils_for_Regressor_E_Dataset_15.csv'
+Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
+DATA_PATH = project_root / Training_File
+match = re.search(r"(?<=Dataset_)\d+", Training_File)
+if match:
+    dataset_num = int(match.group())
 # Folder where the best trained models will be saved
-MODEL_SAVE_FOLDER = project_root / "optimized_LGBM_regressor_model"
-
+MODEL_SAVE_FOLDER = project_root / "AI_Models" / f"Dataset_{dataset_num}" / "optimized_LGBM_regressor_model"
+os.makedirs(MODEL_SAVE_FOLDER, exist_ok=True)
 if not os.path.exists(DATA_PATH):
     print(f"[ERROR] Dataset not found at '{DATA_PATH}'. Please check the file path.")
     sys.exit()
 
+
 # Define the grid of hyperparameters for the LGBM regressor.
 param_grid = {
-    'n_estimators': [2000, 2500],
-    'learning_rate': [0.05, 0.1, 0.5],
-    'num_leaves': [30, 40, 50],
-    'max_depth': [15, 20, 25]
+    'n_estimators': [3000],
+    'learning_rate': [0.3],
+    'num_leaves': [70],
+    'max_depth': [15],
+    'objective': ['regression_l2'],
+    'weights': ['None'],
+    'os_mode': ['top', 'hybrid'],
+    'rep_factor':[15, 20]
 }
-
 
 # === Initialize Best Model Trackers === #
 # For MAE, a lower score is better.
@@ -46,25 +57,34 @@ parameter_combinations = list(itertools.product(
     param_grid['n_estimators'],
     param_grid['learning_rate'],
     param_grid['num_leaves'],
-    param_grid['max_depth']
+    param_grid['max_depth'],
+    param_grid['objective'],
+    param_grid['weights'],
+    param_grid['os_mode'],
+    param_grid['rep_factor']
 ))
 
 print(f"\nStarting LGBM Regressor Grid Search for {len(parameter_combinations)} Combinations...")
 
 for i, params in enumerate(parameter_combinations):
-    ne, lr, nl, md = params
+    ne, lr, nl, md, obj, weight, mode, rep = params
     
-    print("\n" + "="*60)
+    print("\n" + "="*90)
     print(f"RUN {i+1}/{len(parameter_combinations)}")
-    print(f"PARAMETERS: N_Estimators={ne}, LR={lr}, NumLeaves={nl}, MaxDepth={md}")
-    print("="*60)
+    print(f"PARAMETERS: N_Estimators={ne}, LR={lr}, NumLeaves={nl}, MaxDepth={md}, Oversampling Factor={rep}")
+    print(f"MODES: Weight Type={weight}, Oversampling mode={mode}, Objective={obj}")
+    print("="*90)
 
     # Instantiate the regressor with the current set of parameters
     regressor = LGBM_Regressor(
         n_estimators=ne,
         learning_rate=lr,
         num_leaves=nl,
-        max_depth=md
+        max_depth=md,
+        objective=obj,
+        weight=weight,
+        os_mode=mode,
+        rep_factor=rep
     )
 
     # Train the model and get the final evaluation metrics
@@ -92,10 +112,15 @@ for i, params in enumerate(parameter_combinations):
         'learning_rate': lr,
         'num_leaves': nl,
         'max_depth': md,
+        'objective': obj,
+        'weight type': weight,
+        'os_mode': mode,
+        'rep_factor': rep,
         'MAE': current_mae,
         'R2_Score': current_r2
     }
     all_results.append(run_result)
+
 print("\n" + "#"*60)
 print("Grid Search Complete. Analyzing Results...")
 print("#"*60 + "\n")
@@ -183,20 +208,52 @@ else:
     print("No best MAE model was found, skipping error analysis.")
 
 # === Final Saving and Reporting === #
-# --- Save the Best Models ---
+# Create name lists for saving the model
+names = ["Murata", "Barbatos", "Beelzebul", "Buer", "Focalors", "Istaroth", "Phanes", "Asmoday", "Paimon", "Alice", "Ronnova"]
+best_mae_name = random.choice(names)
+best_r2_name = random.choice(names)
+# Save the Best Models
 print("--- Saving Best Performing Models ---")
 if best_mae_info['model']:
-    ne, lr, nl, md = best_mae_info['params']
-    file_name = f"lgbm_ne_{ne}_lr_{lr}_nl_{nl}_md_{md}"
-    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
+    ne, lr, nl, md, obj, weight, mode, rep = best_mae_info['params']
+    best_result = {
+        'num_estimators': ne,
+        'learning_rate': lr,
+        'noise_level': nl,
+        'Max_depth': md,
+        'Objectve': obj,
+        'Weight': weight,
+        'Oversampling mode': mode,
+        'Oversampling factor': rep
+    }
+    json_name = f"{best_mae_name}_regressor_model_parameters.json"
+    param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
+    with open(param_file, 'w') as json_file:
+        json.dump(best_result, json_file, indent=4)
+    file_name_prefix = f"{best_mae_name}_regressor_model"
+    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
 else:
     print("No best MAE model was captured to save.")
 
 if best_r2_info['model']:
     if best_r2_info['model'] is not best_mae_info['model']:
-        ne, lr, nl, md = best_r2_info['params']
-        file_name = f"lgbm_ne_{ne}_lr_{lr}_nl_{nl}_md_{md}"
-        best_r2_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
+        ne, lr, nl, md, obj, weight, mode, rep = best_r2_info['params']
+        best_result = {
+            'num_estimators': ne,
+            'learning_rate': lr,
+            'noise_level': nl,
+            'Max_depth': md,
+            'Objectve': obj,
+            'Weight': weight,
+            'Oversampling mode': mode,
+            'Oversampling factor': rep
+        }
+        json_name = f"{best_r2_name}_regressor_model_parameters.json"
+        param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
+        with open(param_file, 'w') as json_file:
+            json.dump(best_result, json_file, indent=4)
+        file_name_prefix = f"{best_r2_name}_regressor_model"
+        best_r2_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
     else:
         print("Best R2 model is the same as the best MAE model. Not saving a duplicate.")
 else:
@@ -208,9 +265,11 @@ best_mae_run = results_df.sort_values(by="MAE", ascending=True).iloc[0]
 best_r2_run = results_df.sort_values(by="R2_Score", ascending=False).iloc[0]
 
 print("\n--- Best Parameters Based on MAE (Lower is Better) ---")
+print(f"\nName: {best_mae_name}")
 print(best_mae_run)
 
 print("\n--- Best Parameters Based on R2 Score (Higher is Better) ---")
+print(f"\nName: {best_r2_name}")
 print(best_r2_run)
 
 results_csv_path = MODEL_SAVE_FOLDER / "lgbm_grid_search_results.csv"

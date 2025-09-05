@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import os
 import sys
+import json
 from pathlib import Path
 from ai_support import Classifier, MLP_Regressor, LGBM_Regressor, SKNN_Regressor
 
@@ -31,20 +32,37 @@ def find_model_prefix(folder_path: Path, unique_suffix: str) -> str:
     print(f"Found model prefix in '{folder_path.name}': {prefix}")
     return prefix
 
-def parse_mlp_prefix_for_hyperparams(prefix: str) -> dict:
+def parse_mlp_prefix_for_hyperparams(prefix: str, path: str) -> dict:
     """
-    Parses a filename prefix to extract hyperparameters needed
-    to reconstruct the MLP Regressor model.
+    Loads hyperparameters from the JSON _parameters file, 
+    located in the given path. Extracts only hidden_size and dropout_rate.
+    
+    Args:
+        prefix (str): Filename prefix used to identify the parameters file.
+        path (str): Directory path where the JSON file is located.
+    
+    Returns:
+        dict: Dictionary containing 'hidden_size' and 'dropout_rate'.
     """
+    filename = f"{prefix}_parameters.json"
+    filepath = os.path.join(path, filename)
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Parameters file not found: {filepath}")
+
+    with open(filepath, "r") as f:
+        params = json.load(f)
+
     try:
-        hidden_size = int(re.search(r'hs_(\d+)', prefix).group(1))
-        dropout_rate = float(re.search(r'dr_([0-9.]+)', prefix).group(1))
-        
-        hyperparams = {'hidden_size': hidden_size, 'dropout_rate': dropout_rate}
-        print(f"   - Parsed MLP hyperparameters: {hyperparams}")
-        return hyperparams
-    except AttributeError:
-        raise ValueError(f"Could not parse hyperparameters from MLP prefix: '{prefix}'.")
+        hidden_size = int(params["hidden_size"])
+        dropout_rate = float(params["dropout_rate"])
+    except KeyError as e:
+        raise ValueError(f"Missing required key in JSON: {e}")
+
+    hyperparams = {"hidden_size": hidden_size, "dropout_rate": dropout_rate}
+    print(f"   - Parsed MLP hyperparameters from JSON: {hyperparams}")
+
+    return hyperparams
     
 def parse_classifier_prefix_for_hyperparams(prefix: str) -> dict:
     """
@@ -58,8 +76,56 @@ def parse_classifier_prefix_for_hyperparams(prefix: str) -> dict:
     except AttributeError:
         raise ValueError(f"Could not parse hidden_size from Classifier prefix: '{prefix}'.")
 
+def generate_candidates(num_samples, num_features, ranges_upper, ranges_lower):
+    """
+    Generate candidate inputs constrained to feature ranges like the database generation phase.
+
+    Parameters
+    ----------
+    num_samples : int
+        Number of candidates to generate
+    num_features : int
+        Number of input features (classifier.input_dim)
+    ranges_upper : dict
+        Ranges for upper surface {'first', 'middle', 'last'}
+    ranges_lower : dict
+        Ranges for lower surface {'first', 'middle', 'last'}
+
+    Returns
+    -------
+    np.ndarray
+        Candidate array of shape (num_samples, num_features)
+    """
+
+    # Split into upper + lower (assuming symmetric feature count)
+    half = num_features // 2
+    num_middle = half - 2 
+
+    feature_ranges = []
+
+    # Build ranges for lower
+    feature_ranges.append(ranges_lower["first"])  # first
+    feature_ranges.extend([ranges_lower["middle"]] * num_middle)  # middle
+    feature_ranges.append(ranges_lower["last"])   # last
+
+    # Build ranges for upper
+    feature_ranges.append(ranges_upper["first"])
+    feature_ranges.extend([ranges_upper["middle"]] * num_middle)
+    feature_ranges.append(ranges_upper["last"])
+
+    assert len(feature_ranges) == num_features, "Mismatch in feature ranges"
+
+    # Generate samples per feature
+    candidates = np.zeros((num_samples, num_features), dtype=np.float32)
+    for i, (low, high, step) in enumerate(feature_ranges):
+        candidates[:, i] = np.random.uniform(low, high, size=num_samples)
+
+    return candidates
+
 def report_best_result(model_name: str, best_value: float, best_input: np.ndarray, feature_names: list):
-    """Helper function to print a formatted result for a model."""
+    """
+    Helper function to print a formatted result for a model.
+    """
     print("\n" + "="*50)
     print(f"Best Result from: {model_name}")
     print("="*50)
@@ -78,13 +144,18 @@ project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, project_root)
 # Path of data for ground truth
-REGRESSOR_DATA_PATH = project_root / 'Airfoils_for_Regressor_E_Dataset_15.csv'
+Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
+REGRESSOR_DATA_PATH = project_root / Training_File
+match = re.search(r"(?<=Dataset_)\d+", Training_File)
+if match:
+    dataset_num = int(match.group())
+MODEL_PATHS = project_root / 'AI_Models' / f'Dataset_{dataset_num}'
 # Set the folder path for each of your 4 best models.
 # The script will automatically find the files inside these folders.
-CLASSIFIER_FOLDER = project_root / "optimized_classifier_model"
-MLP_REG_FOLDER = project_root / "optimized_MLP_regressor_model"
-LGBM_REG_FOLDER = project_root / "optimized_LGBM_regressor_model"
-SKNN_REG_FOLDER = project_root / "optimized_SKNN_regressor_model"
+CLASSIFIER_FOLDER = MODEL_PATHS / "optimized_classifier_model"
+MLP_REG_FOLDER = MODEL_PATHS / "optimized_MLP_regressor_model"
+LGBM_REG_FOLDER = MODEL_PATHS / "optimized_LGBM_regressor_model"
+SKNN_REG_FOLDER = MODEL_PATHS / "optimized_SKNN_regressor_model"
 
 
 # === INFERENCE EXECUTION === #
@@ -105,7 +176,7 @@ except (FileNotFoundError, ValueError) as e:
 print("\n# === Loading all trained models... === #")
 classifier_hyperparams = parse_classifier_prefix_for_hyperparams(classifier_prefix)
 classifier = Classifier.load_model(CLASSIFIER_FOLDER, classifier_prefix, **classifier_hyperparams)
-mlp_hyperparams = parse_mlp_prefix_for_hyperparams(mlp_reg_prefix)
+mlp_hyperparams = parse_mlp_prefix_for_hyperparams(mlp_reg_prefix, MLP_REG_FOLDER)
 mlp_regressor = MLP_Regressor.load_model(MLP_REG_FOLDER, mlp_reg_prefix, **mlp_hyperparams)
 lgbm_regressor = LGBM_Regressor.load_model(LGBM_REG_FOLDER, lgbm_reg_prefix)
 sknn_regressor = SKNN_Regressor.load_model(SKNN_REG_FOLDER, sknn_reg_prefix)
@@ -114,8 +185,19 @@ sknn_regressor = SKNN_Regressor.load_model(SKNN_REG_FOLDER, sknn_reg_prefix)
 print("\n# === Generating random candidate inputs... === #")
 num_samples = 500000
 num_features = classifier.input_dim
-candidate_inputs = np.random.uniform(low=-0.5, high=0.5, size=(num_samples, num_features)).astype(np.float32)
-print(f"Generated {num_samples} candidates.")
+extra = 1.2 # Multiplier for search space
+ranges_upper = { # Use same ranges as Dtabase_Generation
+    'first': (0, 0.125*extra, 0.0625),   # range for value closest to LE
+    'middle': (0, 0.125*extra, 1/24),  # range for middle points
+    'last': (0, 0.125*extra, 0.125)     # range for value closest to TE
+}
+ranges_lower = {
+    'first': (-0.125*extra, 0, 0.0625),   # range for value closest to LE
+    'middle': (0, 0.125*extra, 1/24),  # range for middle points
+    'last': (0, 0.125*extra, 0.125)     # range for value closest to TE
+}
+candidate_inputs = generate_candidates(num_samples, num_features, ranges_upper, ranges_lower)
+print(f"Generated {num_samples} candidates with constrained ranges.")
 
 # Classify and Filter Candidates
 print("\n# === Using classifier to find valid candidates... === #")

@@ -6,28 +6,24 @@ from pathlib import Path
 from datetime import datetime
 from tqdm import tqdm
 from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support import Key_Point_Extraction, RecWingGeo_Creation, AVL_Run_Case
+from simulation_support import Key_Point_Extraction, SpyeyeGeo_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator
 from file_handling_support import compression_Alma, get_all_files_from
 
-# Get the path to the parent directory (xfoil_project).
+# Get the path to the parent directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, str(project_root))
 
 # Main Directory and Naming Setup ---
-dataset = "dataset_15"
+dataset = "dataset_16"
 # This prefix will be used for the main output folder and all archive names
 dataset_name_prefix = f"AI_Test_Results_{dataset}"
 # The main folder where all results for this dataset will be saved
 output_root_folder = project_root / dataset_name_prefix
 
 # === Final Directory Definitions (now inside the main output folder) === #
-airfoils_dir = output_root_folder / "airfoils"
-force_files_dir = output_root_folder / "force files"
-polars_dir = output_root_folder / "polars"
-geo_files_dir = output_root_folder / "geometry files"
 support_files_dir = project_root / "support_files" # Support files stay in the project root
 
 # === Temporary Directory Definitions (no changes needed here) === #
@@ -78,15 +74,16 @@ if __name__ == "__main__":
 
     # === Test Setup === #
     n_cst = 5
-    # --- 2. NEW: Use a dictionary to define AI airfoils with names ---
+    # Use a dictionary to define AI airfoils with names 
     ai_airfoils_data = {
-        "Dataset Best" : np.array([-0.375, 0.375,-0.125, 0.125,-0.125, 0.125,-0.125,-0.125,-0.125, 0.125]),
-        "AI_Airfoil_MLP": np.array([-0.061702, 0.056080,-0.016760,-0.120047,-0.460390, 0.057240, 0.193765,-0.213402,-0.064503,-0.060050]), 
-        "AI_Airfoil_LGBM": np.array([-0.060542,-0.071230, 0.234374,-0.274851,-0.470854, 0.146988, 0.159061, 0.344600,-0.365011,-0.149187]), 
-        "AI_Airfoil_SKNN": np.array([ 0.071458,-0.023502,-0.142943,-0.099897,-0.481719,-0.098045, 0.242992,-0.052766,-0.319298,-0.154036])  
+        "Dataset Best" : np.array([0.000,0.125,0.125,0.000,0.000,0.000,0.000,0.125,0.000,0.000]),
+        "AI_Airfoil_MLP": np.array([-0.004311,0.046987,0.091949,0.025149,0.006765,0.141592,0.036563,0.102091,0.015853,0.015087]), 
+        "AI_Airfoil_LGBM": np.array([-0.007305,0.148910,0.127090,0.033265,0.007372,0.023069,0.096023,0.116464,0.006020,0.000129]), 
+        "AI_Airfoil_SKNN": np.array([-0.080549,0.036409,0.012562,0.003934,0.007612,0.014160,0.147924,0.031128,0.055704,0.146581]) 
     }
+
     base_airfoil_path = support_files_dir / 'naca0012_UNIT_0ALFA.csv'
-    ASEQ = [-20, 20, 1]
+    ASEQ = [-20, 20, 0.5]
 
     # Create all necessary directories (both temp and the new final output folder)
     create_temp_dirs()
@@ -142,7 +139,7 @@ if __name__ == "__main__":
     polar_paths = get_all_files_from(polars_temp_dir, extension='txt')
     key_points_extractor = Key_Point_Extraction(polar_file_paths=polar_paths)
     key_points_data = key_points_extractor.process_files()
-    geo_creator = RecWingGeo_Creation(
+    geo_creator = SpyeyeGeo_Creation(
         key_points_data=key_points_data,
         airfoil_abs_paths=airfoil_paths,
         output_dir=str(geo_files_temp_dir),
@@ -169,6 +166,7 @@ if __name__ == "__main__":
             output_dir=force_files_temp_dir
         )
         avl_case.run()
+        
     print("Final coefficient calculation complete.")
     rar_Alma.compress_folder(force_files_temp_dir, output_root_folder, f"{dataset_name_prefix}_force_files")
 

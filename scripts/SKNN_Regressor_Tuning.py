@@ -1,5 +1,9 @@
 import sys
 import os
+import re
+import json
+import random
+import itertools
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,19 +19,23 @@ project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, project_root)
 # Path to regressor dataset
-DATA_PATH = project_root / 'Airfoils_for_Regressor_E_Dataset_15.csv'
+Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
+DATA_PATH = project_root / Training_File
+match = re.search(r"(?<=Dataset_)\d+", Training_File)
+if match:
+    dataset_num = int(match.group())
 # Folder where the best trained models will be saved
-MODEL_SAVE_FOLDER = project_root / "optimized_SKNN_regressor_model"
-
+MODEL_SAVE_FOLDER = project_root / "AI_Models" / f"Dataset_{dataset_num}" / "optimized_SKNN_regressor_model"
+os.makedirs(MODEL_SAVE_FOLDER, exist_ok=True)
 if not os.path.exists(DATA_PATH):
     print(f"[ERROR] Dataset not found at '{DATA_PATH}'. Please check the file path.")
     sys.exit()
 
-# A "grid search" is kept here for consistancy and code reuse mostly.
-# Define the grid of hyperparameters for the SKNN regressor.
-# The main parameter to tune is the polynomial degree.
+# The main parameter to tune on the model itself is the polynomial degree.
 param_grid = {
-    'degree': [4, 5, 6],
+    'degree': [6],
+    'os_mode': ['None', 'hybrid'],
+    'rep_factor': [5, 10] # Minimum value is 5 if using hybrid
 }
 
 
@@ -42,19 +50,28 @@ best_r2_info = {'score': float('-inf'), 'model': None, 'params': None}
 all_results = []
 
 # This loop will just iterate through the list of degrees instead of an itertools combination loop
-parameter_combinations = list(param_grid['degree'])
+parameter_combinations = list(itertools.product(
+    param_grid['degree'],
+    param_grid['os_mode'],
+    param_grid['rep_factor']
+))
 
 print(f"\nStarting SKNN Regressor Grid Search for {len(parameter_combinations)} Degrees...")
 
-for i, degree in enumerate(parameter_combinations):
+for i, params in enumerate(parameter_combinations):
+    d, mode, rep = params
     
-    print("\n" + "="*60)
+    print("\n" + "="*80)
     print(f"RUN {i+1}/{len(parameter_combinations)}")
-    print(f"PARAMETERS: Degree={degree}")
-    print("="*60)
+    print(f"PARAMETERS: Degree={d}, Oversamplig Mode={mode}, Repetition Factor={rep}")
+    print("="*80)
 
     # Instantiate the regressor with the current degree
-    regressor = SKNN_Regressor(degree=degree)
+    regressor = SKNN_Regressor(
+        degree=d,
+        os_mode=mode,
+        rep_factor=rep
+    )
 
     # Train the model and get the final evaluation metrics
     final_metrics = regressor.train(data_path=DATA_PATH)
@@ -66,18 +83,20 @@ for i, degree in enumerate(parameter_combinations):
     if current_mae < best_mae_info['score']:
         best_mae_info['score'] = current_mae
         best_mae_info['model'] = regressor
-        best_mae_info['params'] = degree
+        best_mae_info['params'] = params
         print(f"New Best MAE: {best_mae_info['score']:.4f}. Model captured.")
 
     if current_r2 > best_r2_info['score']:
         best_r2_info['score'] = current_r2
         best_r2_info['model'] = regressor
-        best_r2_info['params'] = degree
+        best_r2_info['params'] = params
         print(f"New Best R2 Score: {best_r2_info['score']:.4f}. Model captured.")
 
     # Store the results of the run
     run_result = {
-        'degree': degree,
+        'Degree': d,
+        'Oversampling Mode': mode,
+        'Repetition Factor': rep,
         'MAE': current_mae,
         'R2_Score': current_r2
     }
@@ -169,20 +188,42 @@ else:
     print("No best MAE model was found, skipping error analysis.")
 
 # === Final Saving and Reporting === #
+# Create name lists for saving the model
+names = ["Murata", "Barbatos", "Beelzebul", "Buer", "Focalors", "Istaroth", "Phanes", "Asmoday", "Paimon", "Alice", "Ronnova"]
+best_mae_name = random.choice(names)
+best_r2_name = random.choice(names)
 # Save the Best Models
 print("--- Saving Best Performing Models ---")
 if best_mae_info['model']:
-    d = best_mae_info['params']
-    file_name = f"sknn_degree_{d}"
-    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
+    d, mode, rep = best_mae_info['params']
+    best_result = {
+        'Degree': d,
+        'Oversampling Mode': mode,
+        'Repetition Factor': rep
+    }
+    json_name = f"{best_mae_name}_regressor_model_parameters.json"
+    param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
+    with open(param_file, 'w') as json_file:
+        json.dump(best_result, json_file, indent=4)
+    file_name_prefix = f"{best_mae_name}_regressor_model"
+    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
 else:
     print("No best MAE model was captured to save.")
 
 if best_r2_info['model']:
     if best_r2_info['model'] is not best_mae_info['model']:
-        d = best_r2_info['params']
-        file_name = f"sknn_degree_{d}"
-        best_r2_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
+        d, mode = best_r2_info['params']
+        best_result = {
+            'Degree': d,
+            'Oversampling Mode': mode,
+            'Repetition Factor': rep
+        }
+        json_name = f"{best_mae_name}_regressor_model_parameters.json"
+        param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
+        with open(param_file, 'w') as json_file:
+            json.dump(best_result, json_file, indent=4)
+        file_name_prefix = f"{best_mae_name}_regressor_model"
+        best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
     else:
         print("Best R2 model is the same as the best MAE model. Not saving a duplicate.")
 else:
@@ -194,9 +235,11 @@ best_mae_run = results_df.sort_values(by="MAE", ascending=True).iloc[0]
 best_r2_run = results_df.sort_values(by="R2_Score", ascending=False).iloc[0]
 
 print("\n--- Best Parameters Based on MAE (Lower is Better) ---")
+print(f"\nName: {best_mae_name}")
 print(best_mae_run)
 
 print("\n--- Best Parameters Based on R2 Score (Higher is Better) ---")
+print(f"\nName: {best_r2_name}")
 print(best_r2_run)
 
 results_csv_path = "sknn_grid_search_results.csv"

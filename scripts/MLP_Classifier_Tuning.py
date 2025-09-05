@@ -1,6 +1,7 @@
 import torch
 import sys
 import os
+import re
 import itertools
 import pandas as pd
 from pathlib import Path
@@ -22,9 +23,14 @@ project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, project_root)
 # Path to dataset
-DATA_PATH = project_root / 'Airfoils_for_Classifier_Dataset_15.csv'
-MODEL_SAVE_FOLDER = project_root / "optimized_classifier_model"
-
+Training_File = "Airfoils_for_Classifier_Dataset_16.csv"
+DATA_PATH = project_root / Training_File
+match = re.search(r"(?<=Dataset_)\d+", Training_File)
+if match:
+    dataset_num = int(match.group())
+# Folder where the best trained models will be saved
+MODEL_SAVE_FOLDER = project_root / "AI_Models" / f"Dataset_{dataset_num}" / "optimized_classifier_model"
+os.makedirs(MODEL_SAVE_FOLDER, exist_ok=True)
 # Check if the dataset exists before starting
 if not os.path.exists(DATA_PATH):
     print(f"[ERROR] Dataset not found at '{DATA_PATH}'. Please check the file path.")
@@ -33,8 +39,8 @@ if not os.path.exists(DATA_PATH):
 # Define the grid of hyperparameters to search through.
 param_grid = {
     'hidden_size': [256, 512],
-    'learning_rate': [0.075, 0.1, 0.5],
-    'epochs': [600, 700]
+    'learning_rate': [0.05, 0.075, 0.1],
+    'epochs': [400, 500, 600]
 }
 
 

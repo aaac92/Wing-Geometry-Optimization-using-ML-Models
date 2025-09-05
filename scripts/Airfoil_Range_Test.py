@@ -30,7 +30,7 @@ if __name__ == "__main__":
     
     x, yu, yl = airfoil.generate(
             cst_coeffs=cmb,
-            show_fancy_plot=False,
+            show_fancy_plot=True,
             debug=False
             )
     

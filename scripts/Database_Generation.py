@@ -500,8 +500,8 @@ def Final_Database_Generation():
 
     invalid_airfoils_dir = airfoils_temp_dir / "Invalid_airfoils_log.txt"
 
-    regression_file = 'Airfoils_for_Regressor_E_Dataset_15.csv'
-    classification_file = 'Airfoils_for_Classifier_Dataset_15.csv'
+    regression_file = f"Airfoils_for_Regressor_E_Dataset_{dataset_num}.csv"
+    classification_file = f"Airfoils_for_Classifier_Dataset_{dataset_num}.csv"
 
     # Check if files need to be generated
     generate_regression = not (training_files_temp_dir / regression_file).exists() or (training_files_temp_dir / regression_file).stat().st_size == 0
@@ -534,6 +534,7 @@ def Final_Database_Generation():
 if __name__ == "__main__":
     # === Timer for Fun (?) === #
     start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    start = datetime.now()
     print(f"Database generation started at: {start_time}.")
     # === Geometric Generation Setup === #
     base_airfoil = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
@@ -542,12 +543,12 @@ if __name__ == "__main__":
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
     ranges_upper = {
         'first': (0, 0.125, 0.0625),   # range for value closest to LE
-        'middle': (0, 0.125, 0.03125),  # range for middle points
+        'middle': (0, 0.125, 1/24),  # range for middle points
         'last': (0, 0.125, 0.125)     # range for value closest to TE
     }
     ranges_lower = {
         'first': (-0.125, 0, 0.0625),   # range for value closest to LE
-        'middle': (0, 0.125, 0.03125),  # range for middle points
+        'middle': (0, 0.125, 1/24),  # range for middle points
         'last': (0, 0.125, 0.125)     # range for value closest to TE
     }
     cmb_datalist = create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=True)
@@ -557,7 +558,7 @@ if __name__ == "__main__":
         'threshold_max_t': 0.25,
         'threshold_min_t': 0.03,
         'threshold_t_x_max': 0.45,
-        'threshold_t_x_min': 0.15,
+        'threshold_t_x_min': 0.18,
         'activate_curvature_cont': True,
         'threshold_rLE': 0.01,
         'monotonic_activation': True,
@@ -628,9 +629,11 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     # Execution completed successfully
-    shutil.rmtree(training_temp_root)
+    #shutil.rmtree(training_temp_root)
     rec_json.recover_cleanup()
 
     end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    end = datetime.now()
+    total = end - start
     print(f"Cleanup complete, database completed at {end_time}.")
-    print(f"Total execution time: {end_time - start_time}")
+    print(f"Total execution time: {total}")

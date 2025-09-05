@@ -1,0 +1,2 @@
+hidden_size,dropout_rate,learning_rate,noise_level,Polynomial Degree,Oversampling Mode,Data repetition factor,Weight Type,MAE,R2_Score
+384,0.05,0.01,0.01,3,hybrid,10,None,0.6675300002098083,0.7949625253677368

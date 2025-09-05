@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, fbeta_score, mean_absolute_error, r2_score
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import make_pipeline
+from torch.utils.data import DataLoader, TensorDataset
 import joblib
 import json
 
@@ -92,7 +93,7 @@ class Classifier:
 
         neg_count = (y_train == 0).sum().item()
         pos_count = (y_train == 1).sum().item()
-        pos_weight = torch.tensor([neg_count / pos_count], device=self.device) if pos_count > 0 else torch.tensor([1.0])
+        pos_weight = torch.tensor([pos_count / neg_count], device=self.device) if pos_count > 0 else torch.tensor([1.0])
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
         # Training loop
@@ -208,17 +209,27 @@ class _PyTorchMLPRegressor(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_size),
             nn.BatchNorm1d(hidden_size),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout_rate),
 
             nn.Linear(hidden_size, hidden_size),
             nn.BatchNorm1d(hidden_size),
-            nn.ReLU(),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+
+            nn.Linear(hidden_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+
+            nn.Linear(hidden_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.GELU(),
             nn.Dropout(dropout_rate),
 
             nn.Linear(hidden_size, hidden_size // 2),
             nn.BatchNorm1d(hidden_size // 2),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout_rate),
 
             nn.Linear(hidden_size // 2, 1)
@@ -242,7 +253,11 @@ class MLP_Regressor:
                  patience=40,
                  poly_degree=2,
                  test_size=0.2,
-                 random_state=42):
+                 random_state=42,
+                 weight=None,
+                 os_mode = 'None',
+                 rep_factor=10,
+                 log_trans=False):
         
         # Hyperparameters
         self.hidden_size = hidden_size
@@ -253,9 +268,14 @@ class MLP_Regressor:
         # Other training parameters
         self.epochs = epochs
         self.patience = patience
+        self.weight = weight
+
+        # Data manipulation parameters
         self.poly_degree = poly_degree
         self.test_size = test_size
         self.random_state = random_state
+        self.os_mode = os_mode
+        self.rep_factor = rep_factor
 
         # Class components
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -263,6 +283,7 @@ class MLP_Regressor:
         self.poly_transformer = None
         self.scaler = None
         self.input_dim = None # Will be determined after polynomial transformation
+        self.log_transform = log_trans
         
         print(f"MLP Regressor initialized. Training will use device: {self.device}")
 
@@ -273,10 +294,51 @@ class MLP_Regressor:
         """
         df = pd.read_csv(data_path)
 
-        # All columns except the last one are features
-        X = df.iloc[:, :-1].values.astype(np.float32)
-        # The very last column is the target
-        y = df.iloc[:, -1:].values.astype(np.float32)
+        # Oversampling
+        if self.os_mode == 'None':
+            X = df.iloc[:, :-1].values.astype(np.float32)
+            y = df.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
+
+        if self.os_mode == 'top':
+        # Identify top % performers based on target column (last column)
+            y = df.iloc[:, -1]
+            top = 90
+            threshold = np.percentile(y, top)  # top % cutoff
+            df_top = df[y >= threshold]
+
+            # Oversample top performers
+            df_augmented = pd.concat([df, pd.concat([df_top]*self.rep_factor, ignore_index=True)], ignore_index=True)
+            print(f"Original dataset size: {len(df)}")
+            print(f"Augmented dataset size: {len(df_augmented)} (with top {100-top}% duplicated {self.rep_factor}x)")
+
+            # All columns except the last one are features
+            X = df_augmented.iloc[:, :-1].values.astype(np.float32)
+            # The very last column is the target
+            y = df_augmented.iloc[:, -1].values.astype(np.float32) 
+
+        elif self.os_mode == 'hybrid':
+            y = df.iloc[:, -1]
+            top = 90
+            mid = 75
+            low = 50
+            threshold_upper = np.percentile(y, top)  # top % cutoff
+            threshold_mid = np.percentile(y, mid)
+            threshold_bot = np.percentile(y, low)
+            df_top = df[y >= threshold_upper]
+            df_mid = df[(y >= threshold_mid) & (y < threshold_upper)]
+            df_bot = df[(y >= threshold_bot) & (y < threshold_mid)]
+
+            # Oversample top performers
+            df_augmented_top = pd.concat([df, pd.concat([df_top]*self.rep_factor, ignore_index=True)], ignore_index=True)
+            df_augmented_mid = pd.concat([df_augmented_top, pd.concat([df_mid]*(int(self.rep_factor/3)), ignore_index=True)], ignore_index=True)
+            df_augmented_hybrid = pd.concat([df_augmented_mid, pd.concat([df_bot]*(int(self.rep_factor/5)), ignore_index=True)], ignore_index=True)
+            print(f"Original dataset size: {len(df)}")
+            print(f"Augmented Hybrid dataset size: {len(df_augmented_hybrid)} \n(with top {100-top}% duplicated {self.rep_factor}x, \nmid {mid}% to {top}% duplicated {int(self.rep_factor/3)}x and \nbot {low}% to mid {mid}% duplicated {int(self.rep_factor/5)}x)")
+
+            # All columns except the last one are features
+            X = df_augmented_hybrid.iloc[:, :-1].values.astype(np.float32)
+            # The very last column is the target
+            y = df_augmented_hybrid.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
     
         return X, y
 
@@ -285,13 +347,52 @@ class MLP_Regressor:
         Executes the full training pipeline for the regressor.
         Returns a dictionary of performance metrics on the test set.
         """
+        # Custom weighted loss function
+        def make_weighted_mse(power: float = 1.0, mode: str = "linear"):
+            """
+            Returns a weighted MSE loss function.
+            - power: controls aggressiveness (higher = stronger penalty on high values)
+            - mode: "linear", "exponential", or "clipped"
+            """
+            def weighted_mse(y_pred, y_true):
+                # normalize to [0,1] so scaling is stable
+                normed = y_true / y_true.max()
+
+                if mode == "linear":
+                    weights = 1.0 + normed ** power
+
+                elif mode == "exponential":
+                    weights = torch.exp(power * normed)
+
+                else:
+                    raise ValueError(f"Unknown mode: {mode}")
+
+                return torch.mean(((y_pred - y_true) ** 2) * weights)
+
+            return weighted_mse
+
+        def combo_loss(y_pred, y_true, lam=0.8):
+
+            w_mse = make_weighted_mse(power=3.5, mode='exponential')
+            huber = nn.SmoothL1Loss()
+
+            return lam * huber(y_pred, y_true) + (1-lam) * w_mse(y_pred, y_true)
+        
         # Load data
         X, y = self._load_and_prepare_data(data_path)
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=self.test_size, random_state=self.random_state
-        )
+
+        # Logarithmic output transformation
+        if self.log_transform == True:
+            y_log = np.log1p(y)
+            # Split log data
+            X_train, X_test, y_log_train, y_log_test = train_test_split(
+                X, y_log, test_size=self.test_size, random_state=self.random_state
+            )
+        else:
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=self.test_size, random_state=self.random_state
+            )
 
         # Polynomial Features
         self.poly_transformer = PolynomialFeatures(degree=self.poly_degree, include_bias=False)
@@ -306,9 +407,28 @@ class MLP_Regressor:
 
         # Convert to Tensors
         X_train_t = torch.from_numpy(X_train_scaled).to(self.device)
-        y_train_t = torch.from_numpy(y_train).to(self.device)
         X_test_t = torch.from_numpy(X_test_scaled).to(self.device)
-        y_test_t = torch.from_numpy(y_test).to(self.device)
+        if self.log_transform == True:
+            y_train_t = torch.from_numpy(y_log_train).to(self.device)
+            y_test_t = torch.from_numpy(y_log_test).to(self.device)
+        else:
+            y_train_t = torch.from_numpy(y_train).to(self.device)
+            y_test_t = torch.from_numpy(y_test).to(self.device)
+
+        # Obtain weights for some features
+        if self.weight == 'instance':
+            # This uses the target value as the weight
+            weights_train = y_train_t
+        if self.weight == 'frequency':
+            # This uses the target value frequency as the weight
+            y_train_series = pd.Series(y_train.flatten())
+            value_counts = y_train_series.value_counts()
+            weights_map = 1 / value_counts
+            weights = y_train_series.map(weights_map)
+            weight = weights*len(y_train) / weights.sum()
+            weights_train = torch.tensor(weight.values, dtype=torch.float32).to(self.device)
+        else:
+            weights_train = torch.ones(len(y_train), dtype=torch.float32)
 
         # Initialize Model, Loss, Optimizer, and Scheduler
         self.model = _PyTorchMLPRegressor(
@@ -317,8 +437,18 @@ class MLP_Regressor:
             dropout_rate=self.dropout_rate
         ).to(self.device)
         
-        loss_fn = nn.SmoothL1Loss()
-        optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        if self.weight == 'frequency' or self.weight == 'instance':
+            loss_fn = nn.MSELoss(reduction='none')
+        elif self.weight == 'combo':
+            loss_fn = lambda yp, yt: combo_loss(yp, yt, lam=0.8)
+        elif self.weight == 'exponential':
+            loss_fn = make_weighted_mse(power=2, mode='exponential')
+        elif self.weight == 'linear':
+            loss_fn = make_weighted_mse(power=5, mode='linear')
+        elif self.weight == 'None':
+            loss_fn = nn.SmoothL1Loss()
+        #loss_fn = nn.PoissonNLLLoss(reduction='none')
+        optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate) # , weight_decay=1e-4
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=self.patience // 2, factor=0.5)
 
         # Training Loop with Early Stopping
@@ -326,28 +456,62 @@ class MLP_Regressor:
         early_stop_counter = 0
         best_model_state = None
 
+        # Create dataset from tensors
+        train_dataset = TensorDataset(X_train_t, y_train_t, weights_train)
+        # DataLoader batching + shuffling
+        train_loader = DataLoader(train_dataset, batch_size=524288, shuffle=True)
+
         print(f"Starting regressor training for up to {self.epochs} epochs...")
         for epoch in range(self.epochs):
             self.model.train()
+            epoch_loss = 0.0
             
-            # Data Augmentation: Add noise
-            noise = torch.randn_like(X_train_t) * self.noise_level
-            X_train_augmented = X_train_t + noise
+            for X_batch, y_batch, weights_batch_t in train_loader:
+                X_batch, y_batch, weights_batch_t = X_batch.to(self.device), y_batch.to(self.device), weights_batch_t.to(self.device)
 
-            # Forward pass
-            pred = self.model(X_train_augmented)
-            loss = loss_fn(pred, y_train_t)
-            
-            # Backward pass and optimization
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                # Ensure target tensors have the right shape [N, 1] to match model output
+                y_batch = y_batch.view(-1, 1)
+
+                # Data augmentation 
+                noise = torch.randn_like(X_batch) * self.noise_level
+                X_batch_aug = X_batch + noise
+
+                # Forward pass
+                pred = self.model(X_batch_aug)
+
+                if self.weight == 'instance' or self.weight == 'frequency':
+                    weights_batch_t_reshaped = weights_batch_t.view(-1, 1)
+
+                    # Calculate the raw, per-sample loss, used for some weight modes
+                    unweighted_loss = loss_fn(pred, y_batch)
+                
+                # Apply weights
+                if self.weight == 'instance' or self.weight == 'frequency':
+                    weighted_loss = unweighted_loss*weights_batch_t_reshaped
+                if self.weight == 'combo':
+                    weighted_loss = combo_loss(pred, y_batch)
+                if self.weight == 'exponential' or self.weight == 'linear' or self.weight == 'None':
+                    loss = loss_fn(pred, y_batch)
+
+                # Take the mean to get the final loss for backpropagation
+                if self.weight == 'instance' or self.weight == 'frequency' or self.weight == 'combo':
+                    loss = weighted_loss.mean()
+
+                # Backward pass and optimization
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                epoch_loss += loss.item()
 
             # Validation phase
             self.model.eval()
             with torch.no_grad():
                 val_pred = self.model(X_test_t)
-                val_loss = loss_fn(val_pred, y_test_t)
+                y_test_t_reshaped = y_test_t.view(-1, 1)
+                
+                loss_fn_eval = nn.MSELoss(reduction='mean')
+                val_loss = loss_fn_eval(val_pred, y_test_t_reshaped)
             
             scheduler.step(val_loss)
 
@@ -373,14 +537,30 @@ class MLP_Regressor:
         """Calculates and returns performance metrics on the test set."""
         self.model.eval()
         with torch.no_grad():
-            preds_tensor = self.model(X_test_t)
+            if self.log_transform:
+                log_preds_tensor = self.model(X_test_t)
+            else:
+                preds_tensor = self.model(X_test_t)
         
         # Move tensors to CPU and convert to NumPy for scikit-learn metrics
-        y_true_np = y_test_t.cpu().numpy()
-        y_preds_np = preds_tensor.cpu().numpy()
+        # Note: y_test_t contains the log-transformed true values if self.log_transform == True
+        if self.log_transform == True:
+            y_log_true_np = y_test_t.cpu().numpy()
+            y_log_preds_np = log_preds_tensor.cpu().numpy()
+        else:
+            y_true_np = y_test_t.cpu().numpy()
+            y_preds_np = preds_tensor.cpu().numpy()
 
-        mae = mean_absolute_error(y_true_np, y_preds_np)
-        r2 = r2_score(y_true_np, y_preds_np)
+        # Inverse transform BOTH predictions and true values to get them back to the original scale for self.log_transform == True
+        if self.log_transform == True:
+            y_true_original = np.expm1(y_log_true_np)
+            y_preds_original = np.expm1(y_log_preds_np)
+
+            mae = mean_absolute_error(y_true_original, y_preds_original)
+            r2 = r2_score(y_true_original, y_preds_original)
+        else:
+            mae = mean_absolute_error(y_true_np, y_preds_np)
+            r2 = r2_score(y_true_np, y_preds_np)
         
         metrics = {'MAE': mae, 'R2_Score': r2}
         
@@ -406,9 +586,14 @@ class MLP_Regressor:
 
         self.model.eval()
         with torch.no_grad():
-            predictions = self.model(X_t)
+            predictions_t = self.model(X_t)
+        if self.log_transform == True:
+            log_predictions_np = predictions_t.cpu().numpy()
+            predictions = np.expm1(log_predictions_np)
+        else:
+            predictions = predictions_t.cpu().numpy()
             
-        return predictions.cpu().numpy()
+        return predictions
         
     def save_model(self, folder_path, file_name_prefix):
         """Saves the model, polynomial transformer, scaler, and metadata."""
@@ -466,22 +651,30 @@ class LGBM_Regressor:
                  max_depth=10,
                  stopping_rounds=100,
                  test_size=0.2,
-                 random_state=42):
+                 random_state=42,
+                 objective = 'regression_l2',
+                 weight='None',
+                 os_mode='None',
+                 rep_factor=0):
         
         # Hyperparameters for Grid Search
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.num_leaves = num_leaves
         self.max_depth = max_depth
+        self.weight = weight
         
         # Other training parameters
         self.stopping_rounds = stopping_rounds
         self.test_size = test_size
         self.random_state = random_state
+        self.rep_factor = rep_factor
 
         # Class components
         self.model = None
         self.scaler = None
+        self.objective = objective
+        self.os_mode = os_mode
         
         print("LGBMRegressor initialized.")
 
@@ -491,10 +684,52 @@ class LGBM_Regressor:
         last column is the target.
         """
         df = pd.read_csv(data_path)
-        # All columns except the last one are features
-        X = df.iloc[:, :-1].values.astype(np.float32)
-        # The very last column is the target
-        y = df.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
+
+        # Oversampling
+        if self.os_mode == 'None':
+            X = df.iloc[:, :-1].values.astype(np.float32)
+            y = df.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
+
+        if self.os_mode == 'top':
+        # Identify top % performers based on target column (last column)
+            y = df.iloc[:, -1]
+            top = 90
+            threshold = np.percentile(y, top)  # top % cutoff
+            df_top = df[y >= threshold]
+
+            # Oversample top performers
+            df_augmented = pd.concat([df, pd.concat([df_top]*self.rep_factor, ignore_index=True)], ignore_index=True)
+            print(f"Original dataset size: {len(df)}")
+            print(f"Augmented dataset size: {len(df_augmented)} (with top {100-top}% duplicated {self.rep_factor}x)")
+
+            # All columns except the last one are features
+            X = df_augmented.iloc[:, :-1].values.astype(np.float32)
+            # The very last column is the target
+            y = df_augmented.iloc[:, -1].values.astype(np.float32) 
+
+        elif self.os_mode == 'hybrid':
+            y = df.iloc[:, -1]
+            top = 90
+            mid = 75
+            low = 50
+            threshold_upper = np.percentile(y, top)  # top % cutoff
+            threshold_mid = np.percentile(y, mid)
+            threshold_bot = np.percentile(y, low)
+            df_top = df[y >= threshold_upper]
+            df_mid = df[(y >= threshold_mid) & (y < threshold_upper)]
+            df_bot = df[(y >= threshold_bot) & (y < threshold_mid)]
+
+            # Oversample top performers
+            df_augmented_top = pd.concat([df, pd.concat([df_top]*self.rep_factor, ignore_index=True)], ignore_index=True)
+            df_augmented_mid = pd.concat([df_augmented_top, pd.concat([df_mid]*(int(self.rep_factor/3)), ignore_index=True)], ignore_index=True)
+            df_augmented_hybrid = pd.concat([df_augmented_mid, pd.concat([df_bot]*(int(self.rep_factor/5)), ignore_index=True)], ignore_index=True)
+            print(f"Original dataset size: {len(df)}")
+            print(f"Augmented Hybrid dataset size: {len(df_augmented_hybrid)} \n(with top {100-top}% duplicated {self.rep_factor}x, \nmid {mid}% to {top}% duplicated {int(self.rep_factor/3)} and \nbot {low}% to mid {mid}% duplicated {int(self.rep_factor/5)})")
+
+            # All columns except the last one are features
+            X = df_augmented_hybrid.iloc[:, :-1].values.astype(np.float32)
+            # The very last column is the target
+            y = df_augmented_hybrid.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
         
         return X, y
 
@@ -511,6 +746,37 @@ class LGBM_Regressor:
             X, y, test_size=self.test_size, random_state=self.random_state
         )
         
+        # Choose the weight type
+        if self.weight == 'instance':
+            weight = y_train
+        elif self.weight == 'frequency':
+            y_train_series = pd.Series(y_train.flatten())
+            value_counts = y_train_series.value_counts()
+            weights_map = 1 / value_counts
+            weights = y_train_series.map(weights_map)
+            weight = weights * len(y_train) / weights.sum()
+        elif self.weight == 'linear':
+            ymin, ymax = y_train.min(), y_train.max()
+            alpha = 4
+            weight = 1 + alpha * (y_train - ymin) / (ymax - ymin)
+            weight = weight * len(y_train) / weight.sum()
+        elif self.weight == 'exponential':
+            beta = 2.0
+            weight = np.exp(beta * y_train / y_train.max())
+            weight = weight * len(y_train) / weight.sum()
+        elif self.weight == 'quantile':
+            q_bins = pd.qcut(y_train, q=10, duplicates='drop')
+            value_counts = q_bins.value_counts()
+            weights_map = 1 / value_counts
+            weight = pd.Series(q_bins).map(weights_map).to_numpy()
+            weight = weight * len(y_train) / weight.sum()
+        elif self.weight == 'polynomial':
+            gamma = 3
+            weight = (y_train / y_train.max()) ** gamma
+            weight = weight * len(y_train) / weight.sum()
+        else:
+            weight = None
+
         # Scale Features
         self.scaler = StandardScaler()
         X_train_scaled = self.scaler.fit_transform(X_train)
@@ -518,7 +784,7 @@ class LGBM_Regressor:
 
         # Initialize Model
         self.model = lgb.LGBMRegressor(
-            objective='regression_l1', # MAE loss
+            objective=self.objective, # MSE loss is base
             n_estimators=self.n_estimators,
             learning_rate=self.learning_rate,
             num_leaves=self.num_leaves,
@@ -531,6 +797,7 @@ class LGBM_Regressor:
         print(f"Starting LGBM training for up to {self.n_estimators} estimators...")
         self.model.fit(
             X_train_scaled, y_train,
+            sample_weight=weight,
             eval_set=[(X_test_scaled, y_test)],
             eval_metric='mae',
             callbacks=[lgb.early_stopping(self.stopping_rounds, verbose=False)]
@@ -604,7 +871,9 @@ class SKNN_Regressor:
     def __init__(self,
                  degree=2,
                  test_size=0.2,
-                 random_state=42):
+                 random_state=42,
+                 os_mode='None',
+                 rep_factor=0):
         
         # Hyperparameter for Grid Search
         self.degree = degree
@@ -612,6 +881,8 @@ class SKNN_Regressor:
         # Other training parameters
         self.test_size = test_size
         self.random_state = random_state
+        self.os_mode = os_mode
+        self.rep_factor = rep_factor
 
         # The entire pipeline (scaler, poly features, model) will be stored here
         self.model = None
@@ -624,10 +895,52 @@ class SKNN_Regressor:
         last column is the target.
         """
         df = pd.read_csv(data_path)
-        # All columns except the last one are features
-        X = df.iloc[:, :-1].values
-        # The very last column is the target. .ravel() makes it a 1D array.
-        y = df.iloc[:, -1].values.ravel()
+
+        # Oversampling
+        if self.os_mode == 'None':
+            X = df.iloc[:, :-1].values.astype(np.float32)
+            y = df.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
+
+        if self.os_mode == 'top':
+        # Identify top % performers based on target column (last column)
+            y = df.iloc[:, -1]
+            top = 90
+            threshold = np.percentile(y, top)  # top % cutoff
+            df_top = df[y >= threshold]
+
+            # Oversample top performers
+            df_augmented = pd.concat([df, pd.concat([df_top]*self.rep_factor, ignore_index=True)], ignore_index=True)
+            print(f"Original dataset size: {len(df)}")
+            print(f"Augmented dataset size: {len(df_augmented)} (with top {100-top}% duplicated {self.rep_factor}x)")
+
+            # All columns except the last one are features
+            X = df_augmented.iloc[:, :-1].values.astype(np.float32)
+            # The very last column is the target
+            y = df_augmented.iloc[:, -1].values.astype(np.float32) 
+
+        elif self.os_mode == 'hybrid':
+            y = df.iloc[:, -1]
+            top = 90
+            mid = 75
+            low = 50
+            threshold_upper = np.percentile(y, top)  # top % cutoff
+            threshold_mid = np.percentile(y, mid)
+            threshold_bot = np.percentile(y, low)
+            df_top = df[y >= threshold_upper]
+            df_mid = df[(y >= threshold_mid) & (y < threshold_upper)]
+            df_bot = df[(y >= threshold_bot) & (y < threshold_mid)]
+
+            # Oversample top performers
+            df_augmented_top = pd.concat([df, pd.concat([df_top]*self.rep_factor, ignore_index=True)], ignore_index=True)
+            df_augmented_mid = pd.concat([df_augmented_top, pd.concat([df_mid]*(int(self.rep_factor/3)), ignore_index=True)], ignore_index=True)
+            df_augmented_hybrid = pd.concat([df_augmented_mid, pd.concat([df_bot]*(int(self.rep_factor/5)), ignore_index=True)], ignore_index=True)
+            print(f"Original dataset size: {len(df)}")
+            print(f"Augmented Hybrid dataset size: {len(df_augmented_hybrid)} \n(with top {100-top}% duplicated {self.rep_factor}x, \nmid {mid}% to {top}% duplicated {int(self.rep_factor/3)}x and \nbot {low}% to mid {mid}% duplicated {int(self.rep_factor/5)}x)")
+
+            # All columns except the last one are features
+            X = df_augmented_hybrid.iloc[:, :-1].values.astype(np.float32)
+            # The very last column is the target
+            y = df_augmented_hybrid.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
         
         return X, y
 

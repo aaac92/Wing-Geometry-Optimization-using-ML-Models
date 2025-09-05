@@ -1,0 +1,9 @@
+{
+    "num_estimators": 3000,
+    "learning_rate": 0.3,
+    "noise_level": 70,
+    "Max_depth": 20,
+    "Weight": "None",
+    "Oversampling mode": "hybrid",
+    "Oversampling factor": 20
+}
