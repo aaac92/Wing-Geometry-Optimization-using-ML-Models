@@ -1,6 +1,8 @@
 import os
 import sys
+import json
 import shutil
+import subprocess
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -27,7 +29,8 @@ output_root_folder = project_root / dataset_name_prefix
 support_files_dir = project_root / "support_files" # Support files stay in the project root
 
 # === Temporary Directory Definitions (no changes needed here) === #
-testing_temp_root = Path(r'C:\testing_temp') 
+testing_temp_root = Path(r'C:\testing_temp')
+subprocess.call(["attrib", "+H", testing_temp_root])
 airfoils_temp_dir = testing_temp_root / "airfoils"
 force_files_temp_dir = testing_temp_root / "force files"
 polars_temp_dir = testing_temp_root / "polars"
@@ -65,6 +68,79 @@ def create_temp_dirs():
     os.makedirs(geo_files_temp_dir, exist_ok=True)
     os.makedirs(support_files_temp_dir, exist_ok=True)
 
+def load_airfoils_from_json(json_folder_path: Path) -> dict:
+    """
+    Loads all .json files from a directory, parsing them into the required
+    dictionary format for simulation.
+    """
+    airfoils_data = {}
+    if not json_folder_path.is_dir():
+        print(f"Error: JSON input folder not found at '{json_folder_path}'")
+        return airfoils_data
+
+    for json_file in json_folder_path.glob("*.json"):
+        model_name = json_file.stem.replace('_best_10_results', '').replace('_best_result', '').replace('Regressor', '')
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+            for item in data:
+                # Create a unique name for each airfoil, e.g., "MLP_Regressor_rank_1"
+                unique_name = f"{model_name}_rank_{item['rank']}"
+                
+                # Store both the features and the predicted/actual efficiency
+                airfoils_data[unique_name] = {
+                    "cst_coeffs": np.array(item['features']),
+                    "predicted_E": item.get('E_predicted') or item.get('E_actual')
+                }
+    print(f"Successfully loaded {len(airfoils_data)} airfoils from JSON files.")
+
+    return airfoils_data
+
+def save_results_to_json(results_data: list, output_folder: Path):
+    """
+    Saves the final detailed report to a JSON file.
+    """
+    filepath = output_folder / f"{dataset_name_prefix}_final_report.json"
+    with open(filepath, 'w') as f:
+        json.dump(results_data, f, indent=4)
+
+    print(f"\nSuccessfully saved JSON report to '{filepath.name}'")
+
+def save_results_to_txt(results_data: list, output_folder: Path):
+    """
+    Saves a formatted, text report to a file.
+    """
+    filepath = output_folder / f"{dataset_name_prefix}_final_report.txt"
+    
+    # Sort results by simulated efficiency in descending order
+    sorted_results = sorted(results_data, key=lambda x: x['simulated_E'], reverse=True)
+    
+    with open(filepath, 'w') as f:
+        f.write("="*95 + "\n")
+        f.write(f"Final Aerodynamic Efficiency (E) Report for {dataset_name_prefix}\n")
+        f.write("="*95 + "\n")
+        header = (f"{'Rank':<5} {'Airfoil Name':<40} {'Simulated E':<15} "
+                  f"{'Predicted E':<15} {'Relative Error (%)':<20}\n")
+        f.write(header)
+        f.write("-"*95 + "\n")
+        
+        for i, item in enumerate(sorted_results):
+            name = item['airfoil_name']
+            sim_E = item['simulated_E']
+            pred_E = item['predicted_E']
+            
+            # Format predicted E and error nicely, handling ground truth case
+            pred_E_str = f"{pred_E:.4f}" if pred_E is not None else "--"
+            error_str = f"{item['relative_error']:.2f}" if item['relative_error'] is not None else "--"
+
+            line = (f"{i+1:<5} {name:<40} {sim_E:<15.4f} "
+                    f"{pred_E_str:<15} {error_str:<20}\n")
+            f.write(line)
+            
+        f.write("="*95 + "\n")
+
+    print(f"Successfully saved report to '{filepath.name}'")
+
+
 if __name__ == "__main__":
     start_time = datetime.now()
     print(f"AI Airfoil test process started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -74,13 +150,13 @@ if __name__ == "__main__":
 
     # === Test Setup === #
     n_cst = 5
-    # Use a dictionary to define AI airfoils with names 
-    ai_airfoils_data = {
-        "Dataset Best" : np.array([0.000,0.125,0.125,0.000,0.000,0.000,0.000,0.125,0.000,0.000]),
-        "AI_Airfoil_MLP": np.array([-0.004311,0.046987,0.091949,0.025149,0.006765,0.141592,0.036563,0.102091,0.015853,0.015087]), 
-        "AI_Airfoil_LGBM": np.array([-0.007305,0.148910,0.127090,0.033265,0.007372,0.023069,0.096023,0.116464,0.006020,0.000129]), 
-        "AI_Airfoil_SKNN": np.array([-0.080549,0.036409,0.012562,0.003934,0.007612,0.014160,0.147924,0.031128,0.055704,0.146581]) 
-    }
+    # Read result from AI Inference directory
+    json_input_dir = project_root / 'AI_Inference_Results' # Path to the JSON files
+    ai_airfoils_data = load_airfoils_from_json(json_input_dir)
+
+    if not ai_airfoils_data:
+        print("No airfoil data loaded. Exiting.")
+        sys.exit()
 
     base_airfoil_path = support_files_dir / 'naca0012_UNIT_0ALFA.csv'
     ASEQ = [-20, 20, 0.5]
@@ -96,8 +172,8 @@ if __name__ == "__main__":
         n_cst=n_cst,
         verbose=False
     )
-    for airfoil_name, cst_coeffs in tqdm(ai_airfoils_data.items(), desc="Creating .dat files"):
-        x_mod, yu_mod, yl_mod = airfoil_creator.generate(cst_coeffs=cst_coeffs)
+    for airfoil_name, airfoil_data in tqdm(ai_airfoils_data.items(), desc="Creating .dat files"):
+        x_mod, yu_mod, yl_mod = airfoil_creator.generate(cst_coeffs=airfoil_data['cst_coeffs'])
         airfoil_creator._create_dat_file(
             output_dir=airfoils_temp_dir,
             n_cst=n_cst,
@@ -185,15 +261,41 @@ if __name__ == "__main__":
                 efficiency = cl / cd
             efficiency_results[airfoil_name] = efficiency
 
-    # Finalization
-    if efficiency_results:
-        print("\n" + "="*45)
-        print("Final Aerodynamic Efficiency (E) Report")
-        print("="*45)
-        sorted_results = sorted(efficiency_results.items(), key=lambda item: item[1], reverse=True)
-        for name, E in sorted_results:
-            print(f"  - {name:<20}: E = {E:.4f}")
-        print("="*45)
+    # === Finalization and Reporting === #
+    final_results = []
+    print("\n--- Processing Final Results ---")
+
+    for file_path in tqdm(force_file_paths, desc="Calculating Efficiency"):
+        result = extract_force_data(Path(file_path))
+        if result:
+            airfoil_name, cl, cd = result
+
+            # Calculate simulated efficiency
+            simulated_E = cl / cd if cd != 0 else 0.0
+
+            # Get the corresponding predicted efficiency from our initial data
+            predicted_E = ai_airfoils_data.get(airfoil_name, {}).get("predicted_E")
+
+            # Calculate relative error
+            relative_error = None
+            if predicted_E is not None and simulated_E != 0:
+                relative_error = abs((simulated_E - predicted_E) / simulated_E)*100
+
+            final_results.append({
+                "airfoil_name": airfoil_name,
+                "simulated_CL": cl,
+                "simulated_CD": cd,
+                "simulated_E": simulated_E,
+                "predicted_E": predicted_E,
+                "relative_error": relative_error
+            })
+
+    # Save the reports
+    if final_results:
+        save_results_to_json(final_results, output_root_folder)
+        save_results_to_txt(final_results, output_root_folder)
+    else:
+        print("No valid results were generated to report.")
 
     end_time = datetime.now()
     print(f"\nProcess completed at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")

@@ -44,7 +44,7 @@ class Airfoil_Tools_Exctract:
             surface = 'upper'
             tot_coords = len(lines[coord_start:])
             
-            # MODIFIED: Added 'disable=not verbose' to conditionally hide the progress bar
+            # Added 'disable=not verbose' to conditionally hide the progress bar
             airfoil_pbar = tqdm(total=tot_coords, desc='Extracting ' + self.name + '\'s coordinates: ', disable=not verbose)
             
             for i, row in enumerate(lines[coord_start:]):
@@ -56,7 +56,7 @@ class Airfoil_Tools_Exctract:
                     z = float(row[1])
                 except ValueError:
                     airfoil_pbar.update(tot_coords - (i + 1))
-                    airfoil_pbar.close() # CORRECTED: Changed .close to .close()
+                    airfoil_pbar.close() 
                     break  # Break when finding non-numeric values like:"Camber Line"
 
                 if surface == 'upper':
@@ -70,7 +70,7 @@ class Airfoil_Tools_Exctract:
                     self.X_LOWER.append(x)
                     self.Z_LOWER.append(z)
             else:
-                airfoil_pbar.close() # CORRECTED: Changed .close to .close()
+                airfoil_pbar.close() 
                 
 
     def ate_verif(self):

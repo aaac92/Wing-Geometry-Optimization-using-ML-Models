@@ -13,7 +13,7 @@ from cst_modeling.foil import check_validity
 from multiprocessing import Pool, Manager, cpu_count
 # Import custom package class and methods
 from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support import Key_Point_Extraction, SpyeyeGeo_Creation, AVL_Run_Case
+from simulation_support import Key_Point_Extraction, SkyeyeGeo_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
 from ux_support import Progress_GUI, recovery_json, recovery_Fabius
@@ -358,7 +358,7 @@ def Geometric_File_Creation():
     key_points.save_error_log(KP_error_log)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-    geo_creator = SpyeyeGeo_Creation(
+    geo_creator = SkyeyeGeo_Creation(
                 key_points_data=key_points_data,
                 airfoil_abs_paths=airfoil_abs_paths,
                 output_dir=str(geo_files_temp_dir),

@@ -1,5 +1,0 @@
-n_estimators,learning_rate,num_leaves,max_depth,objective,weight type,os_mode,rep_factor,MAE,R2_Score
-3000,0.3,70,15,regression_l2,None,top,15,0.5398804115951364,0.9529097470813914
-3000,0.3,70,15,regression_l2,None,top,20,0.4621366399927906,0.9563064515112237
-3000,0.3,70,15,regression_l2,None,hybrid,15,0.477309156233193,0.9602234208289112
-3000,0.3,70,15,regression_l2,None,hybrid,20,0.41746461334307544,0.9655484529831913

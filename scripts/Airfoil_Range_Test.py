@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 # Import custom package class and methods
 from cst_modeling.foil import FoilGeoFeatures
-from geometric_support import Airfoil_Generator, Validate_Airfoil, monotonic_airfoil_thickness, LE_angular_curvature_continuity, plot_thickness_behavior, plot_LE_slopes
+from geometric_support import Airfoil_Generator, Validate_Airfoil, monotonic_airfoil_thickness, LE_angular_curvature_continuity, plot_thickness_behavior, plot_LE_slopes, create_modification_combinations
 
 # For custom package:
 # Get the path to the parent directory (xfoil_project).
@@ -16,11 +16,14 @@ airfoils_dir = project_root / "manual_airfoils"
 support_files_dir = project_root / "support_files"
 
 if __name__ == "__main__":
-    base_airfoil_path = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
+    #base_airfoil_path = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
+    base_airfoil_path = os.path.join(support_files_dir,'naca653218_unit.csv')
+    #base_airfoil_path = os.path.join(support_files_dir,'naca0012_unit.csv')
+    
     name = 'Manual Test'
     n_cst = 5
-    cmb = [-0.125, 0, 0, 0, 0, # Lower surface
-           0.125, 0.125, 0.125, 0.125, 0.125] # Upper surface
+    cmb = [-0.03125, -0.125, -0.125, -0.125, -0.0625, # Lower surface
+           0.03125, 0.125, 0.125, 0.125, 0.0625] # Upper surface
     
     airfoil = Airfoil_Generator(
             base_airfoil_csv=base_airfoil_path,
@@ -69,5 +72,17 @@ if __name__ == "__main__":
 
     plot_LE_slopes(x, yu, yl)
     plot_thickness_behavior(x, yu, yl)
+
+    ranges_upper = {
+        'first': (-0.03125, 0.03125, 0.03125),   # range for value closest to LE
+        'middle': (-0.125, 0.125, 0.125),  # range for middle points
+        'last': (-0.0625, 0.0625, 0.0625)     # range for value closest to TE
+    }
+    ranges_lower = {
+        'first': (-0.03125, 0.03125, 0.03125),   # range for value closest to LE
+        'middle': (-0.125, 0.125, 0.125),  # range for middle points
+        'last': (-0.0625, 0.0625, 0.0625)     # range for value closest to TE
+    }
+    cmb_datalist = create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=True)
 
     airfoil._create_dat_file(airfoils_dir, n_cst, x, yu, yl, name)

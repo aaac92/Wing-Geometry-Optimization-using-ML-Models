@@ -136,6 +136,52 @@ def report_best_result(model_name: str, best_value: float, best_input: np.ndarra
     print(best_input_series.to_string())
     print("="*50)
 
+def save_ranked_results_to_json(model_name: str, results_list: list, output_folder: Path):
+    """
+    Takes a list of collected results, ranks them, and saves them to a JSON file.
+    Each item in results_list is a dict: {'prediction': value, 'inputs': array}
+    """
+    # Sort the list of dictionaries by the 'prediction' value in descending order
+    sorted_results = sorted(results_list, key=lambda x: x['prediction'], reverse=True)
+
+    final_json_list = []
+    for i, result in enumerate(sorted_results):
+        result_dict = {
+            "rank": i + 1,
+            "E_predicted": float(result['prediction']),
+            "features": result['inputs'].tolist()  # Convert numpy array to a plain list
+        }
+        final_json_list.append(result_dict)
+
+    # Define the output filename and path
+    filename = f"{model_name}_best_10_results.json"
+    filepath = output_folder / filename
+
+    # Write the data to a JSON file
+    with open(filepath, 'w') as f:
+        json.dump(final_json_list, f, indent=4)
+    
+    print(f"   - Saved ranked results for '{model_name}' to '{filepath.name}'")
+
+def save_ground_truth_to_json(best_value: float, best_input: np.ndarray, output_folder: Path):
+    """
+    Saves the single best result from the training data to a JSON file.
+    """
+    dataset_data = [{
+        "rank": 1,
+        "E_actual": float(best_value),
+        "features": best_input.tolist() # Convert numpy array to a plain list
+    }]
+    
+    # Define the output filename and path
+    filename = "dataset_best_result.json"
+    filepath = output_folder / filename
+
+    # Write the data to a JSON file
+    with open(filepath, 'w') as f:
+        json.dump(dataset_data, f, indent=4)
+
+    print(f"   - Saved ground truth best result to '{filepath.name}'")
 
 # === CONFIGURE MODEL FOLDERS === #
 # Define the root directory of project
@@ -150,13 +196,15 @@ match = re.search(r"(?<=Dataset_)\d+", Training_File)
 if match:
     dataset_num = int(match.group())
 MODEL_PATHS = project_root / 'AI_Models' / f'Dataset_{dataset_num}'
-# Set the folder path for each of your 4 best models.
+# Set the folder path for each of the 4 best models.
 # The script will automatically find the files inside these folders.
 CLASSIFIER_FOLDER = MODEL_PATHS / "optimized_classifier_model"
 MLP_REG_FOLDER = MODEL_PATHS / "optimized_MLP_regressor_model"
 LGBM_REG_FOLDER = MODEL_PATHS / "optimized_LGBM_regressor_model"
 SKNN_REG_FOLDER = MODEL_PATHS / "optimized_SKNN_regressor_model"
-
+# Output folder
+RESULTS_FOLDER = project_root / 'AI_Inference_Results'
+os.makedirs(RESULTS_FOLDER, exist_ok=True)
 
 # === INFERENCE EXECUTION === #
 print("# === Starting Final Automated Inference Pipeline === #")
@@ -181,75 +229,95 @@ mlp_regressor = MLP_Regressor.load_model(MLP_REG_FOLDER, mlp_reg_prefix, **mlp_h
 lgbm_regressor = LGBM_Regressor.load_model(LGBM_REG_FOLDER, lgbm_reg_prefix)
 sknn_regressor = SKNN_Regressor.load_model(SKNN_REG_FOLDER, sknn_reg_prefix)
 
-# Generate Candidate Inputs
-print("\n# === Generating random candidate inputs... === #")
-num_samples = 500000
-num_features = classifier.input_dim
-extra = 1.2 # Multiplier for search space
-ranges_upper = { # Use same ranges as Dtabase_Generation
-    'first': (0, 0.125*extra, 0.0625),   # range for value closest to LE
-    'middle': (0, 0.125*extra, 1/24),  # range for middle points
-    'last': (0, 0.125*extra, 0.125)     # range for value closest to TE
-}
-ranges_lower = {
-    'first': (-0.125*extra, 0, 0.0625),   # range for value closest to LE
-    'middle': (0, 0.125*extra, 1/24),  # range for middle points
-    'last': (0, 0.125*extra, 0.125)     # range for value closest to TE
-}
-candidate_inputs = generate_candidates(num_samples, num_features, ranges_upper, ranges_lower)
-print(f"Generated {num_samples} candidates with constrained ranges.")
+# Loop for 10 inferences
+num_inference_runs = 10
+mlp_best_of_runs = []
+lgbm_best_of_runs = []
+sknn_best_of_runs = []
 
-# Classify and Filter Candidates
-print("\n# === Using classifier to find valid candidates... === #")
-validity_probs = classifier.predict_proba(candidate_inputs)
-validity_threshold = 0.98
-valid_indices = np.where(validity_probs.flatten() > validity_threshold)[0]
+for i in range(num_inference_runs):
+    print("\n" + "="*50)
+    print(f"# === Starting Inference Run {i+1}/{num_inference_runs} === #")
+    print("="*50)
 
-if len(valid_indices) == 0:
-    print(f"No valid candidates found with a threshold > {validity_threshold}.")
-else:
+    # Generate Candidate Inputs for this run
+    print("\n# === Generating random candidate inputs... === #")
+    num_samples = 50000
+    num_features = classifier.input_dim
+    extra = 1 + 1/24 # Multiplier for search space
+    ranges_upper = { # Use same ranges as Database_Generation
+        'first': (-1/24, 1/24, 0.0625),
+        'middle': (-1/24, 1/12, 1/24),
+        'last': (-1/24, 0, 0.125)
+    }
+    ranges_lower = {
+        'first': (1/24, 0.0625, 0.0625),
+        'middle': (1/24, 0.125*extra, 1/24),
+        'last': (-1/24, 0, 0.125)
+    }
+    candidate_inputs = generate_candidates(num_samples, num_features, ranges_upper, ranges_lower)
+    print(f"Generated {num_samples} candidates for run {i+1}/{num_inference_runs}")
+
+    # Classify and Filter Candidates
+    print("\n# === Using classifier to find valid candidates... === #")
+    validity_probs = classifier.predict_proba(candidate_inputs)
+    validity_threshold = 0.99
+    valid_indices = np.where(validity_probs.flatten() > validity_threshold)[0]
+
+    if len(valid_indices) == 0:
+        print(f"No valid candidates found in this run with a threshold > {validity_threshold}. Skipping run.")
+        continue
+
     valid_inputs = candidate_inputs[valid_indices]
     print(f"Found {len(valid_inputs)} likely valid candidates.")
 
-    # Get Predictions from All Regressors
-    print("\n# === Getting predictions from all models... === #")
+    # Get Predictions and Find the BEST ONE for this run
+    print(f"\n# === Getting predictions and finding best result of run {i+1}/{num_inference_runs} === #")
     preds_mlp = mlp_regressor.predict(valid_inputs).flatten()
     preds_lgbm = lgbm_regressor.predict(valid_inputs).flatten()
     preds_sknn = sknn_regressor.predict(valid_inputs).flatten()
 
-    # Find and Report the Best Result for EACH Model
-    print("\n# === Analyzing results from each model... === #")
-    
-    feature_names = [f'cst_l_{i+1}' for i in range(num_features//2)] + \
-                    [f'cst_u_{i+1}' for i in range(num_features//2)]
-
-    try:
-        training_df = pd.read_csv(REGRESSOR_DATA_PATH)
-        best_actual_idx = training_df.iloc[:, -1].idxmax()
-        best_actual_row = training_df.loc[best_actual_idx]
-        best_actual_value = best_actual_row.iloc[-1]
-        best_actual_inputs = best_actual_row.iloc[:-1].values
-        
-        # This report serves as the "ground truth" baseline
-        report_best_result(
-            "Actual Best from Training Data",
-            best_actual_value,
-            best_actual_inputs,
-            feature_names
-        )
-    except FileNotFoundError:
-        print(f"\nCould not find regressor training data at '{REGRESSOR_DATA_PATH}'. Skipping the ground truth comparison.")
-
-    # MLP Result
+    # Find and store the single best result from this run for each model
     best_idx_mlp = np.argmax(preds_mlp)
-    report_best_result("MLP Regressor", preds_mlp[best_idx_mlp], valid_inputs[best_idx_mlp], feature_names)
+    mlp_best_of_runs.append({
+        'prediction': preds_mlp[best_idx_mlp],
+        'inputs': valid_inputs[best_idx_mlp]
+    })
 
-    # LGBM Result
     best_idx_lgbm = np.argmax(preds_lgbm)
-    report_best_result("LGBM Regressor", preds_lgbm[best_idx_lgbm], valid_inputs[best_idx_lgbm], feature_names)
+    lgbm_best_of_runs.append({
+        'prediction': preds_lgbm[best_idx_lgbm],
+        'inputs': valid_inputs[best_idx_lgbm]
+    })
 
-    # SKNN Result
     best_idx_sknn = np.argmax(preds_sknn)
-    report_best_result("SKNN Regressor", preds_sknn[best_idx_sknn], valid_inputs[best_idx_sknn], feature_names)
+    sknn_best_of_runs.append({
+        'prediction': preds_sknn[best_idx_sknn],
+        'inputs': valid_inputs[best_idx_sknn]
+    })
+    print(f"Best results from run {i+1}/{num_inference_runs} have been collected.")
 
-    print("\nPipeline finished successfully.")
+# === FINAL ANALYSIS AND SAVING === #
+print("\n" + "="*50)
+print("# === All Inference Runs Complete. Ranking and Saving Final Results... === #")
+print("="*50)
+
+# Save Ground Truth Best
+try:
+    training_df = pd.read_csv(REGRESSOR_DATA_PATH)
+    best_actual_idx = training_df.iloc[:, -1].idxmax()
+    best_actual_row = training_df.loc[best_actual_idx]
+    best_actual_value = best_actual_row.iloc[-1]
+    best_actual_inputs = best_actual_row.iloc[:-1].values
+    
+    save_ground_truth_to_json(best_actual_value, best_actual_inputs, RESULTS_FOLDER)
+
+except FileNotFoundError:
+    print(f"\nCould not find regressor training data at '{REGRESSOR_DATA_PATH}'. Skipping the ground truth comparison.")
+
+# Rank and Save the collected top results from all runs
+save_ranked_results_to_json("MLP_Regressor", mlp_best_of_runs, RESULTS_FOLDER)
+save_ranked_results_to_json("LGBM_Regressor", lgbm_best_of_runs, RESULTS_FOLDER)
+save_ranked_results_to_json("SKNN_Regressor", sknn_best_of_runs, RESULTS_FOLDER)
+
+print("\nPipeline finished successfully. Results saved in 'AI_Inference_Results' folder.")

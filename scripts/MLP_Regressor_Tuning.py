@@ -3,7 +3,7 @@ import sys
 import os
 import re
 import json
-import itertools
+import optuna
 import random
 import pandas as pd
 import numpy as np
@@ -21,7 +21,6 @@ if not torch.cuda.is_available():
     sys.exit()
 else:
     print(f"GPU detected: {torch.cuda.get_device_name(0)}")
-
 
 # == Setup and Configuration === #
 current_dir = Path(__file__).resolve().parent
@@ -41,176 +40,110 @@ if not os.path.exists(DATA_PATH):
     print(f"[ERROR] Dataset not found at '{DATA_PATH}'. Please check the file path.")
     sys.exit()
 
-# Define the grid of hyperparameters for the MLP regressor.
-param_grid = {
-    'hidden_size': [384],
-    'dropout_rate': [0.05],
-    'learning_rate': [0.01],
-    'noise_level': [0.01],
-    'poly_degree': [3],
-    'weight': ['None', 'exponential'],
-    'os_mode': ['None', 'top', 'hybrid'],
-    'rep_factor': [10]
-}
+# === Optuna Objective Function === #
+# This function defines a single training run. Optuna calls it for each trial.
+N_TRIALS = 12
+def objective(trial):
+    """
+    Takes a trial object from Optuna, which suggests
+    hyperparameters, trains a model, and returns its performance score.
+    """
+    print("\n" + "="*50)
+    print(f"Starting Trial {trial.number + 1}/{N_TRIALS}")
 
-# === Grid Search Execution === #
-all_results = []
-best_mae_info = {'score': float('inf'), 'model': None, 'params': None}
-best_r2_info = {'score': float('-inf'), 'model': None, 'params': None}
+    # Define the hyperparameter search space 
+    hs = trial.suggest_int('hidden_size', 384, 512)
+    dr = trial.suggest_float('dropout_rate', 0.01, 0.05)
+    lr = trial.suggest_float('learning_rate', 0.01, 0.05, log=True)
+    log_trans = trial.suggest_categorical('log_trans', [True])
 
-parameter_combinations = list(itertools.product(
-    param_grid['hidden_size'],
-    param_grid['dropout_rate'],
-    param_grid['learning_rate'],
-    param_grid['noise_level'],
-    param_grid['poly_degree'],
-    param_grid['weight'],
-    param_grid['os_mode'],
-    param_grid['rep_factor']
-))
+    print(f"PARAMETERS:")
+    print(f"Hidden Size = {hs}")
+    print(f"Dropout Rate = {dr}")
+    print(f"Learning Rate = {lr}")
+    print(f"Log Transform = {log_trans}")
+    print("="*50)
 
-print(f"\nStarting Regressor Grid Search for {len(parameter_combinations)} Combinations...")
-
-for i, params in enumerate(parameter_combinations):
-    hs, dr, lr, nl, polyd, weight, mode, rep = params
-    
-    print("\n" + "="*135)
-    print(f"RUN {i+1}/{len(parameter_combinations)}")
-    print(f"PARAMETERS: HiddenSize={hs}, Dropout={dr}, LR={lr}, Noise={nl}, Poly Features deg={polyd}, Weight Type={weight}, Oversampling Mode={mode}, Repetition Factor={rep}")
-    print("="*135)
-
-    # Instantiate the regressor with the current set of parameters
+    # Instantiate and train the classifier with the suggested hyperparameters.
     regressor = MLP_Regressor(
         hidden_size=hs,
         dropout_rate=dr,
         learning_rate=lr,
-        noise_level=nl,
-        poly_degree=polyd,
-        weight=weight,
-        os_mode=mode,
-        rep_factor=rep
+        weight='None',
+        log_trans=log_trans
     )
 
-    # Train the model and get the final evaluation metrics
     final_metrics = regressor.train(data_path=DATA_PATH)
+
+    # Return the metric to optimize, in the classifier case the F1-Score.
+    mae = final_metrics.get('MAE', 0)
     
-    # Check if the current model is a new "best" and capture it
-    current_mae = final_metrics.get('MAE', float('inf'))
-    current_r2 = final_metrics.get('R2_Score', float('-inf'))
+    # Tracking of other attributes
+    trial.set_user_attr('R2-Score', final_metrics.get('R2_Score', 0))
 
-    if current_mae < best_mae_info['score']:
-        best_mae_info['score'] = current_mae
-        best_mae_info['model'] = regressor
-        best_mae_info['params'] = params
-        print(f"New Best MAE: {best_mae_info['score']:.4f}. Model captured.")
+    return mae
 
-    if current_r2 > best_r2_info['score']:
-        best_r2_info['score'] = current_r2
-        best_r2_info['model'] = regressor
-        best_r2_info['params'] = params
-        print(f"New Best R2 Score: {best_r2_info['score']:.4f}. Model captured.")
+# === Optuna Study Execution === #
+print(f"\nStarting Optuna Optimization for {N_TRIALS} Trials...")
 
-    # Store the results of the run
-    run_result = {
-        'hidden_size': hs,
-        'dropout_rate': dr,
-        'learning_rate': lr,
-        'noise_level': nl,
-        'Polynomial Degree': polyd,
-        'Oversampling Mode': mode,
-        'Data repetition factor': rep,
-        'Weight Type':weight,
-        'MAE': current_mae,
-        'R2_Score': current_r2
-    }
-    all_results.append(run_result)
+study = optuna.create_study(direction='minimize') # Create study
+study.optimize(objective, n_trials=N_TRIALS) # Optimize study
+
+
+# === Final Report and Model Saving === #
 print("\n" + "#"*60)
-print("Grid Search Complete. Analyzing Results...")
+print("Optimization Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
-# === Final Saving and Reporting === #
-# Create name lists for saving the model
-names = ["Murata", "Barbatos", "Beelzebul", "Buer", "Focalors", "Istaroth", "Phanes", "Asmoday", "Paimon", "Alice", "Ronnova"]
+# Get the best trial results from the study.
+print(f"Best MAE: {study.best_value:.4f}")
+print("Best parameters found:")
+best_params = study.best_params
+for key, value in best_params.items():
+    print(f"  - {key}: {value}")
+
+# Retrain the final best model with the optimal parameters.
+print("\n--- Retraining and Saving the Best Model ---")
+final_model = MLP_Regressor(
+    hidden_size=best_params['hidden_size'],
+    dropout_rate=best_params['dropout_rate'],
+    learning_rate=best_params['learning_rate'],
+    weight='None',
+    log_trans=best_params['log_trans']
+)
+# Final training
+final_model.train(data_path=DATA_PATH)
+
+# Create a dynamic filename from the best parameters and save the model
+names = ["Murata", "Barbatos", "Beelzebul", "Buer", "Focalors", "Istaroth", "Phanes", "Asmoday", "Paimon", "Alice", "Ronnova", "Kuutar", "Columbina"]
 best_mae_name = random.choice(names)
-best_r2_name = random.choice(names)
-# Save the Best Models
-print("--- Saving Best Performing Models ---")
-if best_mae_info['model']:
-    hs, dr, lr, nl, polyd, weight, mode, rep = best_mae_info['params']
-    best_result = {
-        'hidden_size': hs,
-        'dropout_rate': dr,
-        'learning_rate': lr,
-        'noise_level': nl,
-        'Polynomial Degree': polyd,
-        'Oversamplig Mode': mode,
-        'Data repetition factor': rep,
-        'Weight Type':weight
-    }
-    json_name = f"{best_mae_name}_regressor_model_parameters.json"
-    param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
-    with open(param_file, 'w') as json_file:
-        json.dump(best_result, json_file, indent=4)
-    file_name_prefix = f"{best_mae_name}_regressor_model"
-    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
-else:
-    print("No best MAE model was captured to save.")
+# Save parameters for best model
+json_name = f"{best_mae_name}_regressor_model_parameters.json"
+param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
+with open(param_file, 'w') as json_file:
+    json.dump(best_params, json_file, indent=4)
+# Save model
+file_name_prefix = f"{best_mae_name}_regressor_model"
+final_model.save_model(MODEL_SAVE_FOLDER, file_name_prefix)
 
-if best_r2_info['model']:
-    if best_r2_info['model'] is not best_mae_info['model']:
-        hs, dr, lr, nl, polyd, weight, mode, rep = best_r2_info['params']
-        best_result = {
-            'hidden_size': hs,
-            'dropout_rate': dr,
-            'learning_rate': lr,
-            'noise_level': nl,
-            'Polynomial Degree': polyd,
-            'Oversamplig Mode': mode,
-            'Data repetition factor': rep,
-            'Weight Type':weight
-        }
-        json_name = f"{best_r2_name}_regressor_model_parameters.json"
-        param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
-        with open(param_file, 'w') as json_file:
-            json.dump(best_result, json_file, indent=4)
-        file_name = f"{best_r2_name}_regressor_model"
-        best_r2_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
-    else:
-        print("Best R2 model is the same as the best MAE model. Not saving a duplicate.")
-else:
-    print("No best R2 model was captured to save.")
-
-# Final Report
-results_df = pd.DataFrame(all_results)
-best_mae_run = results_df.sort_values(by="MAE", ascending=True).iloc[0]
-best_r2_run = results_df.sort_values(by="R2_Score", ascending=False).iloc[0]
-
-print("\n--- Best Parameters Based on MAE (Relative to other models, lower is better) ---")
-print(f"\nName: {best_mae_name}")
-print(best_mae_run)
-
-print("\n--- Best Parameters Based on R2 Score From 0 to 1, 1 is best) ---")
-print(f"\nName: {best_r2_name}")
-print(best_r2_run)
-
-results_csv_path = MODEL_SAVE_FOLDER / "regressor_grid_search_results.csv"
+# Save all results to a CSV file for analysis.
+results_df = study.trials_dataframe()
+results_csv_path = MODEL_SAVE_FOLDER / "optuna_search_results.csv"
 results_df.to_csv(results_csv_path, index=False)
-print(f"\nFull grid search results have been saved to '{results_csv_path}'")
+print(f"\nFull optimization results saved to '{results_csv_path}'")
 
-# === Error Analysis on the Best Model (by MAE) === #
+# === Error Analysis on the Best Model === #
 print("\n" + "#"*60)
-print("Performing Error Analysis on the Best MAE Model...")
+print("Performing Error Analysis on the Best Model...")
 print("#"*60 + "\n")
 
-# We need to recreate the exact test set that the best model was evaluated on.
-# It is crucial that these parameters match the ones used in the model's class.
-# All provided regressor classes use test_size=0.2 and random_state=42.
+if final_model:
+    # Create an output folder for the analysis files
+    ANALYSIS_OUTPUT_FOLDER = MODEL_SAVE_FOLDER / "error_analysis"
+    os.makedirs(ANALYSIS_OUTPUT_FOLDER, exist_ok=True)
+    print(f"Saving analysis files to: {ANALYSIS_OUTPUT_FOLDER}")
 
-# Select the best model found during the grid search
-best_model = best_r2_info['model']
-
-if best_model:
-    # Load and split the data exactly as it was during training
+    # Load and split the data as it was during training
     print("Re-creating test set for analysis...")
     df_analysis = pd.read_csv(DATA_PATH)
     X_analysis = df_analysis.iloc[:, :-1].values
@@ -222,18 +155,16 @@ if best_model:
 
     # Make predictions on the recreated test set
     print("Generating predictions with the best model...")
-    y_pred = best_model.predict(X_test)
+    y_pred = final_model.predict(X_test)
 
-    # Perform the error analysis and visualization
-    # Ensure y_test and y_pred are flattened to 1D arrays for plotting
+    # Ensure y_test and y_pred are flattened to 1D arrays
     y_test_flat = y_test.ravel()
     y_pred_flat = y_pred.ravel()
-    
     residuals = y_test_flat - y_pred_flat
 
-    # Plot: Actual vs. Predicted
-    plt.figure(figsize=(16, 7))
-    plt.subplot(1, 2, 1)
+    # --- Plot 1: Actual vs. Predicted (Saved as PNG) ---
+    print("Generating and saving 'Actual vs. Predicted' plot...")
+    plt.figure(figsize=(8, 7)) # Create a new, single figure
     sns.scatterplot(x=y_test_flat, y=y_pred_flat, alpha=0.6)
     perfect_line = np.linspace(min(y_test_flat), max(y_test_flat), 100)
     plt.plot(perfect_line, perfect_line, color='red', linestyle='--')
@@ -241,40 +172,53 @@ if best_model:
     plt.xlabel('Actual Values (Test Set)', fontsize=12)
     plt.ylabel('Predicted Values', fontsize=12)
     plt.grid(True)
+    plt.tight_layout()
+    # Save the figure to a file 
+    plt.savefig(ANALYSIS_OUTPUT_FOLDER / "actual_vs_predicted.png")
+    plt.close()
 
-    # Plot: Residuals vs. Predicted
-    plt.subplot(1, 2, 2)
+    # --- Plot 2: Residuals vs. Predicted (Saved as PNG) ---
+    print("Generating and saving 'Residuals vs. Predicted' plot...")
+    plt.figure(figsize=(8, 7)) # Create another new figure
     sns.scatterplot(x=y_pred_flat, y=residuals, alpha=0.6)
     plt.axhline(y=0, color='red', linestyle='--')
     plt.title('Best Model: Residuals vs. Predicted Values', fontsize=14)
     plt.xlabel('Predicted Values', fontsize=12)
     plt.ylabel('Residuals (Actual - Predicted)', fontsize=12)
     plt.grid(True)
-    
-    plt.suptitle('Error Analysis for Best Performing Model', fontsize=16, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+    plt.tight_layout()
+    plt.savefig(ANALYSIS_OUTPUT_FOLDER / "residuals_vs_predicted.png")
+    plt.close() 
 
-    # Find and display the 10 worst outliers based on absolute error
-    print("\n--- Top 10 Worst Predictions on Test Set (by Absolute Error) ---")
+    # --- Save Top 10 Worst Predictions to a .txt file ---
+    print("Finding worst outliers and saving report to .txt file...")
     errors = np.abs(residuals)
     top_10_worst_indices = np.argsort(errors)[-10:][::-1]
     
-    for i, idx in enumerate(top_10_worst_indices):
-        features = X_test[idx]
-        actual = y_test_flat[idx]
-        predicted = y_pred_flat[idx]
+    # Define the path for the report file
+    report_file_path = ANALYSIS_OUTPUT_FOLDER / "worst_predictions_report.txt"
+
+    # Use 'with open' to create and write to the file
+    with open(report_file_path, 'w') as f:
+        f.write("--- Top 10 Worst Predictions on Test Set (by Absolute Error) ---\n\n")
         
-        feature_str = ""
-        # Use your specific format if there are exactly 6 features
-        if len(features) == 6:
-            c1, c2, c3, c4, c5, c6 = features
-            feature_str = f"[{c1:.4f}, {c2:.4f}, {c3:.4f}] [{c4:.4f}, {c5:.4f}, {c6:.4f}]"
-        else:
-            # Otherwise, use a generic format
-            feature_str = "Features: [" + ", ".join([f"{f:.4f}" for f in features]) + "]"
+        for i, idx in enumerate(top_10_worst_indices):
+            features = X_test[idx]
+            actual = y_test_flat[idx]
+            predicted = y_pred_flat[idx]
             
-        print(f"\n{i+1}.- {feature_str}")
-        print(f"     Actual: {actual:.4f}, Predicted: {predicted:.4f}, Error: {errors[idx]:.4f}")
+            # Format the feature string
+            if len(features) == 6:
+                c1, c2, c3, c4, c5, c6 = features
+                feature_str = f"[{c1:.4f}, {c2:.4f}, {c3:.4f}] [{c4:.4f}, {c5:.4f}, {c6:.4f}]"
+            else:
+                feature_str = "Features: [" + ", ".join([f"{f:.4f}" for f in features]) + "]"
+            
+            # Write each entry to the file
+            f.write(f"{i+1}.- {feature_str}\n")
+            f.write(f"     Actual: {actual:.4f}, Predicted: {predicted:.4f}, Error: {errors[idx]:.4f}\n\n")
+    
+    print("Error analysis complete.")
+
 else:
-    print("No best MAE model was found, skipping error analysis.")
+    print("No best model was found, skipping error analysis.")

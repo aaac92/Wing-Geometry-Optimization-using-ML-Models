@@ -1,0 +1,226 @@
+[
+    {
+        "airfoil_name": "dataset_rank_1",
+        "simulated_CL": 0.45888,
+        "simulated_CD": 0.00704,
+        "simulated_E": 65.18181818181819,
+        "predicted_E": 65.18181818,
+        "relative_error": 2.7894183476289897e-09
+    },
+    {
+        "airfoil_name": "LGBM__rank_1",
+        "simulated_CL": 0.42183,
+        "simulated_CD": 0.00972,
+        "simulated_E": 43.398148148148145,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 49.02780109082713
+    },
+    {
+        "airfoil_name": "LGBM__rank_10",
+        "simulated_CL": 0.47846,
+        "simulated_CD": 0.01114,
+        "simulated_E": 42.94973070017953,
+        "predicted_E": 63.56844654742907,
+        "relative_error": 48.00662428172886
+    },
+    {
+        "airfoil_name": "LGBM__rank_2",
+        "simulated_CL": 0.43285,
+        "simulated_CD": 0.0095,
+        "simulated_E": 45.56315789473685,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 41.946495562801104
+    },
+    {
+        "airfoil_name": "LGBM__rank_3",
+        "simulated_CL": 0.4312,
+        "simulated_CD": 0.00946,
+        "simulated_E": 45.58139534883721,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 41.88970171790622
+    },
+    {
+        "airfoil_name": "LGBM__rank_4",
+        "simulated_CL": 0.46075,
+        "simulated_CD": 0.01056,
+        "simulated_E": 43.63162878787879,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 48.23032670577728
+    },
+    {
+        "airfoil_name": "LGBM__rank_5",
+        "simulated_CL": 0.43426,
+        "simulated_CD": 0.00953,
+        "simulated_E": 45.56768100734522,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 41.932405752444254
+    },
+    {
+        "airfoil_name": "LGBM__rank_6",
+        "simulated_CL": 0.47479,
+        "simulated_CD": 0.01115,
+        "simulated_E": 42.582062780269055,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 51.88391937013637
+    },
+    {
+        "airfoil_name": "LGBM__rank_7",
+        "simulated_CL": 0.43579,
+        "simulated_CD": 0.01028,
+        "simulated_E": 42.3920233463035,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 52.564800625314454
+    },
+    {
+        "airfoil_name": "LGBM__rank_9",
+        "simulated_CL": 0.44234,
+        "simulated_CD": 0.01023,
+        "simulated_E": 43.2394916911046,
+        "predicted_E": 64.6753058993247,
+        "relative_error": 49.57462118508198
+    },
+    {
+        "airfoil_name": "MLP__rank_1",
+        "simulated_CL": 0.4417,
+        "simulated_CD": 0.01227,
+        "simulated_E": 35.99837000814996,
+        "predicted_E": 81.77630615234375,
+        "relative_error": 127.16669153028248
+    },
+    {
+        "airfoil_name": "MLP__rank_10",
+        "simulated_CL": 0.4791,
+        "simulated_CD": 0.01142,
+        "simulated_E": 41.95271453590193,
+        "predicted_E": 56.05155944824219,
+        "relative_error": 33.606514067820015
+    },
+    {
+        "airfoil_name": "MLP__rank_2",
+        "simulated_CL": 0.46144,
+        "simulated_CD": 0.01211,
+        "simulated_E": 38.10404624277457,
+        "predicted_E": 77.62006378173828,
+        "relative_error": 103.70556787379735
+    },
+    {
+        "airfoil_name": "MLP__rank_3",
+        "simulated_CL": 0.49179,
+        "simulated_CD": 0.01392,
+        "simulated_E": 35.32974137931034,
+        "predicted_E": 71.56773376464844,
+        "relative_error": 102.57078305860354
+    },
+    {
+        "airfoil_name": "MLP__rank_4",
+        "simulated_CL": 0.46185,
+        "simulated_CD": 0.01122,
+        "simulated_E": 41.16310160427807,
+        "predicted_E": 69.20703887939453,
+        "relative_error": 68.12882455923065
+    },
+    {
+        "airfoil_name": "MLP__rank_5",
+        "simulated_CL": 0.44107,
+        "simulated_CD": 0.00659,
+        "simulated_E": 66.93019726858877,
+        "predicted_E": 66.49163818359375,
+        "relative_error": 0.6552484571875632
+    },
+    {
+        "airfoil_name": "MLP__rank_7",
+        "simulated_CL": 0.44331,
+        "simulated_CD": 0.01177,
+        "simulated_E": 37.66440101954121,
+        "predicted_E": 60.63533401489258,
+        "relative_error": 60.98844631415614
+    },
+    {
+        "airfoil_name": "MLP__rank_9",
+        "simulated_CL": 0.4589,
+        "simulated_CD": 0.01225,
+        "simulated_E": 37.46122448979592,
+        "predicted_E": 60.00749206542969,
+        "relative_error": 60.18561294432636
+    },
+    {
+        "airfoil_name": "SKNN__rank_1",
+        "simulated_CL": 0.43483,
+        "simulated_CD": 0.0102,
+        "simulated_E": 42.63039215686274,
+        "predicted_E": 282.2655029296875,
+        "relative_error": 562.1226984989105
+    },
+    {
+        "airfoil_name": "SKNN__rank_10",
+        "simulated_CL": 0.45473,
+        "simulated_CD": 0.00686,
+        "simulated_E": 66.28717201166181,
+        "predicted_E": 219.59213256835938,
+        "relative_error": 231.27394924877294
+    },
+    {
+        "airfoil_name": "SKNN__rank_2",
+        "simulated_CL": 0.40508,
+        "simulated_CD": 0.00898,
+        "simulated_E": 45.10913140311804,
+        "predicted_E": 271.191650390625,
+        "relative_error": 501.1901403445769
+    },
+    {
+        "airfoil_name": "SKNN__rank_3",
+        "simulated_CL": 0.41524,
+        "simulated_CD": 0.00562,
+        "simulated_E": 73.88612099644128,
+        "predicted_E": 265.026611328125,
+        "relative_error": 258.69606869859905
+    },
+    {
+        "airfoil_name": "SKNN__rank_4",
+        "simulated_CL": 0.44001,
+        "simulated_CD": 0.01053,
+        "simulated_E": 41.78632478632479,
+        "predicted_E": 256.5710144042969,
+        "relative_error": 514.0071320372822
+    },
+    {
+        "airfoil_name": "SKNN__rank_5",
+        "simulated_CL": 0.42872,
+        "simulated_CD": 0.01083,
+        "simulated_E": 39.58633425669437,
+        "predicted_E": 251.08419799804688,
+        "relative_error": 534.2698881131852
+    },
+    {
+        "airfoil_name": "SKNN__rank_6",
+        "simulated_CL": 0.46384,
+        "simulated_CD": 0.01053,
+        "simulated_E": 44.04938271604938,
+        "predicted_E": 246.3941650390625,
+        "relative_error": 459.3589509014592
+    },
+    {
+        "airfoil_name": "SKNN__rank_7",
+        "simulated_CL": 0.45167,
+        "simulated_CD": 0.00649,
+        "simulated_E": 69.59476117103236,
+        "predicted_E": 235.79385375976562,
+        "relative_error": 238.80977503506514
+    },
+    {
+        "airfoil_name": "SKNN__rank_8",
+        "simulated_CL": 0.43334,
+        "simulated_CD": 0.00962,
+        "simulated_E": 45.04573804573805,
+        "predicted_E": 234.01467895507812,
+        "relative_error": 419.5045949018903
+    },
+    {
+        "airfoil_name": "SKNN__rank_9",
+        "simulated_CL": 0.41976,
+        "simulated_CD": 0.00637,
+        "simulated_E": 65.89638932496077,
+        "predicted_E": 230.470458984375,
+        "relative_error": 249.74671806043182
+    }
+]

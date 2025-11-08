@@ -2,8 +2,7 @@ import torch
 import sys
 import os
 import re
-import itertools
-import pandas as pd
+import optuna
 from pathlib import Path
 from ai_support import Classifier
 
@@ -36,118 +35,80 @@ if not os.path.exists(DATA_PATH):
     print(f"[ERROR] Dataset not found at '{DATA_PATH}'. Please check the file path.")
     sys.exit()
 
-# Define the grid of hyperparameters to search through.
-param_grid = {
-    'hidden_size': [256, 512],
-    'learning_rate': [0.05, 0.075, 0.1],
-    'epochs': [400, 500, 600]
-}
-
-
-# === Grid Search Execution === #
-all_results = []
-best_f1_info = {'score': -1.0, 'model': None, 'params': None}
-best_f2_info = {'score': -1.0, 'model': None, 'params': None}
-
-# Create a list of all hyperparameter combinations
-parameter_combinations = list(itertools.product(
-    param_grid['hidden_size'],
-    param_grid['learning_rate'],
-    param_grid['epochs']
-))
-
-print(f"\nStarting Grid Search for {len(parameter_combinations)} Combinations...")
-
-for i, params in enumerate(parameter_combinations):
-    hidden_size, lr, epochs = params
-    
+# === Optuna Objective Function === #
+# This function defines a single training run. Optuna calls it for each trial.
+N_TRIALS = 30
+def objective(trial):
+    """
+    Takes a trial object from Optuna, which suggests
+    hyperparameters, trains a model, and returns its performance score.
+    """
     print("\n" + "="*50)
-    print(f"RUN {i+1}/{len(parameter_combinations)}")
+    print(f"Starting Trial {trial.number + 1}/{N_TRIALS}")
+
+    # Define the hyperparameter search space 
+    hidden_size = trial.suggest_int('hidden_size', 256, 512)
+    lr = trial.suggest_float('learning_rate', 0.05, 0.1, log=True)
+    epochs = trial.suggest_int('epochs', 400, 600)
+
     print(f"PARAMETERS: Hidden Size={hidden_size}, Learning Rate={lr}, Epochs={epochs}")
     print("="*50)
 
-    # Instantiate the classifier with the current set of parameters
+    # Instantiate and train the classifier with the suggested hyperparameters.
     classifier = Classifier(
         hidden_size=hidden_size,
         epochs=epochs,
         lr=lr
     )
 
-    # The train method automatically calls evaluate and returns the final metrics
     final_metrics = classifier.train(data_path=DATA_PATH)
 
-    # Check if the current model is a new "best" and capture it if so
-    current_f1 = final_metrics.get('F1-Score', 0)
-    current_f2 = final_metrics.get('F2-Score', 0)
+    # Return the metric to optimize, in the classifier case the F1-Score.
+    f1_score = final_metrics.get('F1-Score', 0)
+    
+    # Tracking of other attributes
+    trial.set_user_attr('F2-Score', final_metrics.get('F2-Score', 0))
+    trial.set_user_attr('Accuracy', final_metrics.get('Accuracy', 0))
 
-    if current_f1 > best_f1_info['score']:
-        best_f1_info['score'] = current_f1
-        best_f1_info['model'] = classifier
-        best_f1_info['params'] = params # `params` holds the current (hs, lr, e) tuple
-        print(f"New Best F1-Score: {best_f1_info['score']:.4f}. Model captured.")
-
-    if current_f2 > best_f2_info['score']:
-        best_f2_info['score'] = current_f2
-        best_f2_info['model'] = classifier
-        best_f2_info['params'] = params
-        print(f"New Best F2-Score: {best_f2_info['score']:.4f}. Model captured.")
-
-    # Store the results of the run
-    run_result = {
-        'hidden_size': hidden_size,
-        'learning_rate': lr,
-        'epochs': epochs,
-        'Accuracy': final_metrics.get('Accuracy', 0),
-        'F1-Score': final_metrics.get('F1-Score', 0),
-        'F2-Score': final_metrics.get('F2-Score', 0)
-    }
-    all_results.append(run_result)
+    return f1_score
 
 
-# === Final Report === #
+# === Optuna Study Execution === #
+print(f"\nStarting Optuna Optimization for {N_TRIALS} Trials...")
+
+study = optuna.create_study(direction='maximize') # Create study
+study.optimize(objective, n_trials=N_TRIALS) # Optimize study
+
+
+# === Final Report and Model Saving === #
 print("\n" + "#"*60)
-print("Grid Search Complete. Analyzing Results...")
+print("Optimization Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
-# Save the best models found during the entire search
-print("--- Saving Best Performing Models ---")
-if best_f1_info['model']:
-    # Unpack the parameters from the stored tuple
-    hs, lr, e = best_f1_info['params']
-    # Create the dynamic filename
-    file_name = f"classifier_hs_{hs}_lr_{lr}_e_{e}"
-    best_f1_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
-else:
-    print("No best F1 model was captured to save.")
+# Get the best trial results from the study.
+print(f"Best F1-Score: {study.best_value:.4f}")
+print("Best parameters found:")
+best_params = study.best_params
+for key, value in best_params.items():
+    print(f"  - {key}: {value}")
 
-# Save the best F2 model with its dynamic name
-if best_f2_info['model']:
-    # Check if the F2 model is the same object as the F1 model to avoid saving a duplicate
-    if best_f2_info['model'] is not best_f1_info['model']:
-        hs, lr, e = best_f2_info['params']
-        file_name = f"classifier_hs_{hs}_lr_{lr}_e_{e}"
-        best_f2_info['model'].save_model(MODEL_SAVE_FOLDER, file_name)
-    else:
-        print("Best F2 model is the same as the best F1 model. Not saving a duplicate.")
-else:
-    print("No best F2 model was captured to save.")
+# Retrain the final best model with the optimal parameters.
+print("\n--- Retraining and Saving the Best Model ---")
+final_model = Classifier(
+    hidden_size=best_params['hidden_size'],
+    epochs=best_params['epochs'],
+    lr=best_params['learning_rate']
+)
+# Final training
+final_model.train(data_path=DATA_PATH)
 
-# Convert results to a pandas DataFrame for easy analysis
-results_df = pd.DataFrame(all_results)
+# Create a dynamic filename from the best parameters and save the model
+file_name = (f"classifier_hs_{best_params['hidden_size']}_"
+             f"lr_{best_params['learning_rate']}_e_{best_params['epochs']}")
+final_model.save_model(MODEL_SAVE_FOLDER, file_name)
 
-# Find and display the best parameters based on F1-Score
-best_f1_run = results_df.sort_values(by="F1-Score", ascending=False).iloc[0]
-
-# Find and display the best parameters based on F2-Score
-best_f2_run = results_df.sort_values(by="F2-Score", ascending=False).iloc[0]
-
-print("--- Best Parameters Based on F1-Score ---")
-print(best_f1_run)
-
-print("\n--- Best Parameters Based on F2-Score (Emphasizes Recall) ---")
-print(best_f2_run)
-
-# Save the full results log to a CSV file for your records
-results_csv_path = MODEL_SAVE_FOLDER / "grid_search_results.csv"
+# Save all results to a CSV file for analysis.
+results_df = study.trials_dataframe()
+results_csv_path = MODEL_SAVE_FOLDER / "optuna_search_results.csv"
 results_df.to_csv(results_csv_path, index=False)
-print(f"\nFull grid search results have been saved to '{results_csv_path}'")
+print(f"\nFull optimization results saved to '{results_csv_path}'")

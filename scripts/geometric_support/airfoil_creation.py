@@ -45,7 +45,8 @@ class Airfoil_Generator:
         # Fit original airfoil with CST
         x_values = np.linspace(0, 1, self.x_len)
         z_upper_flip = np.flip(z_upper_norm)
-        a_gain_u, a_gain_l = cst_foil_fit(x_upper_norm, z_upper_flip * (-1), x_lower_norm, z_lower_norm, self.n_cst)
+        x_upper_flip = np.flip(x_upper_norm)
+        a_gain_u, a_gain_l = cst_foil_fit(x_upper_flip, z_upper_flip, x_lower_norm, z_lower_norm, n_cst)
         # Reconstruct the airfoil from CST coefficients
         self.x_cst, self.z_cst_u, self.z_cst_l, _, _ = cst_foil(self.x_len, a_gain_u, a_gain_l, x=x_values)
 
