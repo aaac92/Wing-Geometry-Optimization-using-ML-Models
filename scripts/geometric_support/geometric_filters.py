@@ -172,7 +172,7 @@ class Validate_Airfoil:
 
         return ("valid", None)
     
-    def sharpness_filter(self, curv_cont=False, th_rLE=None):
+    def sharpness_filter(self, curv_cont=False, tolerance=5, th_rLE=None):
         '''
         Activates and applies sharpness filters, if a reason is found airfoil should be rejected. If any thershold is empty or None, then that 
         filter is deactivated.
@@ -190,7 +190,7 @@ class Validate_Airfoil:
                 print(f"[INFO] Thresholds are empty, no filters applied, returning valid status.")
             return ("valid", None)
 
-        sharp_point, _ = LE_angular_curvature_continuity(self.x, self.yu, self.yl)
+        sharp_point, _ = LE_angular_curvature_continuity(self.x, self.yu, self.yl, tolerance=tolerance)
         rLE = self.foil.get_leading_edge_radius()
 
         if curv_cont:

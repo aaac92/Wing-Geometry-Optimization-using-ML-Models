@@ -51,24 +51,56 @@ class Xfoil_Polar_Creator:
             print("="*50)
 
     def initialize_xfoil(self, airfoil_file_path, polar_file_path, iter, visc, mach):
-        # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
-        proc = PtyProcess.spawn([str(self.xfoil_path)])
+        """
+        Runs the standard initialization of XFOIL and tries to process rough airfoils, or skips that for special cases.
+        
+        :param airfoil_file_path: The relative path to the source airfoil .dat file.
+        :param polar_file_path: The final relative path to save the output polar file to.
+        :param iter: Number of XFOIL iterations before flagging non-convergence
+        :param visc: Reynolds Number for the experiment using viscosity
+        :param mach: Fluid Mach speed
+        """
+        for attempt in range(4):
+            # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
+            proc = PtyProcess.spawn([str(self.xfoil_path)])
 
-        # --- SCRIPTED XFOIL COMMANDS --- #
-        if not self._send_command(proc, f"LOAD {airfoil_file_path}"): return False
-        if not self._send_command(proc, "PANE"): return False
-        if not self._send_command(proc, "OPER", expect_prompt=".OPERi   c>"): return False
-        if not self._send_command(proc, f"ITER {iter}", expect_prompt=".OPERi   c>"): return False
-        if not self._send_command(proc, f"VISC {visc}", expect_prompt=".OPERv   c>"): return False
-        if not self._send_command(proc, f"MACH {mach}", expect_prompt=".OPERv   c>"): return False
+            try:
+                # --- SCRIPTED XFOIL COMMANDS --- #
+                if not self._send_command(proc, f"LOAD {airfoil_file_path}"): return False
+                if attempt < 3:
+                    # Try the MDES sequence (cleans airfoil geometry for easier convergence in simulations)
+                    mdes_success = True
+                    if not self._send_command(proc, "MDES"): mdes_success = False
+                    elif not self._send_command(proc, "FILT"): mdes_success = False
+                    elif not self._send_command(proc, "EXEC"): mdes_success = False
+                    elif not self._send_command(proc, ""): mdes_success = False
 
-        # Set up polar accumulation using the temporary polar path
-        if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): return False
-        if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): return False
-        if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): return False
+                    if not mdes_success:
+                        raise RuntimeError("MDES sequence failed")
+                if not self._send_command(proc, "PANE"): return False
+                if not self._send_command(proc, "OPER", expect_prompt=".OPERi   c>"): return False
+                if not self._send_command(proc, f"ITER {iter}", expect_prompt=".OPERi   c>"): return False
+                if not self._send_command(proc, f"VISC {visc}", expect_prompt=".OPERv   c>"): return False
+                if not self._send_command(proc, f"MACH {mach}", expect_prompt=".OPERv   c>"): return False
 
+                # Set up polar accumulation using the temporary polar path
+                if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): return False
+                if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): return False
+                if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): return False
 
-        return proc
+                return proc
+
+            except RuntimeError:
+                if proc:
+                    proc.close()
+                    proc = None
+
+                if attempt == 3:
+                    return False
+            
+            continue # Restart the loop for the next attempt
+
+        return False
 
     
     def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200):

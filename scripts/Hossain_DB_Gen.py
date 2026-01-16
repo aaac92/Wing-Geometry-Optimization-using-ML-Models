@@ -87,7 +87,7 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
     invalid_output_dir = airfoils_temp_dir / "invalid airfoils"
     log_file_path = airfoils_temp_dir / "Invalid_airfoils_log.txt"
 
-    # --- Recovery Logic ---
+    # --- Recovery Logic --- #
     existing_airfoils = {os.path.splitext(f.name)[0] for f in airfoils_temp_dir.glob('*.dat')}
     start_index = 0
     if existing_airfoils:
@@ -110,6 +110,7 @@ def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, genera
 
         print(f"Resuming geometric database generation from airfoil Test_{start_index + 1}")
 
+    # --- Generation Logic --- #
     airfoil_creator = Airfoil_Generator(
             base_airfoil_csv=base_airfoil_path,
             n_cst=n_cst,
@@ -206,7 +207,7 @@ def polar_worker(args):
     airfoil_name = os.path.basename(airfoil_abs_path)
     worker_status_list[index] = airfoil_name
     
-    # --- Recovery Logic for each polar file ---
+    # --- Recovery Logic for each polar file --- #
     completion_flag = "XFOIL process completed successfully"
     if os.path.exists(polar_abs_path):
         with open(polar_abs_path, 'r') as f:
@@ -215,7 +216,7 @@ def polar_worker(args):
                     progress_queue.put(1)
                 return  # Skip if already completed
         
-        # --- Incomplete file, determine where to resume ---
+        # --- Incomplete file, determine where to resume --- #
         with open(polar_abs_path, 'r') as f:
             lines = f.readlines()
         
@@ -247,7 +248,7 @@ def polar_worker(args):
             worker_status_list[index] = "Idle"
         return
 
-    # Calculate polar
+    # --- Calculate Polar --- #
     try:
         xfoil_exe = os.path.join(support_files_dir, 'xfoil.exe')
         # Create an instance of the runner
@@ -304,7 +305,6 @@ def Polar_Database_Generation(ASEQ, verbose=False):
         for i, file in enumerate(airfoil_abs_paths):
             airfoil_name = os.path.splitext(os.path.basename(file))[0]
             polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
-            # Add index and worker_status_list to the arguments tuple
             tasks.append((file, polar_abs_path, ASEQ, support_files_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
 
         # Define the processing job to run in a separate thread
@@ -340,8 +340,7 @@ def Polar_Database_Generation(ASEQ, verbose=False):
 
 def Geometric_File_Creation():
     '''
-    Generates AVL's .geo files that build the wing geometry, since all wings should be the same except for the airfoil used
-    only the relevant information is added as a variable (Polar data and airfoil path).
+    Generates AVL's .geo files that build the wing geometry, this script focuses on replicating Hossain's experiment so there are 3 wing configurations.
     '''
     geo_files_name = f"geo_files_dataset_{dataset_num}"
     rar_path = geo_files_dir / f"{geo_files_name}.rar"
@@ -532,7 +531,7 @@ def Final_Database_Generation():
 
 
 if __name__ == "__main__":
-    # === Timer for Fun (?) === #
+    # === Timer for Fun  === #
     start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     start = datetime.now()
     print(f"Database generation started at: {start_time}.")

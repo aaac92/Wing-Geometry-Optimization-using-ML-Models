@@ -1,46 +1,56 @@
-import math
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from pathlib import Path
+import scipy.stats as stats
 
 # Load CSV file
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-Training_File = "Airfoils_for_Regressor_E_Dataset_16.csv"
+Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
 DATA_PATH = project_root / Training_File
 df = pd.read_csv(DATA_PATH)
 
 # Extract last column
 y = pd.to_numeric(df.iloc[:, -1], errors="coerce").dropna()
-threshold = np.percentile(y, 99.6)
-df_top = df[y >= threshold]
-rep_factor = 0
-if rep_factor == 0:
-    df = df
-else:
-    df = pd.concat([df, pd.concat([df_top]*rep_factor, ignore_index=True)], ignore_index=True)
-y = pd.to_numeric(df.iloc[:, -1], errors="coerce").dropna()
 
-# Estimate lambda (mean of the data)
-lambda_est = y.mean()
+# Take log of the data (shift slightly if any zeros or negatives exist)
+y_shifted = y[y > 0]  # log requires strictly positive values
+log_y = np.log(y_shifted)
 
-print(f"Estimated λ (lambda): {lambda_est:.4f}")
-print(f"Sample variance: {y.var():.4f}")
+# --- Summary statistics ---
+print("Raw y statistics:")
+print(y.describe())
+print("\nLog(y) statistics:")
+print(log_y.describe())
 
-# Plot histogram with Poisson PMF overlay
-plt.figure(figsize=(8, 6))
-counts, bins, _ = plt.hist(y, bins=30, edgecolor='black', alpha=0.7, density=True)
+# Skewness check
+print(f"\nSkewness of y: {stats.skew(y)}")
+print(f"Skewness of log(y): {stats.skew(log_y)}")
 
-# Overlay Poisson distribution using estimated λ
-x = np.arange(int(y.min()), int(y.max())+1)
-poisson_pmf = (np.exp(-lambda_est) * (lambda_est**x) / np.array([math.factorial(i) for i in x]))
+# --- Visualization ---
+plt.figure(figsize=(14, 8))
 
-plt.plot(x, poisson_pmf, 'r-', marker='o', label=f"Poisson PMF (λ={lambda_est:.2f})")
+# Histogram of y
+plt.subplot(2, 2, 1)
+sns.histplot(y, bins=50, kde=True)
+plt.title("Histogram of y (raw data)")
 
-plt.title("Distribution of Last Column with Poisson Fit")
-plt.xlabel("Value")
-plt.ylabel("Density")
-plt.legend()
-plt.grid(True, linestyle="--", alpha=0.6)
+# Histogram of log(y)
+plt.subplot(2, 2, 2)
+sns.histplot(log_y, bins=50, kde=True, color="orange")
+plt.title("Histogram of log(y)")
+
+# Q-Q plot of log(y)
+plt.subplot(2, 2, 3)
+stats.probplot(log_y, dist="norm", plot=plt)
+plt.title("Q-Q Plot of log(y) vs Normal")
+
+# Boxplot to show skewness
+plt.subplot(2, 2, 4)
+sns.boxplot(x=y)
+plt.title("Boxplot of y")
+
+plt.tight_layout()
 plt.show()

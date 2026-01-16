@@ -23,11 +23,24 @@ if __name__ == "__main__":
     name = 'Manual Test'
     n_cst = 5
     cmb = [-0.03125, -0.125, -0.125, -0.125, -0.0625, # Lower surface
-           0.03125, 0.125, 0.125, 0.125, 0.0625] # Upper surface
+           -0.03125, -0.125, -0.125, -0.125, -0.0625] # Upper surface
     
+    # Ranges are used here for ease of visualization, and later to claculate the possible combinations
+    ranges_upper = {
+        'first': (-0.03125, 0.03125, 0.03125),   # range for value closest to LE
+        'middle': (-0.125, 0.125, 0.125),  # range for middle points
+        'last': (-0.0625, 0.0625, 0.0625)     # range for value closest to TE
+    }
+    ranges_lower = {
+        'first': (-0.03125, 0.03125, 0.03125),   # range for value closest to LE
+        'middle': (-0.125, 0.125, 0.125),  # range for middle points
+        'last': (-0.0625, 0.0625, 0.0625)     # range for value closest to TE
+    }
+
     airfoil = Airfoil_Generator(
             base_airfoil_csv=base_airfoil_path,
             n_cst=n_cst,
+            x_len=150,
             verbose=False    
         )
     
@@ -39,14 +52,16 @@ if __name__ == "__main__":
     
     foil = FoilGeoFeatures(x, yu, yl)
     va = Validate_Airfoil(x, yu, yl, cmb, n_cst, name)
-    acc_va, _ = va.sharpness_filter(curv_cont=True, th_rLE=0.01)
-    acc, deviations = LE_angular_curvature_continuity(x, yu, yl)
+    LE_AC_Tolerance = 8
+    LE_Radius_Threshold = 0.01
+    acc_va, _ = va.sharpness_filter(curv_cont=True, tolerance=LE_AC_Tolerance, th_rLE=LE_Radius_Threshold) # Simulation of actual filter
+    acc, deviations = LE_angular_curvature_continuity(x, yu, yl) # Values of LE Continuity
     mat_va, _ = va.monotonic_thickness_filter()
     mat, x_dip = monotonic_airfoil_thickness(x, yu, yl)
     t_max, t_x, _ = foil.get_maximum_thickness()
     rLE = foil.get_leading_edge_radius()
     c_max, _ , _ = foil.get_maximum_camber()
-    c_min, _ , _ = foil.get_minimum_camber() # Custom function
+    c_min, _ , _ = foil.get_minimum_camber() # Custom function, finds maximum negative camber
 
     print(f"Maximum thickness: {t_max}")
     print(f"Maximum thickness location: {t_x}")
@@ -60,7 +75,14 @@ if __name__ == "__main__":
         print(f"Leading edge angular difference: {deviations['deviation_diff']}")
         print(f"Surface combined angular change (threshold): {deviations['threshold']}")
     elif acc==True or acc_va=='invalid':
-        print("Angular continuity mismach, check LE radius parameter")
+        print("Angular continuity mismach, check LE radius parameter or tolerance parameter")
+        print(f"LE Radius Threshold: {LE_Radius_Threshold}")
+        print(f"LE Angular Continuity Tolerance: {LE_AC_Tolerance}")
+        print(f"Actual filter return value: {acc_va}")
+        if acc == True:
+            print(f"Raw filter return value with default tolerance of 5° is {acc}, therfore the airfoil is INVALID.")
+        else:
+            print(f"Raw filter return value with default tolerance of 5° is {acc}, therfore the airfoil is VALID.")
     else:
         print(f"Angular continuity pass")
     if mat==True and mat_va=='invalid':
@@ -73,16 +95,6 @@ if __name__ == "__main__":
     plot_LE_slopes(x, yu, yl)
     plot_thickness_behavior(x, yu, yl)
 
-    ranges_upper = {
-        'first': (-0.03125, 0.03125, 0.03125),   # range for value closest to LE
-        'middle': (-0.125, 0.125, 0.125),  # range for middle points
-        'last': (-0.0625, 0.0625, 0.0625)     # range for value closest to TE
-    }
-    ranges_lower = {
-        'first': (-0.03125, 0.03125, 0.03125),   # range for value closest to LE
-        'middle': (-0.125, 0.125, 0.125),  # range for middle points
-        'last': (-0.0625, 0.0625, 0.0625)     # range for value closest to TE
-    }
     cmb_datalist = create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=True)
 
     airfoil._create_dat_file(airfoils_dir, n_cst, x, yu, yl, name)

@@ -25,12 +25,14 @@ class Airfoil_Generator:
         show_plot (bool, optional): If True, displays a plot of the airfoils. Defaults to False.
         verbose(bool, optional): True to toggle debug and error/warning messages.
     """
-    def __init__(self, base_airfoil_csv, n_cst, x_len=150, verbose=False):
+    def __init__(self, base_airfoil_csv, n_cst, x_len=150, a0=0.0079, a1=0.96, verbose=False):
 
         self.base_airfoil_csv = base_airfoil_csv
         self.x_len = x_len
         self.n_cst = n_cst
         self.verbose = verbose
+        self.a0 = a0
+        self.a1 = a1
         # Extract coordinates from the base airfoil file
         ate = Airfoil_Tools_Exctract()
         ate.file = self.base_airfoil_csv
@@ -48,7 +50,7 @@ class Airfoil_Generator:
         x_upper_flip = np.flip(x_upper_norm)
         a_gain_u, a_gain_l = cst_foil_fit(x_upper_flip, z_upper_flip, x_lower_norm, z_lower_norm, n_cst)
         # Reconstruct the airfoil from CST coefficients
-        self.x_cst, self.z_cst_u, self.z_cst_l, _, _ = cst_foil(self.x_len, a_gain_u, a_gain_l, x=x_values)
+        self.x_cst, self.z_cst_u, self.z_cst_l, _, _ = cst_foil(self.x_len, a_gain_u, a_gain_l, x=x_values, a0=self.a0, a1=self.a1)
 
     def generate(self, cst_coeffs, show_plot=False, show_fancy_plot = False, debug=False):
         """
