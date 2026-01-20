@@ -1,4 +1,4 @@
 from .polar_creation import Xfoil_Polar_Creator
 from .key_point_processing import Key_Point_Extraction
-from .geo_file_creation import RecWingGeo_Creation, SkyeyeGeo_Creation, HossinWingGeo_Creation
+from .geo_file_creation import RecWingGeo_Creation, SkyeyeGeo_Creation, HossainWingRec_Creation, HossinWing60DEG_Creation, HossinWingFlat_Creation
 from .avl_simulation import AVL_Run_Case

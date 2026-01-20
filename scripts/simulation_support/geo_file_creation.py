@@ -305,11 +305,11 @@ class HossainWingRec_Creation:
                 CLCDmin = item['min_cd_point']['CL']
                 CDmin = item['min_cd_point']['CD']
                 
-                geo_file_path = self.output_dir / f"{airfoil_name}_geo.avl"
+                geo_file_path = self.output_dir / f"{airfoil_name}_Rec_geo.avl"
 
                 # The rest of the file writing logic remains the same
                 with open(geo_file_path, "w", encoding="utf-8") as geo:
-                    geo.write(f"Hossin_GeoFile for {airfoil_name} \n")
+                    geo.write(f"Hossin_Rec_GeoFile for {airfoil_name} \n")
                     geo.write(f"0.09367               Mach number (incompressible)\n")
                     geo.write(f"0 0 0.0               iYsym iZsym Zsym  \n")
                     geo.write(f"0.07986 0.121 0.66    Sref Cref Bref \n")
@@ -424,11 +424,11 @@ class HossinWing60DEG_Creation:
                 CLCDmin = item['min_cd_point']['CL']
                 CDmin = item['min_cd_point']['CD']
                 
-                geo_file_path = self.output_dir / f"{airfoil_name}_geo.avl"
+                geo_file_path = self.output_dir / f"{airfoil_name}_60DEG_geo.avl"
 
                 # The rest of the file writing logic remains the same
                 with open(geo_file_path, "w", encoding="utf-8") as geo:
-                    geo.write(f"Hossin_GeoFile for {airfoil_name} \n")
+                    geo.write(f"Hossin_60DEG_GeoFile for {airfoil_name} \n")
                     geo.write(f"0.09367                   Mach number (incompressible)\n")
                     geo.write(f"0 0 0.0                   iYsym iZsym Zsym  \n")
                     geo.write(f"0.09136 0.1102 0.781    Sref Cref Bref \n")
@@ -573,11 +573,11 @@ class HossinWingFlat_Creation:
                 CLCDmin = item['min_cd_point']['CL']
                 CDmin = item['min_cd_point']['CD']
                 
-                geo_file_path = self.output_dir / f"{airfoil_name}_geo.avl"
+                geo_file_path = self.output_dir / f"{airfoil_name}_flat_geo.avl"
 
                 # The rest of the file writing logic remains the same
                 with open(geo_file_path, "w", encoding="utf-8") as geo:
-                    geo.write(f"Hossin_GeoFile for {airfoil_name} \n")
+                    geo.write(f"Hossin_Flat_GeoFile for {airfoil_name} \n")
                     geo.write(f"0.09367                     Mach number (incompressible)\n")
                     geo.write(f"0 0 0.0                     iYsym iZsym Zsym  \n")
                     geo.write(f"0.102858 0.0964 0.902       Sref Cref Bref \n")

@@ -13,7 +13,7 @@ from cst_modeling.foil import check_validity
 from multiprocessing import Pool, Manager, cpu_count
 # Import custom package class and methods
 from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support import Key_Point_Extraction, HossinWingGeo_Creation, AVL_Run_Case
+from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossinWing60DEG_Creation, HossinWingFlat_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
 from ux_support import Progress_GUI, recovery_json, recovery_Fabius
@@ -357,7 +357,21 @@ def Geometric_File_Creation():
     key_points.save_error_log(KP_error_log)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-    geo_creator = HossinWingGeo_Creation(
+    geo_creator_rec = HossainWingRec_Creation(
+                key_points_data=key_points_data,
+                airfoil_abs_paths=airfoil_abs_paths,
+                output_dir=str(geo_files_temp_dir),
+                verbose=False, 
+                pb=True
+            )
+    geo_creator_flat = HossinWingFlat_Creation(
+                key_points_data=key_points_data,
+                airfoil_abs_paths=airfoil_abs_paths,
+                output_dir=str(geo_files_temp_dir),
+                verbose=False, 
+                pb=True
+            )
+    geo_creator_60deg = HossinWing60DEG_Creation(
                 key_points_data=key_points_data,
                 airfoil_abs_paths=airfoil_abs_paths,
                 output_dir=str(geo_files_temp_dir),
@@ -373,9 +387,17 @@ def Geometric_File_Creation():
         if last_geo_path.exists():
             last_geo_path.unlink()
     
-    geo_creator.create_geo_files()
-    geo_error = os.path.join(geo_files_temp_dir, 'geo_error_log.txt')
-    geo_creator.save_error_log(geo_error)
+    geo_creator_rec.create_geo_files()
+    geo_error_rec = os.path.join(geo_files_temp_dir, 'geo_rec_error_log.txt')
+    geo_creator_rec.save_error_log(geo_error_rec)
+
+    geo_creator_flat.create_geo_files()
+    geo_error_flat = os.path.join(geo_files_temp_dir, 'geo_flat_error_log.txt')
+    geo_creator_flat.save_error_log(geo_error_flat)
+
+    geo_creator_60deg.create_geo_files()
+    geo_error_60deg = os.path.join(geo_files_temp_dir, 'geo_60deg_error_log.txt')
+    geo_creator_60deg.save_error_log(geo_error_60deg)
 
     rar_Alma.compress_folder(geo_files_temp_dir, geo_files_dir, geo_files_name)
 
