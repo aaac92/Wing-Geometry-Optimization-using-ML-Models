@@ -368,7 +368,7 @@ class HossainWingRec_Creation:
                 f.write(f"{i}. Airfoil: {error_info['airfoil']}\n")
                 f.write(f"   Error: {error_info['error']}\n")
 
-class HossinWing60DEG_Creation:
+class HossainWing60DEG_Creation:
     """
     Creates AVL geometry files for Hossain's wing with flat winglets.
     """
@@ -517,7 +517,7 @@ class HossinWing60DEG_Creation:
                 f.write(f"{i}. Airfoil: {error_info['airfoil']}\n")
                 f.write(f"   Error: {error_info['error']}\n")
 
-class HossinWingFlat_Creation:
+class HossainWingFlat_Creation:
     """
     Creates AVL geometry files for Hossin's wing with 60° winglets.
     """

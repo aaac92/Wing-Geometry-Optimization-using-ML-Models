@@ -13,7 +13,7 @@ from cst_modeling.foil import check_validity
 from multiprocessing import Pool, Manager, cpu_count
 # Import custom package class and methods
 from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossinWing60DEG_Creation, HossinWingFlat_Creation, AVL_Run_Case
+from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossainWing60DEG_Creation, HossainWingFlat_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
 from ux_support import Progress_GUI, recovery_json, recovery_Fabius
@@ -357,47 +357,39 @@ def Geometric_File_Creation():
     key_points.save_error_log(KP_error_log)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-    geo_creator_rec = HossainWingRec_Creation(
-                key_points_data=key_points_data,
-                airfoil_abs_paths=airfoil_abs_paths,
-                output_dir=str(geo_files_temp_dir),
-                verbose=False, 
-                pb=True
-            )
-    geo_creator_flat = HossinWingFlat_Creation(
-                key_points_data=key_points_data,
-                airfoil_abs_paths=airfoil_abs_paths,
-                output_dir=str(geo_files_temp_dir),
-                verbose=False, 
-                pb=True
-            )
-    geo_creator_60deg = HossinWing60DEG_Creation(
-                key_points_data=key_points_data,
-                airfoil_abs_paths=airfoil_abs_paths,
-                output_dir=str(geo_files_temp_dir),
-                verbose=False, 
-                pb=True
-            )
-    
-    # --- Recovery Logic ---
-    existing_geo_files = {os.path.splitext(f.name)[0] for f in geo_files_temp_dir.glob('*.avl')}
-    if existing_geo_files:
-        last_geo_file = f"RecWing_{len(existing_geo_files)}"
-        last_geo_path = geo_files_temp_dir / f"{last_geo_file}.avl"
-        if last_geo_path.exists():
-            last_geo_path.unlink()
-    
-    geo_creator_rec.create_geo_files()
-    geo_error_rec = os.path.join(geo_files_temp_dir, 'geo_rec_error_log.txt')
-    geo_creator_rec.save_error_log(geo_error_rec)
 
-    geo_creator_flat.create_geo_files()
-    geo_error_flat = os.path.join(geo_files_temp_dir, 'geo_flat_error_log.txt')
-    geo_creator_flat.save_error_log(geo_error_flat)
+    configs = [
+        (HossainWingRec_Creation, "Rec"),
+        (HossainWingFlat_Creation, "flat"),
+        (HossainWing60DEG_Creation, "60DEG")
+    ]
 
-    geo_creator_60deg.create_geo_files()
-    geo_error_60deg = os.path.join(geo_files_temp_dir, 'geo_60deg_error_log.txt')
-    geo_creator_60deg.save_error_log(geo_error_60deg)
+    for creator_class, identifier in configs:
+        geo_creator = creator_class(
+            key_points_data=key_points_data,
+            airfoil_abs_paths=airfoil_abs_paths,
+            output_dir=str(geo_files_temp_dir),
+            verbose=False, 
+            pb=True
+        )
+
+        pattern = f"*_{identifier}_geo.avl"
+        existing_type_files = list(geo_files_temp_dir.glob(pattern))
+
+        if existing_type_files:
+            existing_type_files.sort(key=lambda x: x.stat().st_mtime)
+            last_file = existing_type_files[-1]
+            
+            try:
+                last_file.unlink()
+            except Exception as e:
+                print(f"Warning: Could not delete {last_file.name} for recovery: {e}")
+
+        # --- File Creation & Logging ---
+        geo_creator.create_geo_files()
+        
+        error_log_name = f'geo_{identifier}_error_log.txt'
+        geo_creator.save_error_log(os.path.join(geo_files_temp_dir, error_log_name))
 
     rar_Alma.compress_folder(geo_files_temp_dir, geo_files_dir, geo_files_name)
 
