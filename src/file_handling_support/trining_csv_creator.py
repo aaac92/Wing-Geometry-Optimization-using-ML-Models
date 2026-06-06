@@ -15,6 +15,7 @@ class Training_Data_Generator:
                  force_files_dir: str,
                  airfoils_dir: str,
                  invalid_airfoils_path: str,
+                 geo_files_dir: str,
                  output_dir: str,
                  n_cst: int,
                  verbose: bool = False,
@@ -26,6 +27,7 @@ class Training_Data_Generator:
             force_files_dir (str): Directory containing force files for VALID airfoils.
             airfoils_dir (str): Directory with .dat files for VALID airfoils.
             invalid_airfoils_path (str): Path to the .txt log file for INVALID airfoils.
+            geo_files_dir (str): Directory containing AVL geometry files (.avl).
             output_dir (str): Directory where the output CSVs and log will be saved.
             verbose (bool, optional): Enables console printing. Defaults to False.
             output_mode (Literal['Efficiency', 'Coefficients'], optional):
@@ -35,6 +37,7 @@ class Training_Data_Generator:
         self.force_files_dir = Path(force_files_dir)
         self.airfoils_dir = Path(airfoils_dir)
         self.invalid_airfoils_path = Path(invalid_airfoils_path)
+        self.geo_files_dir = Path(geo_files_dir)
         self.output_dir = Path(output_dir)
         self.verbose = verbose
         self.output_mode = output_mode
@@ -56,6 +59,10 @@ class Training_Data_Generator:
             header = f"cst_u_{i+1}"
             cst_headers.append(header)
         self.cst_headers = cst_headers
+        # Key Point Headers
+        self.kp_headers = ["CLneg", "CDneg", "CLcdmin", "CDmin", "CLpos", "CDpos"]
+        # Wing Configuration Headers
+        self.config_headers = ["rec", "flat", "60DEG"]
 
 
     def _log_and_print(self, message: str, level: str = 'info'):
@@ -105,6 +112,68 @@ class Training_Data_Generator:
             self._log_and_print(f"Error parsing CST from {file_path}: {e}", 'error')
             return None
 
+    def _extract_kp_from_avl(self, file_path: Path) -> Optional[List[float]]:
+        """
+        Extracts key point values from an AVL geometry file.
+ 
+        Reads the six space-separated floats on the line immediately following
+        the CDCL keyword, corresponding to:
+        [CLneg, CDneg, CLcdmin, CDmin, CLpos, CDpos]
+ 
+        Args:
+            file_path (Path): Path to the .avl geometry file.
+ 
+        Returns:
+            A list of 6 floats, or None if parsing fails.
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            for i, line in enumerate(lines):
+                if line.strip() == 'CDCL':
+                    values = lines[i + 1].strip().split()
+                    if len(values) != len(self.kp_headers):
+                        self._log_and_print(
+                            f"Expected {len(self.kp_headers)} key point values in {file_path}, "
+                            f"got {len(values)}. Skipping.", 'warning'
+                        )
+                        return None
+                    return [float(v) for v in values]
+            self._log_and_print(f"CDCL section not found in {file_path}.", 'warning')
+            return None
+        except FileNotFoundError:
+            self._log_and_print(f"AVL geometry file not found: {file_path}", 'error')
+            return None
+        except (ValueError, IndexError) as e:
+            self._log_and_print(f"Error parsing key points from {file_path}: {e}", 'error')
+            return None
+        
+    def _extract_config_encoding(self, geometry_name: str) -> Optional[List[int]]:
+        """
+        Derives a one-hot configuration encoding from a geometry name.
+ 
+        Iterates self.config_headers and checks whether geometry_name ends with
+        '_{config}'. The first match produces a one-hot list aligned to
+        self.config_headers.
+ 
+        Args:
+            geometry_name (str): The force file stem with the 'force_' prefix
+                                 removed, e.g. 'Test_771_rec'.
+ 
+        Returns:
+            A one-hot list of ints, or None if no known config tag is found.
+        """
+        for i, config in enumerate(self.config_headers):
+            if geometry_name.endswith(f"_{config}"):
+                encoding = [0] * len(self.config_headers)
+                encoding[i] = 1
+                return encoding
+        self._log_and_print(
+            f"No matching configuration tag found in geometry name: '{geometry_name}'. Skipping.",
+            'warning'
+        )
+        return None
+
     def _process_valid_airfoils(self) -> List[List]:
         """Processes valid airfoils and returns their CSTs and performance metrics."""
         self._log_and_print("--- Processing valid airfoils ---")
@@ -119,9 +188,20 @@ class Training_Data_Generator:
                 continue
 
             airfoil_name, cl, cd = force_data
+
+            geometry_name = force_file_path.stem.replace("force_", "", 1)
+            config_encoding = self._extract_config_encoding(geometry_name)
+            if not config_encoding:
+                continue
+
             airfoil_dat_path = self.airfoils_dir / f"{airfoil_name}.dat"
             cst_params = self._extract_cst_from_dat(airfoil_dat_path)
             if not cst_params:
+                continue
+
+            avl_path = self.geo_files_dir / f"{geometry_name}_geo.avl"
+            kp_data = self._extract_kp_from_avl(avl_path)
+            if not kp_data:
                 continue
 
             if self.output_mode == 'Efficiency':
@@ -132,7 +212,7 @@ class Training_Data_Generator:
             else:  # 'Coefficients'
                 performance_metric = [cl, cd]
             
-            processed_data.append(cst_params + performance_metric)
+            processed_data.append(cst_params + kp_data + config_encoding + performance_metric)
         
         return processed_data
 
@@ -195,9 +275,9 @@ class Training_Data_Generator:
         # --- Generate the REGRESSION file (valid data only) ---
         if valid_data_for_regression:
             if self.output_mode == 'Efficiency':
-                regr_header = self.cst_headers + ['E']
+                regr_header = self.cst_headers + self.kp_headers + self.config_headers + ['E']
             else:
-                regr_header = self.cst_headers + ['CL', 'CD']
+                regr_header = self.cst_headers + self.kp_headers + self.config_headers + ['CL', 'CD']
             
             regr_path = self.output_dir / regression_filename
             self._write_csv(regr_path, regr_header, valid_data_for_regression)

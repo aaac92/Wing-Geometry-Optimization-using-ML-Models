@@ -118,8 +118,8 @@ class AVL_Run_Case:
                         if self.debug:
                             print(f"\n--- Processing {geo_file.name} (Attempt {attempt}/{retry}) ---")
 
-                        airfoil_name = geo_file.stem.replace("_geo", "")
-                        force_file_path = self.output_dir / f"force_{airfoil_name}.txt"
+                        geometry_name = geo_file.stem.replace("_geo", "")
+                        force_file_path = self.output_dir / f"force_{geometry_name}.txt"
 
                         # Launch avl.exe
                         proc = PtyProcess.spawn([str(self.avl_exe)])

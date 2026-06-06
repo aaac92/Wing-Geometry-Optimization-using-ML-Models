@@ -25,15 +25,15 @@ def create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=Fa
     # Helper function to generate combinations for a single surface
     def _get_surface_combos(n, ranges):
         # Generate value arrays for each position type
-        start, stop, step = ranges['first']
-        vals_first = np.linspace(start, stop, int(round((stop - start) / step)) + 1)
-        start, stop, step = ranges['middle']
-        vals_middle = np.linspace(start, stop, int(round((stop - start) / step)) + 1)
-        start, stop, step = ranges['last']
-        vals_last = np.linspace(start, stop, int(round((stop - start) / step)) + 1)
+        start, stop, step = ranges['LE']
+        vals_le = np.linspace(start, stop, int(round((stop - start) / step)) + 1)
+        start, stop, step = ranges['inter']
+        vals_inter = np.linspace(start, stop, int(round((stop - start) / step)) + 1)
+        start, stop, step = ranges['TE']
+        vals_te = np.linspace(start, stop, int(round((stop - start) / step)) + 1)
 
         # Construct a list of value options for each coefficient position
-        val_options = [vals_first] + [vals_middle] * (n - 2) + [vals_last]
+        val_options = [vals_le] + [vals_inter] * (n - 2) + [vals_te]
 
         # Return an iterator of all combinations for the surface
         return product(*val_options)

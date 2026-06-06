@@ -25,15 +25,17 @@ project_root = current_dir.parent
 # Add this path to the list of places Python looks for modules.
 sys.path.insert(0, project_root)
 # Define final directories
-airfoils_dir = project_root / "airfoils"
-force_files_dir = project_root / "force files"
-polars_dir = project_root / "polars"
-AI_results_dir = project_root / "AI results"
-support_files_dir = project_root / "support_files"
-geo_files_dir = project_root / "geometry files"
+airfoils_dir = project_root / "data" / "dataset_build_data" / "airfoils"
+force_files_dir = project_root / "data" / "dataset_build_data" / "force files"
+polars_dir = project_root / "data" / "dataset_build_data" / "polars"
+geo_files_dir = project_root / "data" / "dataset_build_data" / "geometry files"
+support_files_dir = project_root / "data" / "support"
+logs_dir = project_root / "data" / "logs"
+datasets_dir = project_root / "data" / "datasets"
+binaries_dir = project_root / "bin"
 # Define temp directories
 # Temp directories with a short path are needed for XFOIL and AVL
-training_temp_root = Path(r'C:\training_temp') # Uses my personal 'P' drive, any drive can be used
+training_temp_root = Path(r'C:\training_temp') # Uses personal 'P' drive, any drive can be used
 os.makedirs(training_temp_root, exist_ok=True)
 subprocess.run(['attrib', '+h', training_temp_root], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
 airfoils_temp_dir = training_temp_root / "airfoils"
@@ -52,7 +54,7 @@ rec_Fabius = recovery_Fabius()
 rar_Alma = compression_Alma()
 
 # === Database Logic === #
-def Gemoetric_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False, **kwargs):
+def Airfoil_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False, **kwargs):
     '''
     Fills a folder with generated airfoils matching the combination list and filtered for real plausible airfoils
     
@@ -201,7 +203,7 @@ def polar_worker(args):
     '''
     Worker function to run XFOIL simulation for a single airfoil.
     '''
-    airfoil_abs_path, polar_abs_path, ASEQ, support_files_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list = args
+    airfoil_abs_path, polar_abs_path, ASEQ, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list = args
 
     # Obtain airfoil name for GUI
     airfoil_name = os.path.basename(airfoil_abs_path)
@@ -250,7 +252,7 @@ def polar_worker(args):
 
     # --- Calculate Polar --- #
     try:
-        xfoil_exe = os.path.join(support_files_dir, 'xfoil.exe')
+        xfoil_exe = os.path.join(binaries_dir, 'xfoil.exe')
         # Create an instance of the runner
         xfoil_case = XPR(
             xfoil_exe_path=xfoil_exe,
@@ -305,7 +307,7 @@ def Polar_Database_Generation(ASEQ, verbose=False):
         for i, file in enumerate(airfoil_abs_paths):
             airfoil_name = os.path.splitext(os.path.basename(file))[0]
             polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
-            tasks.append((file, polar_abs_path, ASEQ, support_files_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
+            tasks.append((file, polar_abs_path, ASEQ, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
 
         # Define the processing job to run in a separate thread
         def processing_job():
@@ -338,7 +340,7 @@ def Polar_Database_Generation(ASEQ, verbose=False):
     
     return
 
-def Geometric_File_Creation():
+def Geometric_File_Creation(configs):
     '''
     Generates AVL's .geo files that build the wing geometry, this script focuses on replicating Hossain's experiment so there are 3 wing configurations.
     '''
@@ -357,12 +359,6 @@ def Geometric_File_Creation():
     key_points.save_error_log(KP_error_log)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-
-    configs = [
-        (HossainWingRec_Creation, "Rec"),
-        (HossainWingFlat_Creation, "flat"),
-        (HossainWing60DEG_Creation, "60DEG")
-    ]
 
     for creator_class, identifier in configs:
         geo_creator = creator_class(
@@ -427,7 +423,7 @@ def avl_worker(args):
         if progress_queue:
             progress_queue.put(1)
 
-def Final_Coefficient_Generation(case_filename, verbose=False):
+def Final_Coefficient_Generation(verbose=False):
     '''
     Uses AVL to calculate the force coefficients from each geometric file using the global case file.
     '''
@@ -436,10 +432,10 @@ def Final_Coefficient_Generation(case_filename, verbose=False):
     if rec_Fabius.check_stage_status("AVL Force Database", rar_path, force_files_temp_dir):
         return
 
-    avl_exe = os.path.join(support_files_dir, 'avl.exe')
-    case_file = os.path.join(support_files_dir, f"{case_filename}.run")
+    avl_exe = os.path.join(binaries_dir, 'avl.exe')
+    case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
     support_files_temp_dir.mkdir(exist_ok=True)
-    case_file_temp = os.path.join(support_files_temp_dir, f"{case_filename}.run")
+    case_file_temp = os.path.join(support_files_temp_dir, "Hossain_sqwing_case.run")
     shutil.copyfile(case_file, case_file_temp)
 
     geo_abs_paths = get_all_files_from(geo_files_temp_dir, extension='avl')
@@ -502,19 +498,21 @@ def Final_Coefficient_Generation(case_filename, verbose=False):
 
     return
 
-def Final_Database_Generation():
+def Final_Database_Generation(dataset_dir):
     '''
     Creates the final training files for the classifier and regressor models.
     '''
-    training_files_name = f"trining_files_dataset_{dataset_num}"
-    rar_path = project_root / f"{training_files_name}.rar"
+    training_files_name = f"training_files_dataset_{dataset_num}"
+    dataset_path = project_root / "data" / "datasets" / f"dataset_{dataset_num}"
+    rar_path = dataset_path / f"{training_files_name}.rar"
+    os.makedirs(dataset_path, exist_ok=True)
     if rec_Fabius.check_stage_status("Training Database", rar_path, airfoils_temp_dir):
         return
 
     invalid_airfoils_dir = airfoils_temp_dir / "Invalid_airfoils_log.txt"
 
-    regression_file = f"Airfoils_for_Regressor_E_Dataset_{dataset_num}.csv"
-    classification_file = f"Airfoils_for_Classifier_Dataset_{dataset_num}.csv"
+    regression_file = f"regressor_dataset_{dataset_num}.csv"
+    classification_file = f"classifier_dataset_{dataset_num}.csv"
 
     # Check if files need to be generated
     generate_regression = not (training_files_temp_dir / regression_file).exists() or (training_files_temp_dir / regression_file).stat().st_size == 0
@@ -525,6 +523,7 @@ def Final_Database_Generation():
             force_files_dir = force_files_temp_dir,
             airfoils_dir = airfoils_temp_dir,
             invalid_airfoils_path = invalid_airfoils_dir,
+            geo_files_dir = geo_files_temp_dir,
             output_dir = training_files_temp_dir,
             n_cst = n_cst,
             verbose = False,
@@ -532,11 +531,11 @@ def Final_Database_Generation():
         )
 
         generator_eff.generate_training_files(
-            regression_filename=regression_file,
-            classification_filename=classification_file
+            regression_filename = regression_file,
+            classification_filename = classification_file
             )
 
-    rar_Alma.compress_folder(training_files_temp_dir, project_root, training_files_name)
+    rar_Alma.compress_folder(training_files_temp_dir, dataset_dir, training_files_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Training files completed at {current_time}.")
@@ -550,21 +549,29 @@ if __name__ == "__main__":
     start = datetime.now()
     print(f"Database generation started at: {start_time}.")
     # === Geometric Generation Setup === #
-    base_airfoil = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
-    n_cst = 5
+    base_airfoil = os.path.join(support_files_dir,'naca0012_unit.csv')
+    n_cst = 3
 
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
     ranges_upper = {
-        'first': (-0.03125, 0.125, 0.0625),   # range for value closest to LE
-        'middle': (-0.125, 0.125, 1/24),  # range for middle points
-        'last': (-0.0625, 0.125, 0.125)     # range for value closest to TE
+        'LE': (-0.03125, 0.125, 0.125 + 0.03125),   # range for value closest to LE 
+        'inter': (-0.125, 0.125, 0.125 + 0.125),  # range for middle points
+        'TE': (-0.0625, 0.125, 0.125 + 0.0625)     # range for value closest to TE
     }
     ranges_lower = {
-        'first': (-0.125, 0.03125, 0.0625),   # range for value closest to LE
-        'middle': (0, 0.125, 1/24),  # range for middle points
-        'last': (0, 0.0625, 0.125)     # range for value closest to TE
+        'LE': (-0.125, 0.03125, 0.03125 + 0.125),   # range for value closest to LE
+        'inter': (0, 0.125, 0.125 - 0),  # range for middle points
+        'TE': (0, 0.0625, 0.0625 - 0)     # range for value closest to TE
     }
     cmb_datalist = create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=True)
+
+    # Wing configurations in case they are used
+    configs = [
+        (HossainWingRec_Creation, "rec"),
+        (HossainWingFlat_Creation, "flat"),
+        (HossainWing60DEG_Creation, "60DEG")
+    ]
+    num_configs = len(configs)
 
     # Geometric Filters thresholds and activations
     geo_filt_parm = {
@@ -593,9 +600,10 @@ if __name__ == "__main__":
     ASEQ = [-20, 20, 0.5]
 
     # === Dataset Parameter Logging === #
-    dataset_num = 16 
-    num_combinations = cmb_datalist.shape[0]
-    log_filename = project_root / f"Dataset_{dataset_num}_{num_combinations}_data_points.log"
+    dataset_num = 69
+    num_combinations = cmb_datalist.shape[0]*num_configs
+    log_filename = logs_dir / f"Dataset_{dataset_num}_{num_combinations}_data_points.log"
+    dataset_dir = datasets_dir / f"dataset_{dataset_num}"
 
     if not log_filename.exists():
         with open(log_filename, 'w') as log_file:
@@ -612,13 +620,19 @@ if __name__ == "__main__":
             log_file.write(f"  {ranges_lower}\n")
             log_file.write("\nUpper surface:\n")
             log_file.write(f"  {ranges_upper}\n")
+            if configs:
+                log_file.write("\nUsing the following wing configurations:\n")
+                # Loop through the list of tuples
+                for config_obj, _ in configs:
+                    # Use __name__ to get the string representation of the class
+                    log_file.write(f" - {config_obj.__name__}\n")
 
     # === Execution with Recovery === #
     status = rec_json.get_recovery_status()
 
-    if not status.get('geometric_database_generation_complete'):
-        Gemoetric_Database_Generation(base_airfoil, n_cst, cmb_datalist, **geo_filt_parm)
-        status['geometric_database_generation_complete'] = True
+    if not status.get('airfoil_database_generation_complete'):
+        Airfoil_Database_Generation(base_airfoil, n_cst, cmb_datalist, **geo_filt_parm)
+        status['airfoil_database_generation_complete'] = True
         rec_json.save_recovery_status(status)
 
     if not status.get('polar_database_generation_complete'):
@@ -627,7 +641,7 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     if not status.get('geometric_file_creation_complete'):
-        Geometric_File_Creation()
+        Geometric_File_Creation(configs)
         status['geometric_file_creation_complete'] = True
         rec_json.save_recovery_status(status)
 
@@ -637,12 +651,12 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     if not status.get('final_database_generation_complete'):
-        Final_Database_Generation()
+        Final_Database_Generation(dataset_dir)
         status['final_database_generation_complete'] = True
         rec_json.save_recovery_status(status)
 
     # Execution completed successfully
-    #shutil.rmtree(training_temp_root)
+    shutil.rmtree(training_temp_root)
     rec_json.recover_cleanup()
 
     end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

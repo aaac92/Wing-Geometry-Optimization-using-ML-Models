@@ -305,7 +305,7 @@ class HossainWingRec_Creation:
                 CLCDmin = item['min_cd_point']['CL']
                 CDmin = item['min_cd_point']['CD']
                 
-                geo_file_path = self.output_dir / f"{airfoil_name}_Rec_geo.avl"
+                geo_file_path = self.output_dir / f"{airfoil_name}_rec_geo.avl"
 
                 # The rest of the file writing logic remains the same
                 with open(geo_file_path, "w", encoding="utf-8") as geo:
