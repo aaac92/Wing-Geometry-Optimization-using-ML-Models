@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "airfoil-optimization"
+version = "0.1.0"
+
+[tool.setuptools]
+packages = ["ai_support", "file_handling_support", "geometric_support", "simulation_support", "ux_support"]
+package-dir = {"" = "src"}

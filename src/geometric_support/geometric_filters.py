@@ -52,7 +52,6 @@ def create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=Fa
         print("-" * 30)
 
     # Create all pairs of (upper_combo, lower_combo) and concatenate them
-    # This is the most memory-efficient way to build the final large array
     final_combos = np.array([
         np.concatenate(combo_pair)
         for combo_pair in product(combos_lower, combos_upper)

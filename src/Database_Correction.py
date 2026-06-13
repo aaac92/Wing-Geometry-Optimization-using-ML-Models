@@ -1,10 +1,8 @@
 import pandas as pd
-import numpy as np
 import logging
 import shutil
 import time
 import os
-import sys
 import subprocess
 from pathlib import Path
 from simulation_support import Xfoil_Polar_Creator as XPR
@@ -14,9 +12,7 @@ from geometric_support import Airfoil_Generator
 # Get the path to the parent directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-support_files_dir = project_root / "support_files" # Support files stay in the project root
-# Add this path to the list of places Python looks for modules.
-sys.path.insert(0, str(project_root))
+support_files_dir = project_root / "data" / "support"
 
 def extract_force_data(file_path: Path):
     """Extracts airfoil name, CL, and CD from a force file."""
@@ -146,7 +142,7 @@ def correct_csv_database(csv_file_path: Path):
             # Generate Polars using XFOIL
             print(f"\n--- Generating Polar {iteration} (XFOIL) ---")
             airfoil_path = airfoils_temp_dir / f"{airfoil_name}.dat"
-            xfoil_exe = support_files_dir / 'xfoil.exe'
+            xfoil_exe = project_root / "bin" / "xfoil.exe"
             xfoil_case = XPR(
                 xfoil_exe_path=str(xfoil_exe),
                 main_dir=temp_folder,
@@ -194,7 +190,7 @@ def correct_csv_database(csv_file_path: Path):
             # Calculate Final Coefficients using AVL
             print(f"\n--- Calculating Final Coefficients {iteration} (AVL) ---")
             geo_path = geo_files_temp_dir / f"{airfoil_name}_geo.avl"
-            avl_exe = support_files_dir / 'avl.exe'
+            avl_exe = project_root / "bin" / "avl.exe"
             case_file = support_files_dir / "sq_wing.run"
             shutil.copy(case_file, support_files_temp_dir)
             case_file_temp = support_files_temp_dir / "sq_wing.run"

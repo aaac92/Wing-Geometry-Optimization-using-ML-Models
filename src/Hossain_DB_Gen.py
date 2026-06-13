@@ -1,10 +1,7 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import os
-import sys
 import subprocess
 import shutil
-import json
 import threading
 from tqdm import tqdm
 from datetime import datetime
@@ -18,12 +15,9 @@ from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modifi
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
 from ux_support import Progress_GUI, recovery_json, recovery_Fabius
 
-# For custom package:
-# Get the path to the parent directory (xfoil_project).
+# Get the path to the src directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-# Add this path to the list of places Python looks for modules.
-sys.path.insert(0, project_root)
 # Define final directories
 airfoils_dir = project_root / "data" / "dataset_build_data" / "airfoils"
 force_files_dir = project_root / "data" / "dataset_build_data" / "force files"
@@ -543,6 +537,7 @@ def Final_Database_Generation(dataset_dir):
     return
 
 
+
 if __name__ == "__main__":
     # === Timer for Fun  === #
     start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -550,18 +545,18 @@ if __name__ == "__main__":
     print(f"Database generation started at: {start_time}.")
     # === Geometric Generation Setup === #
     base_airfoil = os.path.join(support_files_dir,'naca0012_unit.csv')
-    n_cst = 3
+    n_cst = 5
 
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
     ranges_upper = {
-        'LE': (-0.03125, 0.125, 0.125 + 0.03125),   # range for value closest to LE 
-        'inter': (-0.125, 0.125, 0.125 + 0.125),  # range for middle points
-        'TE': (-0.0625, 0.125, 0.125 + 0.0625)     # range for value closest to TE
+        'LE': (0, 0.125, 0.0625),   # range for value closest to LE
+        'inter': (0, 0.125, 1/24),  # range for intermediate points
+        'TE': (0, 0.125, 0.125)     # range for value closest to TE
     }
     ranges_lower = {
-        'LE': (-0.125, 0.03125, 0.03125 + 0.125),   # range for value closest to LE
-        'inter': (0, 0.125, 0.125 - 0),  # range for middle points
-        'TE': (0, 0.0625, 0.0625 - 0)     # range for value closest to TE
+        'LE': (-0.125, 0, 0.0625),   # range for value closest to LE
+        'inter': (0, 0.125, 1/24),  # range for intermediate points
+        'TE': (0, 0.125, 0.125)     # range for value closest to TE
     }
     cmb_datalist = create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=True)
 
@@ -662,5 +657,8 @@ if __name__ == "__main__":
     end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     end = datetime.now()
     total = end - start
+    with open(log_filename, 'a') as log_file:
+        log_file.write(f"\nExecution start: {start_time} | Execution end: {end_time}\n")
+        log_file.write(f"Total execution time: {total}\n")
     print(f"Cleanup complete, database completed at {end_time}.")
     print(f"Total execution time: {total}")
