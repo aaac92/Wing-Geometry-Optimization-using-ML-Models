@@ -1,20 +1,21 @@
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from simulation_support import Key_Point_Extraction
 from file_handling_support import get_all_files_from
 
+'''
+Use this script to plot any polar file into it's corresponding polar curves. This will also calculate it's key points.
+'''
+
 # Get the path to the parent directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-# Add this path to the list of places Python looks for modules.
-sys.path.insert(0, project_root)
 
 # Find desired polar file
-polar_file = "polar_Test_141377.txt"
-#polar_file = "polar_Dataset Best.txt"
-polar_path = project_root / "polars"
+#polar_file = "polar_Test_141377.txt"
+polar_file = "polar_Dataset Best.txt"
+polar_path = project_root / "data" / "singular_test_data" / "singular_polar_files"
 polar_file_path = polar_path / polar_file
 polars_abs_paths = get_all_files_from(polar_file_path)
 

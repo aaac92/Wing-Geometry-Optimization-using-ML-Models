@@ -1,8 +1,6 @@
 import os
 import re
-import sys
 import struct
-import tempfile
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,8 +9,6 @@ from file_handling_support import compression_Alma
 # Get the path to the parent directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-# Add this path to the list of places Python looks for modules.
-sys.path.insert(0, project_root)
 
 def read_dat_header(file_path: str, expected_count: int):
     """
@@ -77,8 +73,11 @@ def process_rar(rar_path: Path, target_sequence: list):
     return found_files
 
 if __name__ == "__main__":
+    '''
+    This script is capable of finding an aifoil based on it's CST coefficients within a database.
+    '''
     # Airfoil.rar file
-    airfoils_dir = project_root / "airfoils"
+    airfoils_dir = project_root / "data" / "dataset_build_data" / "airfoils"
     rar_path = airfoils_dir / "airfoils_dataset_16.rar"
     # Airfoil CST coefficients
     target_sequence = [0, 0.125, 0.0833, 0, 0, 0, 0.0833, 0, 0, 0]

@@ -6,11 +6,15 @@ from pathlib import Path
 from sklearn.mixture import GaussianMixture
 from scipy.stats import gaussian_kde
 
+'''
+This script allows to fit the dataset's data to a gaussian mixture, enabling a compound model training if desired.
+'''
+
 # Load CSV file
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
-DATA_PATH = project_root / Training_File
+Training_File = "regressor_dataset_16.csv"
+DATA_PATH = project_root / "data" / "datasets" / "dataset_16" / Training_File
 df = pd.read_csv(DATA_PATH)
 
 # Extract last column
@@ -41,7 +45,7 @@ print("Approximate peak values in y:")
 for p in peaks:
     print(f"Peak at ~ {x_grid[p]:.2f}")
 
-# Fit Gaussian Mixture with 2 clusters
+# Fit Gaussian Mixture
 k = 4
 gmm = GaussianMixture(n_components=k, random_state=42)
 gmm.fit(y_reshaped)

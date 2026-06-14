@@ -5,11 +5,15 @@ import seaborn as sns
 from pathlib import Path
 import scipy.stats as stats
 
+'''
+Allows to visualize data to assess if a logarithmic transformation of the output variable (y) is viable.
+'''
+
 # Load CSV file
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
-DATA_PATH = project_root / Training_File
+Training_File = "regressor_dataset_16.csv"
+DATA_PATH = project_root / "data" / "datasets" / "dataset_16" / Training_File
 df = pd.read_csv(DATA_PATH)
 
 # Extract last column

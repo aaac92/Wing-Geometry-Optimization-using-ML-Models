@@ -1,10 +1,7 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import os
-import sys
 import subprocess
 import shutil
-import json
 import threading
 from tqdm import tqdm
 from datetime import datetime
@@ -18,22 +15,21 @@ from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modifi
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
 from ux_support import Progress_GUI, recovery_json, recovery_Fabius
 
-# For custom package:
-# Get the path to the parent directory (xfoil_project).
+# Get the path to the src directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-# Add this path to the list of places Python looks for modules.
-sys.path.insert(0, project_root)
 # Define final directories
-airfoils_dir = project_root / "airfoils"
-force_files_dir = project_root / "force files"
-polars_dir = project_root / "polars"
-AI_results_dir = project_root / "AI results"
-support_files_dir = project_root / "support_files"
-geo_files_dir = project_root / "geometry files"
+airfoils_dir = project_root / "data" / "dataset_build_data" / "airfoils"
+force_files_dir = project_root / "data" / "dataset_build_data" / "force files"
+polars_dir = project_root / "data" / "dataset_build_data" / "polars"
+geo_files_dir = project_root / "data" / "dataset_build_data" / "geometry files"
+support_files_dir = project_root / "data" / "support"
+logs_dir = project_root / "data" / "logs"
+datasets_dir = project_root / "data" / "datasets"
+binaries_dir = project_root / "bin"
 # Define temp directories
 # Temp directories with a short path are needed for XFOIL and AVL
-training_temp_root = Path(r'C:\training_temp') # Uses my personal 'P' drive, any drive can be used
+training_temp_root = Path(r'C:\training_temp') # Uses personal 'P' drive, any drive can be used
 os.makedirs(training_temp_root, exist_ok=True)
 subprocess.run(['attrib', '+h', training_temp_root], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
 airfoils_temp_dir = training_temp_root / "airfoils"
@@ -532,6 +528,9 @@ def Final_Database_Generation():
 
 
 if __name__ == "__main__":
+    '''
+    Script used to generate dataset 16, recovery inputs are outdated along with multiple other syntax changes. Saved for future reference.
+    '''
     # === Timer for Fun (?) === #
     start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     start = datetime.now()

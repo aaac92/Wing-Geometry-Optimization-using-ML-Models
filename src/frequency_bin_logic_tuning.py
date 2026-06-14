@@ -1,22 +1,21 @@
-import sys
 import torch
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+'''
+This script is used to tune a custom weighted MSE function for training regressors. 
+'''
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # == Setup and Configuration === #
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-# Add this path to the list of places Python looks for modules.
-sys.path.insert(0, project_root)
 # Path to regressor dataset
-Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
-DATA_PATH = project_root / Training_File
+Training_File = "regressor_dataset_16.csv"
+DATA_PATH = project_root / "data" / "datasets" / "dataset_16" / Training_File
 
-# Example y (continuous target values)
-#y = torch.tensor([0.1, 0.15, 0.2, 0.5, 1.2, 1.25, 1.3, 2.5, 2.6, 3.0], dtype=torch.float32).to(device)
 df = pd.read_csv(DATA_PATH)
 y = df.iloc[:, -1].values.astype(np.float32)
 y = torch.tensor(y, dtype=torch.float32).unsqueeze(1).to(device)

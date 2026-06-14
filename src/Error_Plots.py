@@ -8,21 +8,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
 from pathlib import Path
+from ai_support import MLP_Regressor, LGBM_Regressor, SKNN_Regressor
 
-# Add the project root to the Python path to allow importing 'ai_support'
-try:
-    current_dir = Path(__file__).resolve().parent
-    project_root = current_dir.parent
-    sys.path.insert(0, str(project_root))
-    from ai_support import MLP_Regressor, LGBM_Regressor, SKNN_Regressor
-except (ImportError, IndexError):
-    print("Could not import the 'ai_support' module.")
-    print("Please ensure this script is in the same directory as the other scripts,")
-    print("and that 'ai_support.py' is in the parent directory.")
-    sys.exit(1)
-
-
-# === Helper Functions (from AI_Inference.py) === #
+'''
+This script is used to create error plots for all regresor models (MLP, LGBM and SKNN). Currently you need all 3 models present to be able to run this script.
+'''
 
 def find_model_prefix(folder_path: Path, unique_suffix: str) -> str:
     """
@@ -77,8 +67,8 @@ project_root = current_dir.parent
 
 # --- IMPORTANT: Configure the training file name used for the regressors --- #
 # This must match the file used in your tuning scripts.
-Training_File = "Airfoils_for_Regressor_E_Dataset_16.csv"
-DATA_PATH = project_root / Training_File
+Training_File = "regressor_dataset_16.csv"
+DATA_PATH = project_root / "data" / "datasets" / "dataset_16" / Training_File
 
 # Check if the data file exists
 if not os.path.exists(DATA_PATH):
@@ -94,10 +84,10 @@ else:
     sys.exit(1)
 
 # Define paths to the saved model folders
-MODEL_PATHS = project_root / 'AI_Models' / f'Dataset_{dataset_num}'
-MLP_REG_FOLDER = MODEL_PATHS / "optimized_MLP_regressor_model"
-LGBM_REG_FOLDER = MODEL_PATHS / "optimized_LGBM_regressor_model"
-SKNN_REG_FOLDER = MODEL_PATHS / "optimized_SKNN_regressor_model"
+MODEL_PATHS = project_root / 'models' / f'dataset_{dataset_num}'
+MLP_REG_FOLDER = MODEL_PATHS / "mlp"
+LGBM_REG_FOLDER = MODEL_PATHS / "lgbm"
+SKNN_REG_FOLDER = MODEL_PATHS / "sknn"
 
 
 # === Model Discovery and Loading === #
@@ -116,6 +106,7 @@ try:
     mlp_regressor = MLP_Regressor.load_model(MLP_REG_FOLDER, mlp_reg_prefix, **mlp_hyperparams)
 
     lgbm_regressor = LGBM_Regressor.load_model(LGBM_REG_FOLDER, lgbm_reg_prefix)
+
     sknn_regressor = SKNN_Regressor.load_model(SKNN_REG_FOLDER, sknn_reg_prefix)
 
 except (FileNotFoundError, ValueError, NameError) as e:
