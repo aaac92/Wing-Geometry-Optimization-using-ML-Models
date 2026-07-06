@@ -66,7 +66,7 @@ class Xfoil_Polar_Creator:
 
             try:
                 # --- SCRIPTED XFOIL COMMANDS --- #
-                if not self._send_command(proc, f"LOAD {airfoil_file_path}"): return False
+                if not self._send_command(proc, f"LOAD {airfoil_file_path}"): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
                 if attempt < 3:
                     # Try the MDES sequence (cleans airfoil geometry for easier convergence in simulations)
                     mdes_success = True
@@ -77,22 +77,22 @@ class Xfoil_Polar_Creator:
 
                     if not mdes_success:
                         raise RuntimeError("MDES sequence failed")
-                if not self._send_command(proc, "PANE"): return False
-                if not self._send_command(proc, "OPER", expect_prompt=".OPERi   c>"): return False
-                if not self._send_command(proc, f"ITER {iter}", expect_prompt=".OPERi   c>"): return False
-                if not self._send_command(proc, f"VISC {visc}", expect_prompt=".OPERv   c>"): return False
-                if not self._send_command(proc, f"MACH {mach}", expect_prompt=".OPERv   c>"): return False
+                if not self._send_command(proc, "PANE"): raise RuntimeError(f"PANE for {airfoil_file_path} failed")
+                if not self._send_command(proc, "OPER", expect_prompt=".OPERi   c>"): raise RuntimeError(f"Failed to initiate OPER command for {airfoil_file_path}")
+                if not self._send_command(proc, f"ITER {iter}", expect_prompt=".OPERi   c>"): raise RuntimeError(f"Failed to set ITER {iter} for {airfoil_file_path}")
+                if not self._send_command(proc, f"VISC {visc}", expect_prompt=".OPERv   c>"): raise RuntimeError(f"Failed to set VISC {visc} for {airfoil_file_path}")
+                if not self._send_command(proc, f"MACH {mach}", expect_prompt=".OPERv   c>"): raise RuntimeError(f"Failed to set MACH {mach} for {airfoil_file_path}")
 
                 # Set up polar accumulation using the temporary polar path
-                if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): return False
-                if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): return False
-                if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): return False
+                if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to setup PACC for {airfoil_file_path}")
+                if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} failed")
+                if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): raise RuntimeError(f"Final confirmation for {airfoil_file_path}'s polar simulation failed")
 
                 return proc
 
             except RuntimeError:
                 if proc:
-                    proc.close()
+                    proc.close(force=True)
                     proc = None
 
                 if attempt == 3:
@@ -128,6 +128,8 @@ class Xfoil_Polar_Creator:
         try:
             # Initialize xfoil with given values
             proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+            if proc is False:
+                return False  # All internal retries in initialize_xfoil exhausted; abort this airfoil.
 
             # Run the angle of attack sequence
             for alfa in alfa_sequence:
@@ -142,6 +144,8 @@ class Xfoil_Polar_Creator:
                 else:
                     # Reinitilaize XFOIL and run current ALFA angle for invalid proc variable
                     proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+                    if proc is False:
+                        return False  # Re-init exhausted its retries; abort this airfoil.
                     if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
                         # Repeat failure logic
                         print(f"[WARNING] Could not execute ALFA {alfa}. Re-initializing and continuing.")
