@@ -1,9 +1,31 @@
 import functools
+import logging
 import multiprocessing.pool
 import os
+import traceback
 from pathlib import Path
 from winpty import PtyProcess
+import psutil
 
+# Logging helpers to find memory leak
+class FsyncFileHandler(logging.FileHandler):
+    """FileHandler that forces each record to physical disk immediately,
+    so log lines survive a hard reset instead of sitting in OS page cache."""
+    def emit(self, record):
+        super().emit(record)
+        try:
+            self.stream.flush()
+            os.fsync(self.stream.fileno())
+        except (OSError, ValueError):
+            pass
+def _resource_snapshot():
+    try:
+        p = psutil.Process()
+        return p.num_handles(), p.num_threads()
+    except Exception:
+        return -1, -1
+
+# Useful class
 class Xfoil_Polar_Creator:
     """
     Manages XFOIL simulations in a clean, temporary environment to avoid pathing issues.
@@ -50,6 +72,18 @@ class Xfoil_Polar_Creator:
             print(f"  - Polar Temp Dir: {self.polar_dir}")
             print("="*50)
 
+        # Logging setup
+        self._debug_logger = logging.getLogger(f"XPR.{os.getpid()}")
+        self._debug_logger.setLevel(logging.DEBUG)
+        if not self._debug_logger.handlers:
+            log_dir = Path(main_dir) / "debug_logs"
+            log_dir.mkdir(exist_ok=True)
+            fh = FsyncFileHandler(log_dir / f"xfoil_debug_{os.getpid()}.log")
+            fh.setFormatter(logging.Formatter('%(asctime)s | %(message)s'))
+            self._debug_logger.addHandler(fh)
+        self._spawn_count = 0
+        self._close_count = 0
+
     def initialize_xfoil(self, airfoil_file_path, polar_file_path, iter, visc, mach):
         """
         Runs the standard initialization of XFOIL and tries to process rough airfoils, or skips that for special cases.
@@ -62,7 +96,18 @@ class Xfoil_Polar_Creator:
         """
         for attempt in range(4):
             # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
+            # BEGIN LOGGING BLOCK
+            h, t = _resource_snapshot()
+            self._spawn_count += 1
+            self._debug_logger.debug(
+                f"SPAWN #{self._spawn_count} attempt={attempt} "
+                f"airfoil={Path(airfoil_file_path).name} handles={h} threads={t}"
+            )
+            # END LOGGING BLOCK
             proc = PtyProcess.spawn([str(self.xfoil_path)])
+            # BEGIN LOGGING BLOCK
+            self._debug_logger.debug(f"  spawned pid={getattr(proc, 'pid', 'n/a')}")
+            # END LOGGING BLOCK
 
             try:
                 # --- SCRIPTED XFOIL COMMANDS --- #
@@ -90,9 +135,24 @@ class Xfoil_Polar_Creator:
 
                 return proc
 
-            except RuntimeError:
+            except RuntimeError as e:
+                # BEGIN LOGGING BLOCK
+                self._debug_logger.debug(f"  FAIL attempt={attempt} reason={e}")
+                # END LOGGING BLOCK
                 if proc:
-                    proc.close(force=True)
+                    try:
+                        proc.close(force=True)
+                        # BEGIN LOGGING BLOCK
+                        self._close_count += 1
+                        self._debug_logger.debug(
+                            f"  CLOSE #{self._close_count} ok "
+                            f"(spawn_close_delta={self._spawn_count - self._close_count})"
+                        )
+                        # END LOGGING BLOCK
+                    # BEGIN LOGGING BLOCK
+                    except Exception as close_err:
+                        self._debug_logger.debug(f"  CLOSE FAILED: {type(close_err).__name__}: {close_err}")
+                    # END LOGGING BLOCK
                     proc = None
 
                 if attempt == 3:
@@ -167,12 +227,33 @@ class Xfoil_Polar_Creator:
             return True
 
         except Exception as e:
+            # BEGIN LOGGING BLOCK
+            self._debug_logger.debug(
+                f"[FATAL] airfoil={airfoil_file_path.name} "
+                f"error={type(e).__name__}: {e}\n{traceback.format_exc()}"
+            )
+            # END LOGGING BLOCK
             print(f"[FATAL] An unexpected error occurred: {e}")
             return False
         finally:
             # Ensure the process is terminated if it's still alive
             if proc and proc.isalive():
-                proc.close(force=True)
+                try:
+                    proc.close(force=True)
+                    # BEGIN LOGGING BLOCK
+                    self._close_count += 1
+                    # END LOGGING BLOCK
+                # BEGIN LOGGING BLOCK
+                except Exception as close_err:
+                    self._debug_logger.debug(f"  finally-CLOSE FAILED: {close_err}")
+                # END LOGGING BLOCK
+            # BEGIN LOGGING BLOCK
+            h, t = _resource_snapshot()
+            self._debug_logger.debug(
+                f"END airfoil={airfoil_file_path.name} handles={h} threads={t} "
+                f"spawn_close_delta={self._spawn_count - self._close_count}"
+            )
+            # END LOGGING BLOCK
             if self.verbose:
                 print(f"# --- Finished XFOIL for {airfoil_file_path.name} --- #")
 

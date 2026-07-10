@@ -310,7 +310,7 @@ def Polar_Database_Generation(ASEQ, verbose=False):
 
         # Define the processing job to run in a separate thread
         def processing_job():
-            with Pool(processes=num_workers) as pool:
+            with Pool(processes=num_workers, maxtasksperchild=100) as pool:
                 pool.map(polar_worker, tasks)
 
         # --- Setup and run GUI ---
@@ -469,7 +469,7 @@ def Final_Coefficient_Generation(verbose=False):
         tasks = [(path, case_file_temp, avl_exe, force_files_temp_dir, progress_queue, i % num_workers, worker_status_list) for i, path in enumerate(geo_files_to_process)]
 
         def processing_job():
-            with Pool(processes=num_workers) as pool:
+            with Pool(processes=num_workers, maxtasksperchild=100) as pool:
                 for _ in pool.imap_unordered(avl_worker, tasks, chunksize=chunksize):
                     pass
 
