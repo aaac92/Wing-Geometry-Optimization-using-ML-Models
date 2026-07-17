@@ -123,8 +123,14 @@ class Validate_Airfoil:
         th_t_min : float
             Minimum thickness threshold value, test real airfoils for reference values.
 
+        th_t_max : float
+            Maximum thickness threshold value, test real airfoils for reference values.
+
         th_t_x : float
             Furthest permisible position to find the airfoil's maximum thickness from 0 to 1.
+
+        th_t_x_min : float
+            Front-most permisible position to find the airfoil's maximum thickness from 0 to 1.
         '''
         if th_t_min==None and th_t_max==None and th_t_x_max==None and th_t_x_min==None:
             if self.verbose:

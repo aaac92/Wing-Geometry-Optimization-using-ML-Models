@@ -1,6 +1,4 @@
 import numpy as np
-from itertools import product
-from cst_modeling.foil import FoilGeoFeatures, check_validity
 
 def LE_angular_curvature_continuity(x, zu, zl, tolerance = 5, n_points=10):
     """
@@ -9,6 +7,7 @@ def LE_angular_curvature_continuity(x, zu, zl, tolerance = 5, n_points=10):
     Parameters:
         x        : array of x-coordinates
         zu, zl   : arrays of upper and lower surface z-coordinates
+        tolerance: Tolerance for pass/fail in degrees
         n_points : number of points near LE to evaluate
 
     Returns:
@@ -48,7 +47,7 @@ def LE_angular_curvature_continuity(x, zu, zl, tolerance = 5, n_points=10):
     dev_u = deviation_from_vertical(first_vec_u)
     dev_l = abs(deviation_from_vertical(first_vec_l) - 180)
 
-    dev_diff = abs(dev_l-dev_u)
+    dev_diff = abs(dev_l - dev_u)
 
     has_sharp_LE = dev_diff > threshold
 
@@ -65,7 +64,7 @@ def LE_angular_curvature_continuity(x, zu, zl, tolerance = 5, n_points=10):
 
 def compute_true_thickness(x, zu, zl):
     """
-    Computes the ehicknes along the camber line of the airfoil
+    Computes the thicknes along the camber line of the airfoil
 
     Parameters:
         x                : x-coordinates
@@ -100,7 +99,8 @@ def compute_true_thickness(x, zu, zl):
 
 def monotonic_airfoil_thickness(x, zu, zl):
     """
-    Detects an unnatural internal dip in thickness.
+    Detects an unnatural internal dip in thickness using the derivative,
+    splitting the array after the first local maximum.
 
     Parameters:
         x                : x-coordinates
@@ -111,12 +111,29 @@ def monotonic_airfoil_thickness(x, zu, zl):
         has_dip (bool), x_dip (float or None)
     """
     thickness = compute_true_thickness(x, zu, zl)
-    max_idx = np.argmax(thickness)
+    
+    # Find the first local maximum (first index where thickness decreases)
+    diffs = np.diff(thickness)
+    decreasing_starts = np.where(diffs < 0)[0]
+    
+    if decreasing_starts.size > 0:
+        max_idx = decreasing_starts[0]
+    else:
+        return False, None
 
-    # Check for second increase after max thickness
+    # Isolate the portion after the first local maximum
     decreasing_part = thickness[max_idx:]
-    diffs = np.diff(decreasing_part)
-    fail_indices = np.where(diffs > 0)[0]
+    x_decreasing = x[max_idx:]
+    
+    # Ensure there are enough points to compute a gradient
+    if len(decreasing_part) < 2:
+        return False, None
+
+    # Compute the numerical derivative of thickness w.r.t x
+    derivatives = np.gradient(decreasing_part, x_decreasing)
+    
+    # Flag indices where the derivative is positive
+    fail_indices = np.where(derivatives > 0)[0]
 
     if fail_indices.size > 0:
         fail_idx = max_idx + fail_indices[0]

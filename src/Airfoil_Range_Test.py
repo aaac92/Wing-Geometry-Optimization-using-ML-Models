@@ -17,13 +17,14 @@ if __name__ == "__main__":
     '''
     # Choose a base aifoil to modify
     #base_airfoil_path = os.path.join(support_files_dir,'naca0012_UNIT_0ALFA.csv')
-    base_airfoil_path = os.path.join(support_files_dir,'naca653218_unit.csv')
+    #base_airfoil_path = os.path.join(support_files_dir,'naca653218_unit.csv')
+    base_airfoil_path = os.path.join(support_files_dir,'naca2412_unit.csv')
     #base_airfoil_path = os.path.join(support_files_dir,'naca0012_unit.csv')
     
     name = 'Manual Test'
     n_cst = 5
-    cmb = [-0.03125, -0.125, -0.125, -0.125, -0.0625, # Lower surface
-           -0.03125, -0.125, -0.125, -0.125, -0.0625] # Upper surface
+    cmb = [0.03125, -0.125, 0.35, -0.125, 0, # Lower surface
+           -0.03125, 0.125, -0.35, 0.125, 0] # Upper surface
     
     # Ranges are used here for ease of visualization, and later to claculate the possible combinations
     ranges_upper = {
@@ -54,6 +55,9 @@ if __name__ == "__main__":
     va = Validate_Airfoil(x, yu, yl, cmb, n_cst, name)
     LE_AC_Tolerance = 8
     LE_Radius_Threshold = 0.01
+    geo_filt_parm = {
+    'threshold_rLE': 0.01
+    }
     acc_va, _ = va.sharpness_filter(curv_cont=True, tolerance=LE_AC_Tolerance, th_rLE=LE_Radius_Threshold) # Simulation of actual filter
     acc, deviations = LE_angular_curvature_continuity(x, yu, yl) # Values of LE Continuity
     mat_va, _ = va.monotonic_thickness_filter()
@@ -92,7 +96,7 @@ if __name__ == "__main__":
     else:
         print(f"Airfoil thickness is monotonic, pass")
 
-    plot_LE_slopes(x, yu, yl)
+    plot_LE_slopes(x, yu, yl, geo_filt_parm)
     plot_thickness_behavior(x, yu, yl)
 
     cmb_datalist = create_modification_combinations(n_cst, ranges_upper, ranges_lower, debug=True)
