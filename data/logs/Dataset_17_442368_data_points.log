@@ -6,7 +6,7 @@ Geometric Filters:
   thickness_filters: threshold_max_t = 0.25, threshold_min_t = 0.03, threshold_t_x_max = 0.45, threshold_t_x_min = 0.18
   sharpness_filters: activate_curvature_cont = True, threshold_rLE = 0.01
   monotonic_thickness_filter: True
-  camber_filters: threshold_max_camber = 0.25, threshold_min_camber = 0
+  camber_filters: threshold_max_camber = 0.12, threshold_min_camber = -0.02
 
 CST Coefficient Ranges:
 

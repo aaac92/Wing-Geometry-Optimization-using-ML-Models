@@ -34,6 +34,13 @@ COLORS = {
     'tf_x_min': '#17BECF',
     'tf_valid_region': '#ADD8E6',
     'tf_indicator': '#2CA02C',
+
+    # plot_camber_filter
+    'cf_airfoil': '#000000',
+    'cf_af_fill': '#D3D3D3',
+    'cf_camber': '#808080',
+    'cf_max_c': '#D62728',
+    'cf_min_c': '#FF7F0E',
 }
 
 def plot_LE_slopes(x, zu, zl, geo_filt_parm, n_points=10, colors=None, zoom_margin=0.15):
@@ -293,5 +300,66 @@ def plot_thickness_filter(x, zu, zl, geo_filt_parm, colors=None):
     ax.set_ylim(-0.25, 0.25)
     ax.set_xlim(-0.05, 1.05)
  
+    plt.tight_layout()
+    plt.show()
+
+def plot_camber_filter(x, zu, zl, geo_filt_parm, colors=None):
+    """
+    Visualize the camber magnitude filters against the airfoil profile and
+    camber line. c_max/c_min are computed internally via FoilGeoFeatures.
+
+    Parameters:
+        x, zu, zl     : arrays of x and z coordinates
+        geo_filt_parm : filter parameter dict (threshold_max_camber, threshold_min_camber)
+        colors        : optional dict overriding entries in the module COLORS dict
+    """
+    c = {**COLORS, **(colors or {})}
+
+    foil = FoilGeoFeatures(x, zu, zl)
+    c_max, x_c_max, _ = foil.get_maximum_camber()
+    c_min, _, _ = foil.get_minimum_camber()
+
+    zc = 0.5 * (zu + zl)
+
+    # Pass/fail, mirrors Validate_Airfoil.camber_filters bounds logic
+    max_pass = c_max <= geo_filt_parm['threshold_max_camber']
+    min_pass = c_min >= geo_filt_parm['threshold_min_camber']
+    overall_pass = max_pass and min_pass
+
+    _, ax = plt.subplots(figsize=(10, 6))
+
+    ax.plot(x, zu, color=c['cf_airfoil'], linewidth=1.5, label='Perfil Aerodinámico', zorder=4)
+    ax.plot(x, zl, color=c['cf_airfoil'], linewidth=1.5, zorder=4)
+    ax.fill_between(x, zu, zl, color=c['cf_af_fill'], alpha=0.4, zorder=1)
+
+    ax.plot(x, zc, color=c['cf_camber'], linestyle=':', linewidth=3, label='Línea de Curvatura', zorder=4)
+    ax.plot(x_c_max, c_max, 'o', color=c['cf_max_c'], zorder=5)
+
+    # Camber magnitude thresholds
+    ax.axhline(geo_filt_parm['threshold_max_camber'], color=c['cf_max_c'], linestyle='--', linewidth=2,
+               label=f"threshold_max_camber = {geo_filt_parm['threshold_max_camber']}", zorder=3)
+    ax.axhline(geo_filt_parm['threshold_min_camber'], color=c['cf_min_c'], linestyle='--', linewidth=2,
+               label=f"threshold_min_camber = {geo_filt_parm['threshold_min_camber']}", zorder=3)
+
+    # Axii
+    ax.axvline(0, linestyle='--', linewidth=1, color='black', zorder=2)
+    ax.axhline(0, linestyle='--', linewidth=1, color='black', zorder=2)
+
+    # Extracted camber values, bottom-right, color coded to their threshold
+    ax.text(0.98, 0.02, f"c_min = {c_min:.4f}", transform=ax.transAxes,
+            color=c['cf_min_c'], fontsize=9, ha='right', va='bottom', zorder=5)
+    ax.text(0.98, 0.08, f"c_max = {c_max:.4f}", transform=ax.transAxes,
+            color=c['cf_max_c'], fontsize=9, ha='right', va='bottom', zorder=5)
+
+    ax.set_xlabel('x/c')
+    ax.set_ylabel('z/c')
+    status = "válido" if overall_pass else "inválido"
+    ax.set_title(f"Filtro de Curvatura — {status} "
+                 f"(máximo: {'válido' if max_pass else 'inválido'}, mínimo: {'válido' if min_pass else 'inválido'})")
+    ax.legend(loc='upper right', fontsize=8)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(-0.25, 0.25)
+    ax.set_xlim(-0.05, 1.05)
+
     plt.tight_layout()
     plt.show()

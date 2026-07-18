@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from geometric_support import Airfoil_Generator
-from geometric_support.custom_graphs import plot_thickness_filter, plot_LE_slopes, plot_thickness_behavior
+from geometric_support.custom_graphs import plot_thickness_filter, plot_LE_slopes, plot_thickness_behavior, plot_camber_filter
 
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
@@ -18,8 +18,8 @@ geo_filt_parm = {
     'activate_curvature_cont': True,
     'threshold_rLE': 0.01,
     'monotonic_activation': True,
-    'threshold_max_camber': 0.25,
-    'threshold_min_camber': 0
+    'threshold_max_camber': 0.12,
+    'threshold_min_camber': -0.02
 }
 
 TF_COLORS = {
@@ -52,6 +52,14 @@ TB_COLORS = {
     'tb_fill': '#FCF0DA',
 }
 
+C_COLORS = {
+    'cf_airfoil': '#484C68',
+    'cf_af_fill': '#FCF0DA',
+    'cf_camber': '#484C68',
+    'cf_max_c': '#3B9574',
+    'cf_min_c': '#4A4063',
+}
+
 if __name__ == "__main__":
     
     #base_airfoil_path = os.path.join(support_files_dir, 'naca653218_unit.csv')
@@ -80,3 +88,4 @@ if __name__ == "__main__":
     plot_thickness_filter(x, zu, zl, geo_filt_parm, colors=TF_COLORS)
     plot_LE_slopes(x, zu, zl, geo_filt_parm, colors=LE_COLORS)
     plot_thickness_behavior(x, zu, zl, colors=TB_COLORS)
+    plot_camber_filter(x, zu, zl, geo_filt_parm, colors=C_COLORS)

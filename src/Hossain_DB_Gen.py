@@ -199,7 +199,7 @@ def polar_worker(args):
     '''
     Worker function to run XFOIL simulation for a single airfoil.
     '''
-    airfoil_abs_path, polar_abs_path, ASEQ, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list = args
+    airfoil_abs_path, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list = args
 
     # Obtain airfoil name for GUI
     airfoil_name = os.path.basename(airfoil_abs_path)
@@ -262,7 +262,9 @@ def polar_worker(args):
         xfoil_case.run_simulation(
             airfoil_file_path=airfoil_abs_path,
             polar_file_path=polar_abs_path,
-            alfa_sequence=ANGLES
+            alfa_sequence=ANGLES,
+            visc = Re,
+            mach=Mach
         )
 
     except Exception as e:
@@ -271,7 +273,7 @@ def polar_worker(args):
         if progress_queue:
             progress_queue.put(1)
 
-def Polar_Database_Generation(ASEQ, verbose=False):
+def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
     '''
     Runs XFOIL to create drag polars for each airfoil using multiprocessing and a GUI.
 
@@ -306,7 +308,7 @@ def Polar_Database_Generation(ASEQ, verbose=False):
         for i, file in enumerate(airfoil_abs_paths):
             airfoil_name = os.path.splitext(os.path.basename(file))[0]
             polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
-            tasks.append((file, polar_abs_path, ASEQ, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
+            tasks.append((file, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
 
         # Define the processing job to run in a separate thread
         def processing_job():
@@ -639,8 +641,8 @@ if __name__ == "__main__":
         'activate_curvature_cont': True,
         'threshold_rLE': 0.01,
         'monotonic_activation': True,
-        'threshold_max_camber': 0.25,
-        'threshold_min_camber': 0
+        'threshold_max_camber': 0.12,
+        'threshold_min_camber': -0.02
     }
 
     threshold_max_t = geo_filt_parm['threshold_max_t']
@@ -653,8 +655,10 @@ if __name__ == "__main__":
     threshold_max_camber = geo_filt_parm['threshold_max_camber']
     threshold_min_camber = geo_filt_parm['threshold_min_camber']
 
-    # === Polar Alpha Range === #
+    # === Polar Alpha Range and Conditions === #
     ASEQ = [-20, 20, 0.5]
+    Re = 2.5e5
+    Mach = 0.09281
 
     # === Dataset Parameter Logging === #
     dataset_num = 17
@@ -693,7 +697,7 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     if not status.get('polar_database_generation_complete'):
-        Polar_Database_Generation(ASEQ)
+        Polar_Database_Generation(ASEQ, Re, Mach)
         status['polar_database_generation_complete'] = True
         rec_json.save_recovery_status(status)
 
