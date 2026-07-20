@@ -36,6 +36,10 @@ class Xfoil_Polar_Creator:
 
         Args:
             xfoil_exe_path (str): The original, absolute path to the xfoil.exe executable.
+            main_dir (str): The working directory, ideally use the root of a system drive to avoid long paths with conflicting directory names.
+            airfoil_dir (str): The airfoil directory inside the working directory.
+            polar_dir (str): The polar directory inside the working directory.
+            verbose (bool): Trigger for console messages.
         """
         self.verbose = verbose
 
@@ -52,7 +56,7 @@ class Xfoil_Polar_Creator:
         self.main_dir = main_dir
         self.xfoil_path = xfoil_exe_path
         self.airfoil_dir = airfoil_dir
-        self.polar_dir = polar_dir
+        self.polar_dir = Path(polar_dir)
 
         # Maybe not necessary
         #self.temp_xfoil_path = temp_dir / "support_files"

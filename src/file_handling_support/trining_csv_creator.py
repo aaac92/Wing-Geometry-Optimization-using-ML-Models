@@ -19,7 +19,8 @@ class Training_Data_Generator:
                  output_dir: str,
                  n_cst: int,
                  verbose: bool = False,
-                 output_mode: Literal['Efficiency', 'Coefficients'] = 'Efficiency'):
+                 output_mode: Literal['Efficiency', 'Coefficients'] = 'Efficiency',
+                 append_kp: bool = False):
         """
         Initializes the TrainingDataGenerator.
 
@@ -33,6 +34,7 @@ class Training_Data_Generator:
             output_mode (Literal['Efficiency', 'Coefficients'], optional):
                          Determines the output for the regression file.
                          Defaults to 'Efficiency'.
+            append_kp (bool, optional): Toggles the inclusion of key points data. Defaults to False.
         """
         self.force_files_dir = Path(force_files_dir)
         self.airfoils_dir = Path(airfoils_dir)
@@ -41,6 +43,7 @@ class Training_Data_Generator:
         self.output_dir = Path(output_dir)
         self.verbose = verbose
         self.output_mode = output_mode
+        self.append_kp = append_kp
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.output_dir / 'data_generator.log'
@@ -199,10 +202,14 @@ class Training_Data_Generator:
             if not cst_params:
                 continue
 
-            avl_path = self.geo_files_dir / f"{geometry_name}_geo.avl"
-            kp_data = self._extract_kp_from_avl(avl_path)
-            if not kp_data:
-                continue
+            # Modified execution conditionally reliant on self.append_kp toggle
+            if self.append_kp:
+                avl_path = self.geo_files_dir / f"{geometry_name}_geo.avl"
+                kp_data = self._extract_kp_from_avl(avl_path)
+                if not kp_data:
+                    continue
+            else:
+                kp_data = []
 
             if self.output_mode == 'Efficiency':
                 if cd == 0:
@@ -274,10 +281,13 @@ class Training_Data_Generator:
 
         # --- Generate the REGRESSION file (valid data only) ---
         if valid_data_for_regression:
+            # Reconstruct list variable condition based on the append_kp parameter
+            kp_header_list = self.kp_headers if self.append_kp else []
+
             if self.output_mode == 'Efficiency':
-                regr_header = self.cst_headers + self.kp_headers + self.config_headers + ['E']
+                regr_header = self.cst_headers + kp_header_list + self.config_headers + ['E']
             else:
-                regr_header = self.cst_headers + self.kp_headers + self.config_headers + ['CL', 'CD']
+                regr_header = self.cst_headers + kp_header_list + self.config_headers + ['CL', 'CD']
             
             regr_path = self.output_dir / regression_filename
             self._write_csv(regr_path, regr_header, valid_data_for_regression)

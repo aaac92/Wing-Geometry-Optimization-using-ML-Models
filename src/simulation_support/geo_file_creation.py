@@ -309,15 +309,15 @@ class HossainWingRec_Creation:
 
                 # The rest of the file writing logic remains the same
                 with open(geo_file_path, "w", encoding="utf-8") as geo:
-                    geo.write(f"Hossin_Rec_GeoFile for {airfoil_name} \n")
-                    geo.write(f"0.09367               Mach number (incompressible)\n")
+                    geo.write(f"Hossain_Rec_GeoFile for {airfoil_name} \n")
+                    geo.write(f"0.09281               Mach number (incompressible)\n")
                     geo.write(f"0 0 0.0               iYsym iZsym Zsym  \n")
                     geo.write(f"0.07986 0.121 0.66    Sref Cref Bref \n")
                     geo.write(f"0.0 0.0 0.0           Xref Yref Zref\n")
                     geo.write(f"0.000                 CDp (zero for no constant profile drag)\n")
                     geo.write(f"\n")
                     geo.write(f"SURFACE\n")
-                    geo.write(f"Hossin_WingSurf     ! surface name\n")
+                    geo.write(f"Hossain_WingSurf     ! surface name\n")
                     geo.write(f"24 1.0 24 -2.0    Nchord Cspace Nspan Sspace \n")
                     geo.write(f"\n")
                     geo.write(f"YDUPLICATE\n")
@@ -428,15 +428,15 @@ class HossainWing60DEG_Creation:
 
                 # The rest of the file writing logic remains the same
                 with open(geo_file_path, "w", encoding="utf-8") as geo:
-                    geo.write(f"Hossin_60DEG_GeoFile for {airfoil_name} \n")
-                    geo.write(f"0.09367                   Mach number (incompressible)\n")
+                    geo.write(f"Hossain_60DEG_GeoFile for {airfoil_name} \n")
+                    geo.write(f"0.09281                   Mach number (incompressible)\n")
                     geo.write(f"0 0 0.0                   iYsym iZsym Zsym  \n")
                     geo.write(f"0.09136 0.1102 0.781    Sref Cref Bref \n")
                     geo.write(f"0.0 0.0 0.0               Xref Yref Zref\n")
                     geo.write(f"0.000                     CDp (zero for no constant profile drag)\n")
                     geo.write(f"\n")
                     geo.write(f"SURFACE\n")
-                    geo.write(f"Hossin_WingSurf     ! surface name\n")
+                    geo.write(f"Hossain_WingSurf     ! surface name\n")
                     geo.write(f"24 1.0 24 -2.0    Nchord Cspace Nspan Sspace \n")
                     geo.write(f"\n")
                     geo.write(f"YDUPLICATE\n")
@@ -577,15 +577,15 @@ class HossainWingFlat_Creation:
 
                 # The rest of the file writing logic remains the same
                 with open(geo_file_path, "w", encoding="utf-8") as geo:
-                    geo.write(f"Hossin_Flat_GeoFile for {airfoil_name} \n")
-                    geo.write(f"0.09367                     Mach number (incompressible)\n")
+                    geo.write(f"Hossain_Flat_GeoFile for {airfoil_name} \n")
+                    geo.write(f"0.09281                     Mach number (incompressible)\n")
                     geo.write(f"0 0 0.0                     iYsym iZsym Zsym  \n")
                     geo.write(f"0.102858 0.0964 0.902       Sref Cref Bref \n")
                     geo.write(f"0.0 0.0 0.0                 Xref Yref Zref\n")
                     geo.write(f"0.000                       CDp (zero for no constant profile drag)\n")
                     geo.write(f"\n")
                     geo.write(f"SURFACE\n")
-                    geo.write(f"Hossin_WingSurf     ! surface name\n")
+                    geo.write(f"Hossain_WingSurf     ! surface name\n")
                     geo.write(f"24 1.0 24 -2.0    Nchord Cspace Nspan Sspace \n")
                     geo.write(f"\n")
                     geo.write(f"YDUPLICATE\n")
