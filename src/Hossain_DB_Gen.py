@@ -39,6 +39,22 @@ AI_results_temp_dir = training_temp_root / "AI results"
 support_files_temp_dir = training_temp_root / "support_files"
 geo_files_temp_dir = training_temp_root / "geometry files"
 training_files_temp_dir = training_temp_root / "training files"
+# Define .rar paths and names for recovery logic
+dataset_num = 17
+unmended_dataset_path = project_root / "data" / "datasets" / f"dataset_{dataset_num}"
+dataset_dir = datasets_dir / f"dataset_{dataset_num}"
+airfoil_dataset_name = f"airfoils_dataset_{dataset_num}"
+airfoil_rar_path = airfoils_dir / f"{airfoil_dataset_name}.rar"
+polar_dataset_name = f"polars_dataset_{dataset_num}"
+polar_rar_path = polars_dir / f"{polar_dataset_name}.rar"
+geo_dataset_name = f"geo_files_dataset_{dataset_num}"
+geo_rar_path = geo_files_dir / f"{geo_dataset_name}.rar"
+force_dataset_name = f"force_files_dataset_{dataset_num}"
+force_rar_path = force_files_dir / f"{force_dataset_name}.rar"
+training_files_dataset_name = f"training_files_dataset_{dataset_num}"
+training_files_rar_path = unmended_dataset_path / f"{training_files_dataset_name}.rar"
+mended_files_dataset_name = f"final_training_files_dataset_{dataset_num}"
+mended_files_rar_path = dataset_dir / f"{mended_files_dataset_name}.rar"
 
 # === Recovery Handling === #
 rec_json = recovery_json()
@@ -74,12 +90,9 @@ def Airfoil_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate
     threshold_max_camber = kwargs.get('threshold_max_camber')
     threshold_min_camber = kwargs.get('threshold_min_camber')
 
-    # Recovery check and directory declaration
-    dataset_name = f"airfoils_dataset_{dataset_num}"
-    rar_path = airfoils_dir / f"{dataset_name}.rar"
-    next_rar = polars_dir / f"polars_dataset_{dataset_num}.rar"
-    if rec_Fabius.check_stage_status("Geometric Database", rar_path, airfoils_temp_dir, next_rar_path=next_rar):
-        return # Skip this function if the stage is already complete
+    # Recovery check
+    if rec_Fabius.check_stage_status(stage_name="Airfoil Genesis", current_rar=airfoil_rar_path, required_deps=None):
+        return
 
     os.makedirs(airfoils_temp_dir, exist_ok=True)
     invalid_output_dir = airfoils_temp_dir / "invalid airfoils"
@@ -188,7 +201,7 @@ def Airfoil_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate
                 log.write(f"{log_reason}\n")
 
     # Save airfoils to main path in compressed form
-    rar_Alma.compress_folder(airfoils_temp_dir, airfoils_dir, dataset_name)
+    rar_Alma.compress_folder(airfoils_temp_dir, airfoils_dir, airfoil_dataset_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Geometric database generation completed at {current_time}.")
@@ -285,12 +298,9 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
                     ASEQ[2]: Resolution for intermediate angles of attack.
     verbose (bool): Toggles prints and tqdm if any are present.
     '''
-    # Recovery check and directory declaration
-    polar_dataset_name = f"polars_dataset_{dataset_num}"
-    rar_path = polars_dir / f"{polar_dataset_name}.rar"
-    prev_rar = airfoils_dir / f"airfoils_dataset_{dataset_num}.rar"
-    next_rar = geo_files_dir / f"geo_files_dataset_{dataset_num}.rar"
-    if rec_Fabius.check_stage_status("Polar Database", rar_path, polars_temp_dir, prev_rar, airfoils_temp_dir, next_rar):
+    # Recovery check
+    rec_dependencies = [(airfoil_rar_path, airfoils_temp_dir)]
+    if rec_Fabius.check_stage_status(stage_name="Polar Formulation", current_rar=polar_rar_path, required_deps=rec_dependencies):
         return
 
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
@@ -345,12 +355,12 @@ def Geometric_File_Creation(configs):
     '''
     Generates AVL's .geo files that build the wing geometry, this script focuses on replicating Hossain's experiment so there are 3 wing configurations.
     '''
-    # Recovery check and directory declaration
-    geo_files_name = f"geo_files_dataset_{dataset_num}"
-    rar_path = geo_files_dir / f"{geo_files_name}.rar"
-    prev_rar = polars_dir / f"polars_dataset_{dataset_num}.rar"
-    next_rar = force_files_dir / f"force_files_dataset_{dataset_num}.rar"
-    if rec_Fabius.check_stage_status("AVL Geometric Database", rar_path, geo_files_temp_dir, prev_rar, polars_temp_dir, next_rar):
+    # Recovery check
+    rec_dependencies = [
+        (airfoil_rar_path, airfoils_temp_dir),
+        (polar_rar_path, polars_temp_dir)
+    ]
+    if rec_Fabius.check_stage_status(stage_name="AVL Geometric File Formation", current_rar=geo_rar_path, required_deps=rec_dependencies):
         return
     
     polars_abs_paths = get_all_files_from(polars_temp_dir)
@@ -390,7 +400,7 @@ def Geometric_File_Creation(configs):
         error_log_name = f'geo_{identifier}_error_log.txt'
         geo_creator.save_error_log(os.path.join(geo_files_temp_dir, error_log_name))
 
-    rar_Alma.compress_folder(geo_files_temp_dir, geo_files_dir, geo_files_name)
+    rar_Alma.compress_folder(geo_files_temp_dir, geo_files_dir, geo_dataset_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Geometric file for AVL database generated at {current_time}.")
@@ -430,13 +440,9 @@ def Final_Coefficient_Generation(verbose=False):
     '''
     Uses AVL to calculate the force coefficients from each geometric file using the global case file.
     '''
-    # Recovery check and directory declaration
-    force_files_name = f"force_files_dataset_{dataset_num}"
-    rar_path = force_files_dir / f"{force_files_name}.rar"
-    prev_rar = geo_files_dir / f"geo_files_dataset_{dataset_num}.rar"
-    dataset_path = datasets_dir / f"dataset_{dataset_num}"
-    next_rar = dataset_path / f"training_files_dataset_{dataset_num}.rar"
-    if rec_Fabius.check_stage_status("AVL Force Database", rar_path, force_files_temp_dir, prev_rar, geo_files_temp_dir, next_rar):
+    # Recovery check
+    rec_dependencies = [(geo_rar_path, geo_files_temp_dir)]
+    if rec_Fabius.check_stage_status(stage_name="Force Computation", current_rar=force_rar_path, required_deps=rec_dependencies):
         return
 
     avl_exe = os.path.join(binaries_dir, 'avl.exe')
@@ -455,7 +461,7 @@ def Final_Coefficient_Generation(verbose=False):
 
     if not geo_files_to_process:
         print("All force files appear to be generated. Compressing now.")
-        rar_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
+        rar_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_dataset_name)
         return
 
     num_workers = min(cpu_count() - 2, len(geo_files_to_process))
@@ -495,7 +501,7 @@ def Final_Coefficient_Generation(verbose=False):
 
         proc_thread.join()
 
-    rar_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_files_name)
+    rar_Alma.compress_folder(force_files_temp_dir, force_files_dir, force_dataset_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Final simulation completed at {current_time}.")
@@ -509,14 +515,13 @@ def Final_Database_Generation(dataset_dir):
     '''
     Creates the final training files for the classifier and regressor models.
     '''
-    # Recovery check and directory declaration
-    training_files_name = f"training_files_dataset_{dataset_num}"
-    dataset_path = project_root / "data" / "datasets" / f"dataset_{dataset_num}"
-    rar_path = dataset_path / f"{training_files_name}.rar"
-    os.makedirs(dataset_path, exist_ok=True)
-    prev_rar = force_files_dir / f"force_files_dataset_{dataset_num}.rar"
-    next_rar = dataset_path / f"corrected_training_files_dataset_{dataset_num}.rar"
-    if rec_Fabius.check_stage_status("Training Database", rar_path, training_files_temp_dir, prev_rar, force_files_temp_dir, next_rar):
+    # Recovery check
+    rec_dependencies = [
+        (airfoil_rar_path, airfoils_temp_dir),
+        (geo_rar_path, geo_files_temp_dir),
+        (force_rar_path, force_files_temp_dir)
+    ]
+    if rec_Fabius.check_stage_status(stage_name="Training Files Integration", current_rar=training_files_rar_path, required_deps=rec_dependencies):
         return
 
     invalid_airfoils_dir = airfoils_temp_dir / "Invalid_airfoils_log.txt"
@@ -537,7 +542,8 @@ def Final_Database_Generation(dataset_dir):
             output_dir = training_files_temp_dir,
             n_cst = n_cst,
             verbose = False,
-            output_mode = 'Efficiency'
+            output_mode = 'Efficiency',
+            append_kp=False
         )
 
         generator_eff.generate_training_files(
@@ -545,7 +551,7 @@ def Final_Database_Generation(dataset_dir):
             classification_filename = classification_file
             )
 
-    rar_Alma.compress_folder(training_files_temp_dir, dataset_dir, training_files_name)
+    rar_Alma.compress_folder(training_files_temp_dir, dataset_dir, training_files_dataset_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Training files completed at {current_time}.")
@@ -556,11 +562,9 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
     '''
     Executes validation and correction of outlier efficiency values (mostly due to buggy multiprocessing implementation) in the generated regression training database.
     '''
-    # Recovery check and directory declaration
-    corrected_files_name = f"final_training_files_dataset_{dataset_num}"
-    rar_path = dataset_dir / f"{corrected_files_name}.rar"
-    prev_rar = dataset_dir / f"training_files_dataset_{dataset_num}.rar"
-    if rec_Fabius.check_stage_status("Database Correction", rar_path, training_files_temp_dir, prev_rar, training_files_temp_dir):
+    # Recovery check
+    rec_dependencies = [(training_files_rar_path, training_files_temp_dir)]
+    if rec_Fabius.check_stage_status(stage_name="Database Mending", current_rar=mended_files_rar_path, required_deps=rec_dependencies):
         return
 
     regression_file = f"regressor_dataset_{dataset_num}.csv"
@@ -588,6 +592,7 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
         n_cst=n_cst,
         aseq=ASEQ,
         configs=configs,
+        middle_fraction=0.1,
         temp_dir=correction_temp_dir,
         verbose=False
     )
@@ -595,7 +600,7 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
     copernicus.run_correction()
 
     # Compress the corrected dataset to a new archive to preserve the original
-    rar_Alma.compress_folder(training_files_temp_dir, dataset_dir, corrected_files_name)
+    rar_Alma.compress_folder(training_files_temp_dir, dataset_dir, mended_files_dataset_name)
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"Database correction stage completed at {current_time}.")
@@ -660,11 +665,10 @@ if __name__ == "__main__":
     Re = 2.5e5
     Mach = 0.09281
 
-    # === Dataset Parameter Logging === #
-    dataset_num = 17
+    # === Dataset Parameter Logging === # 
+    # Dataset Number is a Global Variable, select at the top of the file.
     num_combinations = cmb_datalist.shape[0]*num_configs
     log_filename = logs_dir / f"Dataset_{dataset_num}_{num_combinations}_data_points.log"
-    dataset_dir = datasets_dir / f"dataset_{dataset_num}"
 
     if not log_filename.exists():
         with open(log_filename, 'w') as log_file:

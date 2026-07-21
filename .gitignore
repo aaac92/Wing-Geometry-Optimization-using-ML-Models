@@ -1,6 +1,7 @@
 __pycache__/
 *.rar
 *_69*
++_67*
 data/dataset_build_data/
 data/singular_test_data/
 .vscode/

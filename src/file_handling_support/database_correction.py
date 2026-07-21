@@ -44,9 +44,9 @@ class Database_Corrector:
 
     Notes
     -----
-    Key point columns (CLneg, CDneg, CLcdmin, CDmin, CLpos, CDpos) are always
-    recomputed and overwritten for any validated point, since GPR-based key
-    point extraction carries run-to-run variance.
+    Key point columns (CLneg, CDneg, CLcdmin, CDmin, CLpos, CDpos) are 
+    recomputed and overwritten for any validated point if `append_kp` is True, 
+    since GPR-based key point extraction carries run-to-run variance.
     """
 
     # Known config identifiers, must match Training_Data_Generator.config_headers
@@ -69,6 +69,7 @@ class Database_Corrector:
         middle_fraction: float = 0.0,
         temp_dir=None,
         verbose: bool = False,
+        append_kp: bool = False,
     ):
         """
         Parameters
@@ -110,6 +111,8 @@ class Database_Corrector:
             Defaults to C:\\db_correction_temp.
         verbose : bool
             If True, mirrors log output to stdout.
+        append_kp : bool
+            If True, requires and writes key point tracking columns.
         """
         self.csv_file_path = Path(csv_file_path)
         self.base_airfoil_csv = Path(base_airfoil_csv)
@@ -123,6 +126,7 @@ class Database_Corrector:
         self.top_bottom_fraction = top_bottom_fraction
         self.middle_fraction = middle_fraction
         self.verbose = verbose
+        self.append_kp = append_kp
 
         # Build internal config map: identifier string -> geo creator class
         self._config_map: Dict[str, Type] = {}
@@ -186,16 +190,17 @@ class Database_Corrector:
                 f"{len(self._cst_l_cols)} lower and {len(self._cst_u_cols)} upper."
             )
 
-        # Key point column presence check
+        # Key point column presence check conditionally executed
         self._kp_cols: List[str] = [
             "CLneg", "CDneg", "CLcdmin", "CDmin", "CLpos", "CDpos"
         ]
-        missing_kp = [k for k in self._kp_cols if k not in columns]
-        if missing_kp:
-            raise ValueError(
-                f"Expected key point columns not found in CSV: {missing_kp}."
-                "Make sure database was created with the updated training_csv_creator."
-            )
+        if self.append_kp:
+            missing_kp = [k for k in self._kp_cols if k not in columns]
+            if missing_kp:
+                raise ValueError(
+                    f"Expected key point columns not found in CSV: {missing_kp}."
+                    "Make sure database was created with 'append_kp = True'."
+                )
 
         # Configuration column detection and validation
         self._config_cols: List[str] = [c for c in columns if c in self._KNOWN_CONFIGS]
@@ -309,10 +314,15 @@ class Database_Corrector:
         """Returns a structured string of all row features for log output."""
         cst_l = list(row[self._cst_l_cols].values.round(8))
         cst_u = list(row[self._cst_u_cols].values.round(8))
-        kp = {k: round(float(row[k]), 6) for k in self._kp_cols}
-        parts = [f"CST_lower={cst_l}", f"CST_upper={cst_u}", f"KP={kp}"]
+        parts = [f"CST_lower={cst_l}", f"CST_upper={cst_u}"]
+        
+        if self.append_kp:
+            kp = {k: round(float(row[k]), 6) for k in self._kp_cols}
+            parts.append(f"KP={kp}")
+            
         if self._config_cols:
             parts.append(f"Config={row[self._config_cols].to_dict()}")
+            
         return " | ".join(parts)
 
     def _simulate_point(
@@ -378,6 +388,7 @@ class Database_Corrector:
                 airfoil_dir=self._airfoils_temp,
                 polar_dir=self._polars_temp,
                 verbose=False,
+                process_logging=False
             )
             xfoil_case.run_simulation(
                 airfoil_file_path=airfoil_path,
@@ -469,8 +480,7 @@ class Database_Corrector:
         `error_threshold` of each other. The reference for each comparison
         is the result of the immediately preceding simulation (or the stored
         CSV value for the first attempt). Values are written to the dataframe
-        only upon confirmed validation. KP values are always updated on
-        validation.
+        only upon confirmed validation. KP values are optionally updated.
 
         Parameters
         ----------
@@ -533,14 +543,18 @@ class Database_Corrector:
             if error <= self.error_threshold:
                 consecutive_pass += 1
                 if consecutive_pass == 2:
-                    # Two consecutive agreements: write validated E and corresponding KP values
+                    # Two consecutive agreements: write validated E and conditionally write corresponding KP values
                     df.loc[idx, 'E'] = sim_e
-                    for col, val in zip(self._kp_cols, kp_values):
-                        df.loc[idx, col] = val
-                    self._log(
-                        f"  VALIDATED | New E={sim_e:.8f} | "
-                        f"KP updated | Total attempts used: {attempt}"
-                    )
+                    if self.append_kp:
+                        for col, val in zip(self._kp_cols, kp_values):
+                            df.loc[idx, col] = val
+                            
+                    log_msg = f"  VALIDATED | New E={sim_e:.8f} | "
+                    if self.append_kp:
+                        log_msg += "KP updated | "
+                    log_msg += f"Total attempts used: {attempt}"
+                    
+                    self._log(log_msg)
                     return df, 'validated'
             else:
                 consecutive_pass = 0
@@ -555,12 +569,13 @@ class Database_Corrector:
         )
         self._log(f"  Full attempt history for idx={idx}:")
         for entry in attempt_log:
+            kp_log_str = f"KP={[round(v, 6) for v in entry['kp_values']]}" if self.append_kp else "KP_mode= Off"
             self._log(
                 f"    Attempt {entry['attempt']}: "
                 f"sim_E={entry['sim_E']:.8f} | "
                 f"ref={entry['reference']:.8f} | "
                 f"error={entry['error']:.4%} | "
-                f"KP={[round(v, 6) for v in entry['kp_values']]}"
+                f"{kp_log_str}"
             )
 
         df = df.drop(index=idx)

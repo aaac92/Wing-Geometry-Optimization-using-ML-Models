@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from typing import List, Tuple
 from file_handling_support import compression_Alma
 
 class recovery_json:
@@ -28,38 +29,35 @@ class recovery_Fabius:
     def __init__(self):
         self.rec_Alma = compression_Alma()
 
-    def check_stage_status(self, stage_name: str, rar_path: Path, temp_dir: Path, prev_rar_path: Path = None, prev_temp_dir: Path = None, next_rar_path: Path = None) -> bool:
+    def check_stage_status(self, stage_name: str, current_rar: Path, required_deps: List[Tuple[Path, Path]] = None) -> bool:
         """
-        Checks if a stage is complete. If so, restores files from the archive if needed for the NEXT stage.
-        If not complete, ensures the previous stage's temporary files exist for execution.
+        Checks if a stage is complete. If incomplete, ensures all required precursor 
+        temporary files exist for execution, decompressing them if necessary.
         
+        Args:
+            stage_name: Name of the current stage.
+            current_rar: Path to the current stage's output archive.
+            required_deps: List of tuples containing (dependency_rar_path, dependency_temp_dir).
+            
         Returns:
             bool: True if the stage can be skipped, False if it needs to run.
         """
-        if rar_path.exists():
-            if next_rar_path and next_rar_path.exists():
-                print(f"--- Stage '{stage_name}' is complete, and next stage archive '{next_rar_path.name}' exists. Skipping decompression. ---")
-                return True
-            elif not next_rar_path:
-                print(f"--- Stage '{stage_name}' is complete. This is the final stage. Process is complete. ---")
-                return True
-            
-            # Current stage archive exists, but next stage does not. Check if temp files are present for downstream processes.
-            if not temp_dir.exists() or not os.listdir(temp_dir):
-                print(f"--- Stage '{stage_name}' is complete. Restoring files from '{rar_path.name}' for next stage. ---")
-                self.rec_Alma.decompress_archive(rar_path, temp_dir)
-            else:
-                print(f"--- Stage '{stage_name}' is complete. Using existing temporary files for next stage. ---")
+        # If the current stage is already complete, skip it.
+        # Decompression of this stage's archive will be handled by downstream stages if they require it.
+        if current_rar.exists():
+            print(f"--- Stage '{stage_name}' archive '{current_rar.name}' exists. Skipping execution. ---")
             return True
+            
+        # Current stage needs to run. Ensure all required precursor files are available.
+        if required_deps:
+            for dep_rar, dep_temp_dir in required_deps:
+                # Check if the required temp data is already available (pulled by a previous stage)
+                if not dep_temp_dir.exists() or not os.listdir(dep_temp_dir):
+                    if dep_rar.exists():
+                        print(f"Precursor temporary files missing for '{stage_name}'. Restoring from '{dep_rar.name}'...")
+                        self.rec_Alma.decompress_archive(dep_rar, dep_temp_dir)
+                    else:
+                        print(f"[WARNING] Required precursor archive '{dep_rar.name}' not found. Stage '{stage_name}' may fail.")
 
-        # Current stage is incomplete. Check if we need to restore precursor files.
-        if prev_rar_path and prev_temp_dir:
-            if not prev_temp_dir.exists() or not os.listdir(prev_temp_dir):
-                if prev_rar_path.exists():
-                    print(f"Precursor temporary files missing for '{stage_name}'. Restoring from '{prev_rar_path.name}'...")
-                    self.rec_Alma.decompress_archive(prev_rar_path, prev_temp_dir)
-                else:
-                    print(f"[WARNING] Precursor archive '{prev_rar_path.name}' not found. Stage '{stage_name}' may fail.")
-
-        print(f"Stage '{stage_name}' has not been completed before. Starting process...")
+        print(f"Stage '{stage_name}' has not been completed. Starting process...")
         return False
