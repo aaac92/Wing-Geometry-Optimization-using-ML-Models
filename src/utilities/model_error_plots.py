@@ -12,6 +12,7 @@ from ai_support import MLP_Regressor, LGBM_Regressor, SKNN_Regressor
 
 '''
 This script is used to create error plots for all regresor models (MLP, LGBM and SKNN). Currently you need all 3 models present to be able to run this script.
+This is a good candidate to refactor into a module in ai_support
 '''
 
 def find_model_prefix(folder_path: Path, unique_suffix: str) -> str:

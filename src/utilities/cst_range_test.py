@@ -5,8 +5,9 @@ from pathlib import Path
 from cst_modeling.foil import FoilGeoFeatures
 from geometric_support import Airfoil_Generator, Validate_Airfoil, monotonic_airfoil_thickness, LE_angular_curvature_continuity, plot_thickness_behavior, plot_LE_slopes, create_modification_combinations
 
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
+utilities_dir = Path(__file__).resolve().parent
+src_dir = utilities_dir.parent
+project_root = src_dir.parent
 # Define final directories
 airfoils_dir = project_root / "data" / "singular_test_data" / "singular_airfoils"
 support_files_dir = project_root / "data" / "support"

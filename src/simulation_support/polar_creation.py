@@ -30,7 +30,7 @@ class Xfoil_Polar_Creator:
     """
     Manages XFOIL simulations in a clean, temporary environment to avoid pathing issues.
     """
-    def __init__(self, xfoil_exe_path, main_dir, airfoil_dir, polar_dir, verbose:bool=False, process_logging:bool=False):
+    def __init__(self, xfoil_exe_path, main_dir, airfoil_dir, polar_dir, verbose:bool=False, process_logging:bool=False, mdes_seq:bool=False):
         """
         Initializes the runner and sets up the temporary development environment.
 
@@ -42,9 +42,11 @@ class Xfoil_Polar_Creator:
             verbose (bool): Trigger for console messages.
             process_logging (bool): Used to log individual XFOIL process to debug a "memory leak", do not activate for normal use, only activate if the process crashes 
             mid session. DEACTIVATE IN DATABASE CORRECTION PHASE, logging will interfere with _rmtree and crash.
+            mdes_seq (bool): Trigger for the MDES geometry smoothing sequence.
         """
         self.verbose = verbose
         self.process_logging = process_logging
+        self.mdes_seq = mdes_seq
 
         if self.verbose:
             print("="*50)
@@ -120,7 +122,7 @@ class Xfoil_Polar_Creator:
             try:
                 # --- SCRIPTED XFOIL COMMANDS --- #
                 if not self._send_command(proc, f"LOAD {airfoil_file_path}"): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
-                if attempt < 3:
+                if attempt < 3 and self.mdes_seq:
                     # Try the MDES sequence (cleans airfoil geometry for easier convergence in simulations)
                     mdes_success = True
                     if not self._send_command(proc, "MDES"): mdes_success = False

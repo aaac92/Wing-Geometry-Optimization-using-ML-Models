@@ -7,8 +7,9 @@ from pathlib import Path
 from file_handling_support import compression_Alma
 
 # Get the path to the parent directory.
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
+utilities_dir = Path(__file__).resolve().parent
+src_dir = utilities_dir.parent
+project_root = src_dir.parent
 
 def read_dat_header(file_path: str, expected_count: int):
     """

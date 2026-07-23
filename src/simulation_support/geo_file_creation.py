@@ -3,9 +3,6 @@ from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
 
-# You can place this class in the same file as Key_Point_Processing or in a new file.
-# If in a new file, you would need to import the other class.
-
 class RecWingGeo_Creation:
     """
     Creates AVL geometry files for rectangular wings based on key aerodynamic points.

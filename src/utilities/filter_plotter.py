@@ -4,8 +4,9 @@ from pathlib import Path
 from geometric_support import Airfoil_Generator
 from geometric_support.custom_graphs import plot_thickness_filter, plot_LE_slopes, plot_thickness_behavior, plot_camber_filter
 
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
+utilities_dir = Path(__file__).resolve().parent
+src_dir = utilities_dir.parent
+project_root = src_dir.parent
 support_files_dir = project_root / "data" / "support"
 single_files_dir = project_root / "data" / "singular_test_data" / "singular_airfoils"
 

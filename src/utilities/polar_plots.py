@@ -8,9 +8,10 @@ from file_handling_support import get_all_files_from
 Use this script to plot any polar file into it's corresponding polar curves. This will also calculate it's key points.
 '''
 
-# Get the path to the parent directory.
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
+# Get the path to the project root directory.
+utilities_dir = Path(__file__).resolve().parent
+src_dir = utilities_dir.parent
+project_root = src_dir.parent
 
 # Find desired polar file
 #polar_file = "polar_Test_141377.txt"
