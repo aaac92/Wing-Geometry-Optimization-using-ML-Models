@@ -24,7 +24,7 @@ geo_filt_parm = {
 }
 
 TF_COLORS = {
-    'tf_airfoil': '#484C68', # airfoil profile lines
+    'tf_airfoil': '#484C68',
     'tf_af_fill': '#FCF0DA',
     'tf_max_t': '#D1B8E1',
     'tf_min_t': '#4A4063',
