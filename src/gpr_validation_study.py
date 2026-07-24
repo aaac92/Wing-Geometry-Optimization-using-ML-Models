@@ -81,6 +81,28 @@ KEY_POINT_ERROR_THRESHOLD_PCT = 5.0
 XFOIL_COMPLETION_FLAG = "XFOIL process completed successfully"
 XFOIL_FAILURE_FLAG = "XFOIL process is not viable for this geometry."
 
+COLORS = {
+    # plot_aggregate_summary
+    'agg_classical_line': '#3B9574', 
+    'agg_classical_fill': '#81C6AA',
+    'agg_gpr_line': '#4A4063',
+    'agg_gpr_fill': '#D1B8E1',
+    'agg_threshold': '#2A4E68',      
+
+    # diagnostic & excluded plots
+    'diag_ground_truth': '#808080', 
+    'diag_sparse_input': '#2A4E68', 
+    'diag_classical': '#3B9574', 
+    'diag_gpr': '#4A4063', 
+    'diag_gpr_fill': '#D1B8E1', 
+    'diag_excluded_points': '#000000',
+    'diag_excluded_title': '#8B0000', 
+    
+    # geometry plots
+    'geo_line': '#000000',
+    'geo_fill': '#808080'
+}
+
 
 def polar_is_complete(polar_path):
     """
@@ -1006,34 +1028,36 @@ def load_airfoil_geometry(dat_path):
 
 
 def _plot_airfoil_shape(ax, x, y, title="Airfoil Geometry"):
-    ax.plot(x, y, color='black', linewidth=1.5)
-    ax.fill(x, y, color='gray', alpha=0.15)
+    ax.plot(x, y, color=COLORS['geo_line'], linewidth=1.5)
+    ax.fill(x, y, color=COLORS['geo_fill'], alpha=0.15)
     ax.set_aspect('equal', adjustable='box')
     ax.set_xlabel('x/c'); ax.set_ylabel('y/c')
     ax.set_title(title)
 
 
-def plot_aggregate_summary(summary_df, output_path):
+def plot_aggregate_summary(summary_df, output_dir):
     """
-    Two-panel Pareto-style view: mean key-point error vs. resolution (with
-    +/-1 std band) alongside mean sparse-point count vs. resolution. Kept
-    as two separate axes rather than a single weighted efficiency score, so
-    the error/data-volume tradeoff stays legible instead of being collapsed
-    into one arbitrary scalar.
+    Two separate Pareto-style views: mean key-point error vs. resolution (with
+    +/-1 std band) and mean sparse-point count vs. resolution. Kept
+    as two separate plots so the error/data-volume tradeoff stays legible.
     """
     plt.style.use('seaborn-v0_8-whitegrid')
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
 
-    style = {'classical': ('royalblue', 'o--'), 'gpr': ('crimson', 'o-')}
-    for model_name, (color, marker) in style.items():
+    style = {
+        'classical': (COLORS['agg_classical_line'], COLORS['agg_classical_fill'], 'o--'),
+        'gpr': (COLORS['agg_gpr_line'], COLORS['agg_gpr_fill'], 'o-')
+    }
+
+    # --- Plot 1: KP Error vs Resolution ---
+    fig1, ax1 = plt.subplots(figsize=(8, 7))
+    for model_name, (line_color, fill_color, marker) in style.items():
         sub = summary_df[summary_df['model'] == model_name].sort_values('resolution')
-        ax1.plot(sub['resolution'], sub['mean_kp_error'], marker, color=color, label=model_name.title())
+        ax1.plot(sub['resolution'], sub['mean_kp_error'], marker, color=line_color, label=model_name.title())
         std = sub['std_kp_error'].fillna(0)
         ax1.fill_between(sub['resolution'], sub['mean_kp_error'] - std, sub['mean_kp_error'] + std,
-                          color=color, alpha=0.15)
-        ax2.plot(sub['resolution'], sub['mean_n_points'], marker, color=color, label=model_name.title())
+                          color=fill_color, alpha=0.15, label=f'{model_name.title()} \u00b1 1\u03c3')
 
-    ax1.axhline(y=KEY_POINT_ERROR_THRESHOLD_PCT, color='k', linestyle='--', linewidth=1.2,
+    ax1.axhline(y=KEY_POINT_ERROR_THRESHOLD_PCT, color=COLORS['agg_threshold'], linestyle='--', linewidth=1.2,
                 label=f'{KEY_POINT_ERROR_THRESHOLD_PCT:.0f}% Error Threshold')
     ax1.set_xlabel('Resolution Step (deg)')
     ax1.set_ylabel('Mean Max Key-Point Error (%) \u00b1 1\u03c3')
@@ -1041,14 +1065,24 @@ def plot_aggregate_summary(summary_df, output_path):
     ax1.set_ylim(bottom=0)
     ax1.legend()
 
+    fig1.tight_layout()
+    fig1.savefig(output_dir / "aggregate_summary_kp_error.png", dpi=150)
+    plt.close(fig1)
+
+    # --- Plot 2: Data Volume vs Resolution ---
+    fig2, ax2 = plt.subplots(figsize=(8, 7))
+    for model_name, (line_color, fill_color, marker) in style.items():
+        sub = summary_df[summary_df['model'] == model_name].sort_values('resolution')
+        ax2.plot(sub['resolution'], sub['mean_n_points'], marker, color=line_color, label=model_name.title())
+
     ax2.set_xlabel('Resolution Step (deg)')
     ax2.set_ylabel('Mean Number of Sparse Points')
     ax2.set_title('Data Volume vs. Resolution')
     ax2.legend()
 
-    plt.tight_layout()
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
+    fig2.tight_layout()
+    fig2.savefig(output_dir / "aggregate_summary_data_volume.png", dpi=150)
+    plt.close(fig2)
 
 
 def plot_airfoil_diagnostic(airfoil_name, airfoil_path, alpha_true, cl_true, cd_true, resolution_step, output_dir):
@@ -1071,27 +1105,27 @@ def plot_airfoil_diagnostic(airfoil_name, airfoil_path, alpha_true, cl_true, cd_
     fig.suptitle(f'{airfoil_name} \u2014 Model Comparison at {resolution_step}\u00b0 Resolution',
                  fontsize=14, weight='bold')
 
-    ax1.plot(alpha_true, cl_true, color='gray', linewidth=3, alpha=0.6, label='Ground Truth')
-    ax1.plot(alpha_sparse, cl_sparse, 'ko', markersize=5, label='Sparse Input')
+    ax1.plot(alpha_true, cl_true, color=COLORS['diag_ground_truth'], linewidth=3, alpha=0.6, label='Ground Truth')
+    ax1.plot(alpha_sparse, cl_sparse, marker='o', linestyle='', color=COLORS['diag_sparse_input'], markersize=5, label='Sparse Input')
     if len(alpha_c) > 0:
-        ax1.plot(alpha_c, cl_c, 'b--', linewidth=2, label='Classical')
+        ax1.plot(alpha_c, cl_c, linestyle='--', color=COLORS['diag_classical'], linewidth=2, label='Classical')
     if len(alpha_g) > 0:
-        ax1.plot(alpha_g, cl_g, 'r-', linewidth=2, label='GPR')
+        ax1.plot(alpha_g, cl_g, linestyle='-', color=COLORS['diag_gpr'], linewidth=2, label='GPR')
         if cl_lower is not None:
-            ax1.fill_between(alpha_g, cl_lower, cl_upper, color='crimson', alpha=0.15, label='GPR \u00b12\u03c3')
+            ax1.fill_between(alpha_g, cl_lower, cl_upper, color=COLORS['diag_gpr_fill'], alpha=0.15, label='GPR \u00b12\u03c3')
     ax1.set_xlabel('Alpha (deg)'); ax1.set_ylabel('C_L')
     ax1.set_title('Lift Curve'); ax1.legend(fontsize=9)
 
-    ax2.plot(alpha_true, cd_true, color='gray', linewidth=3, alpha=0.6, label='Ground Truth')
-    ax2.plot(alpha_sparse, cd_sparse, 'ko', markersize=5, label='Sparse Input')
+    ax2.plot(alpha_true, cd_true, color=COLORS['diag_ground_truth'], linewidth=3, alpha=0.6, label='Ground Truth')
+    ax2.plot(alpha_sparse, cd_sparse, marker='o', linestyle='', color=COLORS['diag_sparse_input'], markersize=5, label='Sparse Input')
     if len(alpha_c) > 0:
-        ax2.plot(alpha_c, cd_c, 'b--', linewidth=2, label='Classical')
+        ax2.plot(alpha_c, cd_c, linestyle='--', color=COLORS['diag_classical'], linewidth=2, label='Classical')
     if len(alpha_g) > 0:
-        ax2.plot(alpha_g, cd_g, 'r-', linewidth=2, label='GPR')
+        ax2.plot(alpha_g, cd_g, linestyle='-', color=COLORS['diag_gpr'], linewidth=2, label='GPR')
         if cd_lower is not None:
             # Band is asymmetric by construction (exponentiated log-space bounds) --
             # this is correct for a log-transformed, strictly-positive target.
-            ax2.fill_between(alpha_g, cd_lower, cd_upper, color='crimson', alpha=0.15, label='GPR \u00b12\u03c3')
+            ax2.fill_between(alpha_g, cd_lower, cd_upper, color=COLORS['diag_gpr_fill'], alpha=0.15, label='GPR \u00b12\u03c3')
     ax2.set_xlabel('Alpha (deg)'); ax2.set_ylabel('C_D')
     ax2.set_title('Drag Curve'); ax2.legend(fontsize=9)
 
@@ -1122,13 +1156,13 @@ def plot_excluded_airfoil(airfoil_name, airfoil_path, alpha_true, cl_true, cd_tr
     ax3 = fig.add_subplot(gs[1, :])
 
     fig.suptitle(f'{airfoil_name} \u2014 EXCLUDED (raw data only)\n{reason}',
-                 fontsize=13, weight='bold', color='darkred')
+                 fontsize=13, weight='bold', color=COLORS['diag_excluded_title'])
 
-    ax1.plot(alpha_true, cl_true, 'ko-', markersize=5, linewidth=1, label='Raw Converged Points')
+    ax1.plot(alpha_true, cl_true, marker='o', linestyle='-', color=COLORS['diag_excluded_points'], markersize=5, linewidth=1, label='Raw Converged Points')
     ax1.set_xlabel('Alpha (deg)'); ax1.set_ylabel('C_L')
     ax1.set_title(f'Lift Curve (n={len(alpha_true)} converged points)'); ax1.legend(fontsize=9)
 
-    ax2.plot(alpha_true, cd_true, 'ko-', markersize=5, linewidth=1, label='Raw Converged Points')
+    ax2.plot(alpha_true, cd_true, marker='o', linestyle='-', color=COLORS['diag_excluded_points'], markersize=5, linewidth=1, label='Raw Converged Points')
     ax2.set_xlabel('Alpha (deg)'); ax2.set_ylabel('C_D')
     ax2.set_title(f'Drag Curve (n={len(alpha_true)} converged points)'); ax2.legend(fontsize=9)
 
@@ -1169,7 +1203,7 @@ if __name__ == "__main__":
     df, summary = aggregate_results(results)
     export_results_csv(df, summary, validation_results_dir)
 
-    plot_aggregate_summary(summary, validation_results_dir / "aggregate_summary.png")
+    plot_aggregate_summary(summary, validation_results_dir)
 
     recommended_gpr = find_recommended_resolution(summary, 'gpr')
     recommended_classical = find_recommended_resolution(summary, 'classical')
