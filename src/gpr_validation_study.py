@@ -16,6 +16,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, ConstantKernel
 from sklearn.metrics import mean_squared_error
 from tqdm import tqdm
+from adjustText import adjust_text
 
 from cst_modeling.foil import check_validity
 from simulation_support import Xfoil_Polar_Creator as XPR, Key_Point_Extraction
@@ -103,7 +104,6 @@ COLORS = {
     'geo_fill': '#808080'
 }
 
-
 def polar_is_complete(polar_path):
     """
     Returns True only if the polar file exists AND contains XFOIL's own
@@ -117,7 +117,6 @@ def polar_is_complete(polar_path):
     with open(polar_path, 'r') as f:
         return XFOIL_COMPLETION_FLAG in f.read()
 
-
 def polar_is_unviable(polar_path):
     """
     Returns True if the polar file exists and contains the failure flag,
@@ -127,7 +126,6 @@ def polar_is_unviable(polar_path):
         return False
     with open(polar_path, 'r') as f:
         return XFOIL_FAILURE_FLAG in f.read()
-
 
 def polar_status(polar_path):
     """
@@ -150,7 +148,6 @@ def polar_status(polar_path):
         return "unviable (failed all retries)"
     return f"file exists ({size} bytes, {content.count(chr(10)) + 1} lines) but missing completion flag"
 
-
 def compute_data_signature(base_airfoil_path, n_cst, cmb_datalist, aseq, re, mach):
     """
     Builds a stable signature from the declared generation parameters so an
@@ -165,13 +162,11 @@ def compute_data_signature(base_airfoil_path, n_cst, cmb_datalist, aseq, re, mac
     hasher.update(f"{re}_{mach}".encode())
     return hasher.hexdigest()
 
-
 def load_manifest(path):
     if path.exists():
         with open(path, 'r') as f:
             return json.load(f)
     return None
-
 
 def save_manifest(path, signature, n_airfoils, aseq, re, mach, n_cst):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -187,7 +182,6 @@ def save_manifest(path, signature, n_airfoils, aseq, re, mach, n_cst):
     with open(path, 'w') as f:
         json.dump(manifest, f, indent=2)
 
-
 def signature_matches_manifest(manifest_path, signature):
     """
     Whether the declared generation parameters match what's recorded in
@@ -198,7 +192,6 @@ def signature_matches_manifest(manifest_path, signature):
     """
     manifest = load_manifest(manifest_path)
     return manifest is not None and manifest.get('signature') == signature
-
 
 def build_validation_cst_combinations(n_cst, n_target, seed=RANDOM_SEED):
     """
@@ -230,7 +223,6 @@ def build_validation_cst_combinations(n_cst, n_target, seed=RANDOM_SEED):
 
     return np.vstack([baseline, sampled])
 
-
 def generate_validation_airfoils(base_airfoil_path, n_cst, cmb_datalist, output_dir, n_target,
                                   geo_filter_params, verbose=True):
     """
@@ -241,7 +233,7 @@ def generate_validation_airfoils(base_airfoil_path, n_cst, cmb_datalist, output_
 
     Not multiprocessed: pure CST generation + geometric filtering over a few
     dozen candidates completes in well under a second per candidate, so pool
-    overhead would outweigh any benefit at this scale.
+    overhead overhead would outweigh any benefit at this scale.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     log_path = output_dir / "invalid_airfoils_log.txt"
@@ -309,7 +301,6 @@ def generate_validation_airfoils(base_airfoil_path, n_cst, cmb_datalist, output_
               f"recurs.")
 
     return valid_paths
-
 
 def gt_polar_worker(args):
     """
@@ -395,7 +386,6 @@ def gt_polar_worker(args):
 
     return polar_path, True
 
-
 def generate_validation_polars(airfoil_paths, aseq, re, mach, temp_root, output_dir, max_retries=MAX_POLAR_RETRIES):
     """
     Runs XFOIL for the given validation airfoils at the dense ground-truth
@@ -448,7 +438,6 @@ def generate_validation_polars(airfoil_paths, aseq, re, mach, temp_root, output_
 
     return [output_dir / f"polar_{Path(ap).stem}.txt" for ap in airfoil_paths]
 
-
 def preserve_failed_polars(temp_polar_dir, airfoil_paths, dest_dir):
     """
     Copies any incomplete polar file (partial content, or genuinely empty)
@@ -469,7 +458,6 @@ def preserve_failed_polars(temp_polar_dir, airfoil_paths, dest_dir):
         print(f"[INFO] Preserved {len(preserved)} incomplete polar file(s) for inspection in "
               f"{dest_dir}: {[p.name for p in preserved]}")
     return preserved
-
 
 def _persist_temp_dataset(airfoil_paths_temp):
     """
@@ -499,7 +487,6 @@ def _persist_temp_dataset(airfoil_paths_temp):
         shutil.copy2(invalid_log_src, validation_results_dir / "invalid_airfoils_log.txt")
 
     return dataset
-
 
 def _generate_fresh_dataset(cmb_datalist, signature, max_polar_retries):
     """
@@ -538,7 +525,6 @@ def _generate_fresh_dataset(cmb_datalist, signature, max_polar_retries):
 
     save_manifest(manifest_path, signature, len(dataset), ASEQ, RE, MACH, N_CST)
     return dataset
-
 
 def prepare_validation_dataset(force_regenerate=False, max_polar_retries=MAX_POLAR_RETRIES):
     """
@@ -634,7 +620,6 @@ def prepare_validation_dataset(force_regenerate=False, max_polar_retries=MAX_POL
 
     return dataset
 
-
 def create_sparse_dataset(alpha_true, cl_true, cd_true, resolution_step):
     """
     Subsamples an existing (dense) polar at the requested alpha resolution
@@ -647,7 +632,6 @@ def create_sparse_dataset(alpha_true, cl_true, cd_true, resolution_step):
     target_alphas = np.arange(min_alpha, max_alpha + resolution_step, resolution_step)
     sparse_indices = sorted({int(np.argmin(np.abs(alpha_true - ta))) for ta in target_alphas})
     return alpha_true[sparse_indices], cl_true[sparse_indices], cd_true[sparse_indices]
-
 
 def robust_polar_fit(alpha_array, cl_array, cd_array, x_len=400):
     """
@@ -667,7 +651,6 @@ def robust_polar_fit(alpha_array, cl_array, cd_array, x_len=400):
     cd_func = interp1d(alpha_array, cd_smooth, kind='cubic', bounds_error=False, fill_value="extrapolate")
 
     return alpha_interp, cl_func(alpha_interp), cd_func(alpha_interp), None, None, None, None
-
 
 def gpr_polar_fit(alpha_array, cl_array, cd_array, x_len=400):
     """
@@ -729,12 +712,10 @@ def gpr_polar_fit(alpha_array, cl_array, cd_array, x_len=400):
 
     return alpha_interp.flatten(), cl_pred, cd_pred, cl_lower, cl_upper, cd_lower, cd_upper
 
-
 MODEL_FIT_FUNCTIONS = {
     'classical': robust_polar_fit,
     'gpr': gpr_polar_fit,
 }
-
 
 def calculate_interpolation_rmse(alpha_true, cl_true, cd_true, alpha_interp, cl_interp, cd_interp):
     """Whole-curve RMSE of a model's fit against the dense ground truth."""
@@ -749,7 +730,6 @@ def calculate_interpolation_rmse(alpha_true, cl_true, cd_true, alpha_interp, cl_
     rmse_cd = float(np.sqrt(mean_squared_error(cd_true, cd_pred)))
     return rmse_cl, rmse_cd
 
-
 def extract_key_points(cl_array, cd_array):
     """Extracts (CL, CD) at C_L,max / C_L,min / C_D,min."""
     if len(cl_array) == 0:
@@ -759,7 +739,6 @@ def extract_key_points(cl_array, cd_array):
         'CL_min': (cl_array[np.argmin(cl_array)], cd_array[np.argmin(cl_array)]),
         'CD_min': (cl_array[np.argmin(cd_array)], cd_array[np.argmin(cd_array)]),
     }
-
 
 def calculate_key_point_errors(true_points, pred_points, cl_range, cd_range):
     """
@@ -780,7 +759,6 @@ def calculate_key_point_errors(true_points, pred_points, cl_range, cd_range):
         err_cd = abs(cd_p - cd_t) / cd_range
         errors[key] = float(np.sqrt(err_cl ** 2 + err_cd ** 2) * 100)
     return errors
-
 
 def benchmark_worker(args):
     """
@@ -827,7 +805,6 @@ def benchmark_worker(args):
     except Exception as e:
         base_result['error'] = str(e)
         return base_result
-
 
 def run_benchmark_sweep(dataset, resolution_steps, kp_extractor):
     """
@@ -953,7 +930,6 @@ def run_benchmark_sweep(dataset, resolution_steps, kp_extractor):
 
     return results, ground_truth_cache, excluded_airfoils
 
-
 def export_exclusion_log(excluded_airfoils, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     log_path = output_dir / "excluded_airfoils_log.txt"
@@ -963,7 +939,6 @@ def export_exclusion_log(excluded_airfoils, output_dir):
         for name, info in excluded_airfoils.items():
             f.write(f"{name}: {info['reason']} ({len(info['alpha'])} converged points)\n")
     return log_path
-
 
 def aggregate_results(results):
     df = pd.DataFrame(results)
@@ -980,7 +955,6 @@ def aggregate_results(results):
     ).reset_index()
 
     return df, summary
-
 
 def find_recommended_resolution(summary_df, model_name, threshold=KEY_POINT_ERROR_THRESHOLD_PCT):
     """
@@ -1000,7 +974,6 @@ def find_recommended_resolution(summary_df, model_name, threshold=KEY_POINT_ERRO
         else:
             break
     return recommended
-
 
 def load_airfoil_geometry(dat_path):
     """
@@ -1026,14 +999,12 @@ def load_airfoil_geometry(dat_path):
                 continue
     return np.array(xs), np.array(ys)
 
-
 def _plot_airfoil_shape(ax, x, y, title="Airfoil Geometry"):
     ax.plot(x, y, color=COLORS['geo_line'], linewidth=1.5)
     ax.fill(x, y, color=COLORS['geo_fill'], alpha=0.15)
     ax.set_aspect('equal', adjustable='box')
     ax.set_xlabel('x/c'); ax.set_ylabel('y/c')
     ax.set_title(title)
-
 
 def plot_aggregate_summary(summary_df, output_dir):
     """
@@ -1052,16 +1023,17 @@ def plot_aggregate_summary(summary_df, output_dir):
     fig1, ax1 = plt.subplots(figsize=(8, 7))
     for model_name, (line_color, fill_color, marker) in style.items():
         sub = summary_df[summary_df['model'] == model_name].sort_values('resolution')
-        ax1.plot(sub['resolution'], sub['mean_kp_error'], marker, color=line_color, label=model_name.title())
+        label_name = 'Savitzky-Golay + Splines cúbicos' if model_name == 'classical' else 'GPR'
+        ax1.plot(sub['resolution'], sub['mean_kp_error'], marker, color=line_color, label=label_name)
         std = sub['std_kp_error'].fillna(0)
         ax1.fill_between(sub['resolution'], sub['mean_kp_error'] - std, sub['mean_kp_error'] + std,
-                          color=fill_color, alpha=0.15, label=f'{model_name.title()} \u00b1 1\u03c3')
+                          color=fill_color, alpha=0.15, label=f'{label_name} \u00b1 1\u03c3')
 
     ax1.axhline(y=KEY_POINT_ERROR_THRESHOLD_PCT, color=COLORS['agg_threshold'], linestyle='--', linewidth=1.2,
-                label=f'{KEY_POINT_ERROR_THRESHOLD_PCT:.0f}% Error Threshold')
-    ax1.set_xlabel('Resolution Step (deg)')
-    ax1.set_ylabel('Mean Max Key-Point Error (%) \u00b1 1\u03c3')
-    ax1.set_title(f'Key-Point Error vs. Resolution (n={summary_df["n_total"].max()} airfoils)')
+                label=f'Umbral de error del {KEY_POINT_ERROR_THRESHOLD_PCT:.0f}%')
+    ax1.set_xlabel('Paso de resolución (grados)')
+    ax1.set_ylabel('Error medio máx. de puntos clave (%) \u00b1 1\u03c3')
+    ax1.set_title(f'Error de puntos clave vs. Resolución (n={summary_df["n_total"].max()} perfiles)')
     ax1.set_ylim(bottom=0)
     ax1.legend()
 
@@ -1071,19 +1043,26 @@ def plot_aggregate_summary(summary_df, output_dir):
 
     # --- Plot 2: Data Volume vs Resolution ---
     fig2, ax2 = plt.subplots(figsize=(8, 7))
+    texts = []
     for model_name, (line_color, fill_color, marker) in style.items():
         sub = summary_df[summary_df['model'] == model_name].sort_values('resolution')
-        ax2.plot(sub['resolution'], sub['mean_n_points'], marker, color=line_color, label=model_name.title())
+        ax2.plot(sub['resolution'], sub['mean_n_points'], marker, color=line_color)
+        
+        # Only add labels once to prevent duplicates (data volume is identical for both models)
+        if model_name == 'classical':
+            for x, y in zip(sub['resolution'], sub['mean_n_points']):
+                texts.append(ax2.text(x, y, f'{y:.1f}', fontsize=10, color='black'))
+            
+    # Automatically adjust text to prevent overlaps
+    adjust_text(texts, ax=ax2, arrowprops=dict(arrowstyle="-", color='gray', lw=0.5, alpha=0.5))
 
-    ax2.set_xlabel('Resolution Step (deg)')
-    ax2.set_ylabel('Mean Number of Sparse Points')
-    ax2.set_title('Data Volume vs. Resolution')
-    ax2.legend()
+    ax2.set_xlabel('Paso de resolución (grados)')
+    ax2.set_ylabel('Número medio de puntos dispersos')
+    ax2.set_title('Volumen de datos vs. Resolución')
 
     fig2.tight_layout()
     fig2.savefig(output_dir / "aggregate_summary_data_volume.png", dpi=150)
     plt.close(fig2)
-
 
 def plot_airfoil_diagnostic(airfoil_name, airfoil_path, alpha_true, cl_true, cd_true, resolution_step, output_dir):
     """
@@ -1139,7 +1118,6 @@ def plot_airfoil_diagnostic(airfoil_name, airfoil_path, alpha_true, cl_true, cd_
     plt.close(fig)
     return out_path
 
-
 def plot_excluded_airfoil(airfoil_name, airfoil_path, alpha_true, cl_true, cd_true, reason, output_dir):
     """
     Diagnostic plot for an airfoil excluded from the benchmark for failing
@@ -1175,12 +1153,10 @@ def plot_excluded_airfoil(airfoil_name, airfoil_path, alpha_true, cl_true, cd_tr
     plt.close(fig)
     return out_path
 
-
 def export_results_csv(df, summary_df, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_dir / "gpr_validation_raw_results.csv", index=False)
     summary_df.to_csv(output_dir / "gpr_validation_summary.csv", index=False)
-
 
 if __name__ == "__main__":
     start = datetime.now()
