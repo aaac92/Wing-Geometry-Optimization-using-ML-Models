@@ -1,51 +1,3 @@
-"""
-GPR_Validation_Study.py
-
-Establishes and validates the choice of Gaussian Process Regression (GPR) over
-classical (Savitzky-Golay + cubic spline) interpolation for reconstructing
-aerodynamic polar curves from reduced-resolution XFOIL data.
-
-Pipeline
---------
-1. Detect an existing cached validation dataset (airfoils + dense ground-truth
-   polars) matching the declared generation parameters, via a manifest
-   signature. Reuse it if present; otherwise generate a fresh one.
-2. Generate a small, geometrically diverse set of validation airfoils (CST
-   perturbations of a base airfoil, always including the unmodified base
-   airfoil as a symmetric reference case).
-3. Generate dense ground-truth polars for each airfoil via XFOIL.
-4. Resample (not re-simulate) each ground-truth polar at a range of coarser
-   alpha resolutions, fit both interpolation models, and score them against
-   the dense ground truth using whole-curve RMSE and normalized Euclidean
-   key-point error (C_L,max / C_L,min / C_D,min).
-5. Aggregate results across the full airfoil set, export raw + summary CSVs,
-   and produce diagnostic and summary plots.
-
-This script mirrors the directory, recovery-signature, and multiprocessing
-conventions used in Hossain_DB_Gen.py, and reuses Key_Point_Extraction's
-polar parser (`_polar_extract` / `_polar_cleanup`) as the canonical parsing
-implementation, per project decision to standardize on it.
-
-Assumptions carried over from Hossain_DB_Gen.py usage patterns (not
-independently verified against source, since geometric_support /
-simulation_support are not available in this environment):
-  - Airfoil_Generator(base_airfoil_csv, n_cst, verbose).generate(cst_coeffs,
-    show_plot, debug) -> (x, yu, yl); a zero-vector cst_coeffs row reproduces
-    the unmodified base airfoil.
-  - Airfoil_Generator._create_dat_file(output_dir, n_cst, x, yl, yu,
-    file_name, debug) writes "<file_name>.dat".
-  - Xfoil_Polar_Creator(xfoil_exe_path, main_dir, airfoil_dir, polar_dir,
-    verbose).run_simulation(airfoil_file_path, polar_file_path,
-    alfa_sequence, visc, mach) writes a polar file matching the format
-    Key_Point_Extraction._polar_extract expects.
-  - create_modification_combinations(n_cst, ranges_upper, ranges_lower,
-    debug) returns an (N, 2*n_cst) array: columns [:n_cst] = lower surface,
-    [n_cst:] = upper surface.
-
-Verify these against the actual package source before running against real
-XFOIL binaries. Flag any mismatch rather than silently adjusting call sites.
-"""
-
 import os
 import json
 import shutil
@@ -67,16 +19,8 @@ from tqdm import tqdm
 
 from cst_modeling.foil import check_validity
 from simulation_support import Xfoil_Polar_Creator as XPR, Key_Point_Extraction
-# NOTE: Key_Point_Extraction._interpolate_and_extract raises InsufficientPointsError /
-# PoorDistributionError (defined alongside it in key_point_processing.py) on data that
-# fails its minimum-sufficiency gate, but simulation_support's package __init__ does not
-# re-export those exception classes, so they can't be imported and caught by type here.
-# run_benchmark_sweep instead catches Exception broadly and reads type(e).__name__ off
-# the raised instance to tell the two known cases apart from a genuinely unexpected
-# failure, without needing the classes themselves importable.
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 
-# --- Section 0: Environment Configuration ---
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -84,7 +28,6 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 warnings.filterwarnings("ignore", category=UserWarning)
 
-# --- Section 1: Project Paths ---
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 
@@ -97,15 +40,10 @@ validation_polars_dir = validation_root / "polars"
 validation_results_dir = validation_root / "results"
 manifest_path = validation_root / "manifest.json"
 
-# XFOIL requires a short working-directory path on Windows; generate there
-# first, then persist final artifacts to validation_root. Adjust the drive
-# letter if C:\ is not writable in your environment (same caveat as
-# Hossain_DB_Gen.py's training_temp_root).
 validation_temp_root = Path(r"C:\gpr_validation_temp")
 validation_temp_airfoils = validation_temp_root / "airfoils"
 validation_temp_polars = validation_temp_root / "polars"
 
-# --- Section 2: Declared Study Parameters ---
 BASE_AIRFOIL_PATH = support_files_dir / 'naca0012_unit.csv'
 N_CST = 5
 N_TEST_AIRFOILS = 32
@@ -113,24 +51,9 @@ RANDOM_SEED = 42
 GPR_RANDOM_STATE = 42  # fixes GaussianProcessRegressor's optimizer restarts; see gpr_polar_fit
 MAX_POLAR_RETRIES = 2  # additional XFOIL attempts for a polar that fails to complete (3 total attempts)
 
-# gpr_polar_fit noise floors: flat (not AoA-dependent). An earlier version
-# ramped noise up near high AoA to compensate for sparse-resolution
-# unreliability there, but that mechanism directly suppressed the GP's
-# confidence in the very points that define C_L,max -- it helped at coarse
-# resolutions (few, largely unverified points near stall) but oversmoothed
-# the real, well-corroborated stall kink at fine resolutions, even after
-# scaling its strength by local sampling density. Reverted in favor of the
-# mean-function trend below, which can't suppress a real peak the same way
-# since a GP still interpolates exactly through its training points
-# regardless of the prior. Starting priors, not validated against real data.
+# gpr_polar_fit noise floors: flat (not AoA-dependent). Starting priors, not validated against real data.
 CL_NOISE_FLOOR = 1e-4
 CD_LOG_NOISE_FLOOR = 1e-4
-# Heteroscedastic noise near high AoA (both a fixed ramp and a
-# spacing-scaled ramp), a linear mean-function trend for C_L, and the two
-# stacked together were all tried and abandoned after validation: each
-# improved coarse resolutions (1.0-2.0 deg) but the combined version
-# performed no better than either alone, and all cost accuracy at fine
-# resolutions. See gpr_polar_fit's docstring.
 
 # Dense ground-truth polar conditions (matches production settings)
 ASEQ = [-20, 20, 0.1]
@@ -150,15 +73,13 @@ GEO_FILTER_PARAMS = {
     'threshold_rLE': 0.01,
     'monotonic_activation': True,
     'threshold_max_camber': 0.12,
-    'threshold_min_camber': -0.02,
-    # Reverted to the production-matched values above per project decision;
-    # the earlier wider bounds (0.65/0.10/0.25/-0.25) were a deliberate
-    # stress-test variant and are no longer the default here.
+    'threshold_min_camber': -0.02
 }
 
 KEY_POINT_ERROR_THRESHOLD_PCT = 5.0
 
 XFOIL_COMPLETION_FLAG = "XFOIL process completed successfully"
+XFOIL_FAILURE_FLAG = "XFOIL process is not viable for this geometry."
 
 
 def polar_is_complete(polar_path):
@@ -173,6 +94,17 @@ def polar_is_complete(polar_path):
         return False
     with open(polar_path, 'r') as f:
         return XFOIL_COMPLETION_FLAG in f.read()
+
+
+def polar_is_unviable(polar_path):
+    """
+    Returns True if the polar file exists and contains the failure flag,
+    indicating XFOIL exhausted all retries for this geometry.
+    """
+    if not os.path.exists(polar_path):
+        return False
+    with open(polar_path, 'r') as f:
+        return XFOIL_FAILURE_FLAG in f.read()
 
 
 def polar_status(polar_path):
@@ -192,10 +124,10 @@ def polar_status(polar_path):
         content = f.read()
     if XFOIL_COMPLETION_FLAG in content:
         return "complete"
+    if XFOIL_FAILURE_FLAG in content:
+        return "unviable (failed all retries)"
     return f"file exists ({size} bytes, {content.count(chr(10)) + 1} lines) but missing completion flag"
 
-
-# --- Section 3: Manifest / Cache Logic ---
 
 def compute_data_signature(base_airfoil_path, n_cst, cmb_datalist, aseq, re, mach):
     """
@@ -245,8 +177,6 @@ def signature_matches_manifest(manifest_path, signature):
     manifest = load_manifest(manifest_path)
     return manifest is not None and manifest.get('signature') == signature
 
-
-# --- Section 4: Validation Airfoil Set Construction ---
 
 def build_validation_cst_combinations(n_cst, n_target, seed=RANDOM_SEED):
     """
@@ -358,8 +288,6 @@ def generate_validation_airfoils(base_airfoil_path, n_cst, cmb_datalist, output_
 
     return valid_paths
 
-
-# --- Section 5: Ground-Truth Polar Generation (pooled, cpu_count() - 1) ---
 
 def gt_polar_worker(args):
     """
@@ -499,8 +427,6 @@ def generate_validation_polars(airfoil_paths, aseq, re, mach, temp_root, output_
     return [output_dir / f"polar_{Path(ap).stem}.txt" for ap in airfoil_paths]
 
 
-# --- Section 6: Dataset Orchestration (cache detection + generation) ---
-
 def preserve_failed_polars(temp_polar_dir, airfoil_paths, dest_dir):
     """
     Copies any incomplete polar file (partial content, or genuinely empty)
@@ -542,6 +468,8 @@ def _persist_temp_dataset(airfoil_paths_temp):
         else:
             print(f"[WARNING] Ground-truth polar for {ap.stem} did not complete successfully after "
                   f"retries and will not be included in the validation set.")
+            with open(src_polar, 'a') as f:
+                f.write(f"\n{XFOIL_FAILURE_FLAG}\n")
 
     invalid_log_src = validation_temp_airfoils / "invalid_airfoils_log.txt"
     if invalid_log_src.exists():
@@ -631,12 +559,17 @@ def prepare_validation_dataset(force_regenerate=False, max_polar_retries=MAX_POL
 
     dataset = []
     incomplete = []
+    failed_polars_dir = validation_results_dir / "failed_polars"
     for ap in airfoil_paths:
         pp = validation_polars_dir / f"polar_{ap.stem}.txt"
         if polar_is_complete(pp):
             dataset.append((ap, pp))
         else:
-            incomplete.append(ap)
+            failed_pp = failed_polars_dir / f"polar_{ap.stem}.txt"
+            if failed_pp.exists() and polar_is_unviable(failed_pp):
+                pass
+            else:
+                incomplete.append(ap)
 
     if not incomplete:
         print(f"[INFO] Existing validation dataset matches the declared parameters and all "
@@ -668,6 +601,8 @@ def prepare_validation_dataset(force_regenerate=False, max_polar_retries=MAX_POL
         else:
             print(f"[WARNING] {ap.stem}'s polar still failed to complete after repair attempts "
                   f"({polar_status(src_polar)}). Excluding it from this run.")
+            with open(src_polar, 'a') as f:
+                f.write(f"\n{XFOIL_FAILURE_FLAG}\n")
 
     preserve_failed_polars(validation_temp_polars, temp_airfoil_paths, validation_results_dir / "failed_polars")
     shutil.rmtree(validation_temp_root, ignore_errors=True)
@@ -677,8 +612,6 @@ def prepare_validation_dataset(force_regenerate=False, max_polar_retries=MAX_POL
 
     return dataset
 
-
-# --- Section 7: Sparse Resampling ---
 
 def create_sparse_dataset(alpha_true, cl_true, cd_true, resolution_step):
     """
@@ -693,8 +626,6 @@ def create_sparse_dataset(alpha_true, cl_true, cd_true, resolution_step):
     sparse_indices = sorted({int(np.argmin(np.abs(alpha_true - ta))) for ta in target_alphas})
     return alpha_true[sparse_indices], cl_true[sparse_indices], cd_true[sparse_indices]
 
-
-# --- Section 8: Interpolation Models ---
 
 def robust_polar_fit(alpha_array, cl_array, cd_array, x_len=400):
     """
@@ -721,15 +652,6 @@ def gpr_polar_fit(alpha_array, cl_array, cd_array, x_len=400):
     GPR model: Matern(nu=1.5) kernel, flat noise floors via
     GaussianProcessRegressor's `alpha` parameter (CL_NOISE_FLOOR,
     CD_LOG_NOISE_FLOOR).
-
-    This is the "basic" configuration -- see CL_NOISE_FLOOR's comment for
-    what was tried and abandoned on top of it (heteroscedastic noise in
-    two variants, a linear mean-function trend for C_L, and the two
-    stacked together). Each improved coarse resolutions (1.0-2.0 deg) at
-    the cost of the fine resolutions actually targeted for deployment,
-    and stacking them didn't improve on either alone. This configuration
-    won cleanly on the target resolution range across every comparison
-    and is kept as the baseline going forward.
 
     C_D is fit in log-space: C_D is strictly positive and right-skewed,
     which violates the Gaussian-residual assumption a GP implicitly makes
@@ -792,8 +714,6 @@ MODEL_FIT_FUNCTIONS = {
 }
 
 
-# --- Section 9: Error Metrics ---
-
 def calculate_interpolation_rmse(alpha_true, cl_true, cd_true, alpha_interp, cl_interp, cd_interp):
     """Whole-curve RMSE of a model's fit against the dense ground truth."""
     if len(cl_interp) == 0:
@@ -839,8 +759,6 @@ def calculate_key_point_errors(true_points, pred_points, cl_range, cd_range):
         errors[key] = float(np.sqrt(err_cl ** 2 + err_cd ** 2) * 100)
     return errors
 
-
-# --- Section 10: Benchmark Worker + Sweep (pooled, cpu_count() - 1) ---
 
 def benchmark_worker(args):
     """
@@ -1025,8 +943,6 @@ def export_exclusion_log(excluded_airfoils, output_dir):
     return log_path
 
 
-# --- Section 11: Aggregation ---
-
 def aggregate_results(results):
     df = pd.DataFrame(results)
     df = df.replace([np.inf, -np.inf], np.nan)
@@ -1063,8 +979,6 @@ def find_recommended_resolution(summary_df, model_name, threshold=KEY_POINT_ERRO
             break
     return recommended
 
-
-# --- Section 12: Plotting ---
 
 def load_airfoil_geometry(dat_path):
     """
@@ -1228,15 +1142,11 @@ def plot_excluded_airfoil(airfoil_name, airfoil_path, alpha_true, cl_true, cd_tr
     return out_path
 
 
-# --- Section 13: Results Export ---
-
 def export_results_csv(df, summary_df, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_dir / "gpr_validation_raw_results.csv", index=False)
     summary_df.to_csv(output_dir / "gpr_validation_summary.csv", index=False)
 
-
-# --- Section 14: Main Execution ---
 
 if __name__ == "__main__":
     start = datetime.now()
