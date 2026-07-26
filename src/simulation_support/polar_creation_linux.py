@@ -40,7 +40,8 @@ class Xfoil_Polar_Creator:
             airfoil_dir (str): The airfoil directory inside the working directory.
             polar_dir (str): The polar directory inside the working directory.
             verbose (bool): Trigger for console messages.
-            process_logging (bool): Used to log individual XFOIL process to debug a "memory leak".
+            process_logging (bool): Used to log individual XFOIL process to debug a "memory leak", do not activate for normal use, only activate if the process crashes
+            mid session. DEACTIVATE IN DATABASE CORRECTION PHASE, logging will interfere with _rmtree and crash.
             mdes_seq (bool): Trigger for the MDES geometry smoothing sequence.
         """
         self.verbose = verbose
@@ -247,9 +248,7 @@ class Xfoil_Polar_Creator:
         
         try:
             proc.sendline(command)
-            if not quit:
-                # expect_exact looks for the exact substring in the output buffer
-                proc.expect_exact(expect_prompt, timeout=timeout_sec)
+            proc.expect_exact(expect_prompt, timeout=timeout_sec)
             return True
         except pexpect.TIMEOUT:
             if self.verbose:

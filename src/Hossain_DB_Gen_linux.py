@@ -1,6 +1,5 @@
 import numpy as np
 import os
-import subprocess
 import shutil
 import threading
 from tqdm import tqdm
@@ -29,7 +28,7 @@ datasets_dir = project_root / "data" / "datasets"
 binaries_dir = project_root / "bin"
 # Define temp directories
 # Temp directories with a short path are needed for XFOIL and AVL
-training_temp_root = Path('/.training_temp') # The dot prefix naturally hides the folder in Linux
+training_temp_root = Path.home() / '.training_temp' # The dot prefix naturally hides the folder in Linux; user-writable, avoids needing root on '/'
 os.makedirs(training_temp_root, exist_ok=True)
 airfoils_temp_dir = training_temp_root / "airfoils"
 force_files_temp_dir = training_temp_root / "force files"
@@ -444,7 +443,7 @@ def Final_Coefficient_Generation(verbose=False):
     if rec_Fabius.check_stage_status(stage_name="Force Computation", current_rar=force_rar_path, required_deps=rec_dependencies):
         return
 
-    avl_exe = os.path.join(binaries_dir, 'avl.exe')
+    avl_exe = os.path.join(binaries_dir, 'avl')
     case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
     support_files_temp_dir.mkdir(exist_ok=True)
     case_file_temp = os.path.join(support_files_temp_dir, "Hossain_sqwing_case.run")
@@ -577,8 +576,8 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
     print(f"Database correction stage started at {current_time}.")
 
     base_airfoil_path = os.path.join(support_files_dir, 'naca0012_unit.csv')
-    xfoil_exe = os.path.join(binaries_dir, 'xfoil.exe')
-    avl_exe = os.path.join(binaries_dir, 'avl.exe')
+    xfoil_exe = os.path.join(binaries_dir, 'xfoil')
+    avl_exe = os.path.join(binaries_dir, 'avl')
     case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
     correction_temp_dir = training_temp_root / "correction_temp"
 
