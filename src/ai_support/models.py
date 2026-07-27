@@ -18,36 +18,23 @@ class _PyTorchMLPRegressor(nn.Module):
     """
     Internal PyTorch model for MLP Regressor.
     """
-    def __init__(self, input_dim, hidden_size, dropout_rate):
+    def __init__(self, input_dim, hidden_layer_sizes, dropout_rate):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_size),
-            nn.BatchNorm1d(hidden_size),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
+        layers = []
+        current_dim = input_dim
 
-            nn.Linear(hidden_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
+        for h_size in hidden_layer_sizes:
+            layers.append(nn.Linear(current_dim, h_size))
+            layers.append(nn.BatchNorm1d(h_size))
+            layers.append(nn.GELU())
+            layers.append(nn.Dropout(dropout_rate))
+            current_dim = h_size
 
-            nn.Linear(hidden_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
-
-            nn.Linear(hidden_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
-
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.BatchNorm1d(hidden_size // 2),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
-
-            nn.Linear(hidden_size // 2, 1)
-        )
+        # Output layer
+        layers.append(nn.Linear(current_dim, 1))
+        
+        # Unpack list into Sequential
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.net(x)
@@ -59,7 +46,7 @@ class MLP_Regressor:
     loop with early stopping.
     """
     def __init__(self,
-                 hidden_size=128,
+                 hidden_layer_sizes=[128, 128, 128, 128, 64],
                  dropout_rate=0.05,
                  learning_rate=1e-3,
                  epochs=500,
@@ -71,7 +58,7 @@ class MLP_Regressor:
                  log_trans=False):
         
         # Hyperparameters
-        self.hidden_size = hidden_size
+        self.hidden_layer_sizes = hidden_layer_sizes
         self.dropout_rate = dropout_rate
         self.learning_rate = learning_rate
         
@@ -92,7 +79,7 @@ class MLP_Regressor:
         self.input_dim = None # Will be determined after data is loaded
         self.log_transform = log_trans
         
-        if self.device == "cuda":
+        if self.device.type == "cuda":
             print(f"MLP Regressor initialized. Training will use device: {torch.cuda.get_device_name()}")
         else:
             print(f"MLP Regressor initialized. Training will use device: {self.device}")
@@ -112,8 +99,8 @@ class MLP_Regressor:
 
         # Optional logarithmic output transformation and data split for testing
         if self.log_transform == True:
-            output = np.log1p(output)
             # Split log data
+            output = np.log1p(output)
             train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
         else:
             # Split data
@@ -145,7 +132,7 @@ class MLP_Regressor:
             return len(X_t)
             
         print("Dynamically calculating maximum batch size...")
-        batch_size = len(X_t) # Start by attempting to load the entire dataset
+        batch_size = len(X_t) 
         
         while batch_size > 0:
             try:
@@ -159,7 +146,7 @@ class MLP_Regressor:
                 # Initialize dummy model and optimizer to simulate exact memory footprint
                 dummy_model = _PyTorchMLPRegressor(
                     input_dim=self.input_dim,
-                    hidden_size=self.hidden_size,
+                    hidden_layer_sizes=self.hidden_layer_sizes,
                     dropout_rate=self.dropout_rate
                 ).to(self.device)
                 
@@ -170,18 +157,18 @@ class MLP_Regressor:
                 dummy_optimizer.zero_grad()
                 
                 preds = dummy_model(X_dummy)
-                
+
                 # Simple MSE for gradient calculation footprint
                 loss = nn.MSELoss()(preds, y_dummy) 
                 loss.backward()
                 dummy_optimizer.step()
-                
+
                 # If execution reaches this point, the batch size fits in VRAM.
-                # Clean up dummy variables to free VRAM for actual training.
+                # Clean up dummy variables to free VRAM for actual training.                
                 del dummy_model, dummy_optimizer, X_dummy, y_dummy, w_dummy, preds, loss
                 torch.cuda.empty_cache()
-                
-                # Apply a 0.9 safety margin to prevent borderline OOM during actual training loops
+
+                # Apply a 0.9 safety margin to prevent borderline OOM during actual training loops                
                 optimal_batch = int(batch_size * 0.9) 
                 print(f"Optimal batch size found: {optimal_batch}")
                 
@@ -197,7 +184,7 @@ class MLP_Regressor:
                     # Raise any other unexpected PyTorch errors
                     raise e
                     
-        raise RuntimeError("Could not find a batch size that fits in GPU VRAM. Model or data is too large.")
+        raise RuntimeError("Could not find a batch size that fits in GPU VRAM.")
 
     def train(self, data_path):
         """
@@ -207,9 +194,9 @@ class MLP_Regressor:
         PARAMETERS:
         - data_path: Same data path used for the CSV in _load_and_prepare_data()
         """
-        
+
         # Load data
-        X, y, X_test, y_test = self._load_and_prepare_data(data_path) # Data is in tensor form
+        X, y, X_test, y_test = self._load_and_prepare_data(data_path) 
 
         # Obtain weights for some features
         if self.weight == 'instance':
@@ -221,18 +208,18 @@ class MLP_Regressor:
             # Creates bins and counts data inside of them to assign a weight value to that bin of data. 
             # Bins that are less dense will have a higher weight value.
             num_bins = 20
-            y_flat = y.flatten() # We need a flat tensor for bincount
+            y_flat = y.flatten() 
             y_min, y_max = y_flat.min().item(), y_flat.max().item()
             edges = torch.linspace(y_min, y_max, steps=num_bins + 1, device=self.device)
             bin_idx = torch.bucketize(y_flat, edges, right=False) - 1
             bin_idx = torch.clamp(bin_idx, min=0, max=num_bins-1).to(torch.long)
             bin_counts = torch.bincount(bin_idx, minlength=num_bins).float()
-            inv_freq = torch.where(bin_counts == 0, # If a bin count is 0,
-                       torch.tensor(1.0, device=bin_counts.device), # we use 1, else
-                       1.0 / bin_counts) # We apply the inverse weight
+            inv_freq = torch.where(bin_counts == 0, 
+                       torch.tensor(1.0, device=bin_counts.device), 
+                       1.0 / bin_counts) 
             weights = inv_freq[bin_idx]
             weights_train = weights*(len(y_flat)/weights.sum())
-        else: # No weight to loss or applied by a custom loss funtion instad of a loss tensor
+        else: 
             weights_train = torch.ones(len(y), dtype=torch.float32)
 
         # --- DYNAMIC BATCH SIZE INTEGRATION ---
@@ -242,7 +229,7 @@ class MLP_Regressor:
 
         # Create dataset from tensors
         train_dataset = TensorDataset(X, y, weights_train)
-        kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state) # Creating Sklearn's K-fold object
+        kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state) 
         all_scores_mae = []
         all_scores_r2 = []
 
@@ -261,7 +248,7 @@ class MLP_Regressor:
             # Initialize model
             self.model = _PyTorchMLPRegressor(
                 input_dim=self.input_dim,
-                hidden_size=self.hidden_size,
+                hidden_layer_sizes=self.hidden_layer_sizes,
                 dropout_rate=self.dropout_rate
             ).to(self.device)
 
@@ -325,29 +312,22 @@ class MLP_Regressor:
             def weighted_mse(y_pred, y_true):
                 # normalize to [0,1] so scaling is stable
                 normed = y_true / y_true.max()
-
                 if mode == "linear":
                     weights = 1.0 + normed ** power
-
                 elif mode == "exponential":
                     weights = torch.exp(power * normed)
-
                 else:
                     raise ValueError(f"Unknown mode: {mode}")
-
                 return torch.mean(((y_pred - y_true) ** 2) * weights)
-
             return weighted_mse
-        
+
         # Custom combined loss function
         def combo_loss(y_pred, y_true, lam=0.8):
-
             w_mse = make_weighted_mse(power=3.5, mode='exponential')
             huber = nn.SmoothL1Loss()
-
             return lam * huber(y_pred, y_true) + (1-lam) * w_mse(y_pred, y_true)
-        
-        # Define loss_fn for this loop
+
+        # Define loss_fn for this loop        
         if self.weight == 'frequency' or self.weight == 'instance':
             loss_fn = nn.MSELoss(reduction='none')
         elif self.weight == 'combo':
@@ -371,7 +351,7 @@ class MLP_Regressor:
 
             for features, targets, weights in train_loader:
                 features, targets, weights = features.to(self.device), targets.to(self.device), weights.to(self.device)
-                
+
                 # Resets optimizer
                 optimizer.zero_grad()
 
@@ -383,8 +363,8 @@ class MLP_Regressor:
 
                     # Calculate the raw, per-sample loss, used for some weight modes
                     unweighted_loss = loss_fn(pred, targets)
-                
-                # Apply weights
+
+                # Apply weights                
                 if self.weight == 'instance' or self.weight == 'frequency':
                     weighted_loss = unweighted_loss*weights
                 if self.weight == 'combo':
@@ -456,7 +436,7 @@ class MLP_Regressor:
             raise RuntimeError("Model is not trained. Please call train() first.")
 
         test_dataset = TensorDataset(X_test, y_test)
-        test_loader = DataLoader(test_dataset, batch_size=32768, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=len(X_test), shuffle=False)
 
         pred_cumulative = []
         targets_cumulative = []
@@ -519,7 +499,7 @@ class MLP_Regressor:
     def save_model(self, folder_path, file_name_prefix):
         """
         Saves the model, scaler and metadata. Creates target directory if it doesn't exist.
-        
+
         PARAMETERS:
         - folder_path: Directory where the data will be stored
         - file_name_prefix: Prefix name to identify data; prefix_model, prefix_scaler and prefix_meta
@@ -542,7 +522,7 @@ class MLP_Regressor:
     def load_model(cls, folder_path, file_name_prefix, **kwargs):
         """
         Loads a model and its associated transformers.
-        
+
         PARAMETERS:
         - folder_path: Directory where the data is stored
         - file_name_prefix: Prefix name to identify data; prefix_model, prefix_scaler and prefix_meta
@@ -560,7 +540,7 @@ class MLP_Regressor:
         # Instantiate model with correct dimensions and load weights
         regressor.model = _PyTorchMLPRegressor(
             input_dim=regressor.input_dim,
-            hidden_size=regressor.hidden_size,
+            hidden_layer_sizes=regressor.hidden_layer_sizes,
             dropout_rate=regressor.dropout_rate
         )
         regressor.model.load_state_dict(torch.load(os.path.join(folder_path, f"{file_name_prefix}_model.pth")))
@@ -1115,13 +1095,21 @@ class _PyTorchMLPClassifier(nn.Module):
     """
     Internal PyTorch model for the classifier.
     """
-    def __init__(self, input_dim, hidden_size):
+    def __init__(self, input_dim, hidden_layer_sizes):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, 1)
-        )
+        layers = []
+        current_dim = input_dim
+
+        for h_size in hidden_layer_sizes:
+            layers.append(nn.Linear(current_dim, h_size))
+            layers.append(nn.ReLU())
+            current_dim = h_size
+
+        # Output layer
+        layers.append(nn.Linear(current_dim, 1))
+        
+        # Unpack list into Sequential
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.net(x)
@@ -1129,11 +1117,10 @@ class _PyTorchMLPClassifier(nn.Module):
 class Classifier:
     """
     A class to encapsulate the MLP classifier. 
-    Handles data scaling, Stratified K-Fold cross-validation, learning rate scheduling via ReduceLROnPlateau, 
-    and early stopping based on validation loss.
+    Handles data scaling, Stratified K-Fold cross-validation, learning rate scheduling via ReduceLROnPlateau, and early stopping based on validation loss.
     """
     def __init__(self, 
-                 hidden_size=128, 
+                 hidden_layer_sizes=[128], 
                  epochs=400, 
                  lr=0.075,
                  patience=40,
@@ -1143,7 +1130,7 @@ class Classifier:
                  random_state=42):
         
         # Hyperparameters
-        self.hidden_size = hidden_size
+        self.hidden_layer_sizes = hidden_layer_sizes
         self.epochs = epochs
         self.lr = lr
         self.patience = patience
@@ -1198,6 +1185,59 @@ class Classifier:
 
         return X, y, X_test, y_test
 
+    def _find_max_batch_size(self, X_t, y_t):
+        """
+        Dynamically finds the maximum batch size that fits in GPU VRAM by
+        catching OutOfMemory exceptions and halving the batch size.
+        """
+        if self.device.type == 'cpu':
+            return len(X_t)
+            
+        print("Dynamically calculating maximum batch size...")
+        batch_size = len(X_t) 
+        
+        while batch_size > 0:
+            try:
+                torch.cuda.empty_cache()
+                
+                # Slice dummy batch
+                X_dummy = X_t[:batch_size]
+                y_dummy = y_t[:batch_size]
+                
+                # Initialize dummy model and optimizer
+                dummy_model = _PyTorchMLPClassifier(
+                    input_dim=self.input_dim,
+                    hidden_layer_sizes=self.hidden_layer_sizes
+                ).to(self.device)
+                
+                dummy_optimizer = optim.Adam(dummy_model.parameters(), lr=self.lr)
+                
+                # Dummy forward and backward pass
+                dummy_model.train()
+                dummy_optimizer.zero_grad()
+                
+                preds = dummy_model(X_dummy)
+                loss = nn.BCEWithLogitsLoss()(preds, y_dummy) 
+                loss.backward()
+                dummy_optimizer.step()
+                
+                del dummy_model, dummy_optimizer, X_dummy, y_dummy, preds, loss
+                torch.cuda.empty_cache()
+                
+                optimal_batch = int(batch_size * 0.9) 
+                print(f"Optimal batch size found: {optimal_batch}")
+                
+                return optimal_batch
+                
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    torch.cuda.empty_cache()
+                    batch_size //= 2
+                else:
+                    raise e
+                    
+        raise RuntimeError("Could not find a batch size that fits in GPU VRAM.")
+
     def train(self, data_path):
         """
         Executes the full training pipeline using a single data file.
@@ -1208,6 +1248,9 @@ class Classifier:
         # Load data
         X, y, X_test, y_test = self._load_and_prepare_data(data_path)
         print(f"Data loaded successfully from {data_path}. Input features: {self.input_dim}")
+
+        # --- DYNAMIC BATCH SIZE INTEGRATION ---
+        calculated_batch_size = self._find_max_batch_size(X, y)
 
         skf = StratifiedKFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
         
@@ -1223,8 +1266,15 @@ class Classifier:
             X_train_fold, X_val_fold = X[train_i], X[val_i]
             y_train_fold, y_val_fold = y[train_i], y[val_i]
 
+            # Create dataloaders using the dynamically calculated batch size
+            train_dataset = TensorDataset(X_train_fold, y_train_fold)
+            val_dataset = TensorDataset(X_val_fold, y_val_fold)
+            
+            train_loader = DataLoader(train_dataset, batch_size=calculated_batch_size, shuffle=True)
+            val_loader = DataLoader(val_dataset, batch_size=calculated_batch_size, shuffle=False)
+
             # Initialize model, optimizer, and scheduler
-            self.model = _PyTorchMLPClassifier(input_dim=self.input_dim, hidden_size=self.hidden_size).to(self.device)
+            self.model = _PyTorchMLPClassifier(input_dim=self.input_dim, hidden_layer_sizes=self.hidden_layer_sizes).to(self.device)
             optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=self.patience // 2, factor=self.factor)
 
@@ -1243,23 +1293,31 @@ class Classifier:
             # Training loop
             for epoch in range(self.epochs):
                 self.model.train()
-                optimizer.zero_grad()
-                pred = self.model(X_train_fold)
-                loss = loss_fn(pred, y_train_fold)
-                loss.backward()
-                optimizer.step()
+                epoch_train_loss = 0.0
                 
-                # Validation phase required for the scheduler and early stopping
+                for X_batch, y_batch in train_loader:
+                    optimizer.zero_grad()
+                    pred = self.model(X_batch)
+                    loss = loss_fn(pred, y_batch)
+                    loss.backward()
+                    optimizer.step()
+                    epoch_train_loss += loss.item()
+                
+                # Validation phase
                 self.model.eval()
+                val_loss_cum = 0.0
                 with torch.no_grad():
-                    val_pred = self.model(X_val_fold)
-                    val_loss = loss_fn_eval(val_pred, y_val_fold)
+                    for X_val_batch, y_val_batch in val_loader:
+                        val_pred = self.model(X_val_batch)
+                        val_loss = loss_fn_eval(val_pred, y_val_batch)
+                        val_loss_cum += val_loss.item()
                 
-                scheduler.step(val_loss)
+                avg_val_loss = val_loss_cum / len(val_loader)
+                scheduler.step(avg_val_loss)
 
                 # Early stopping check
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
                     early_stop_counter = 0
                     best_model_state = self.model.state_dict()
                 else:
@@ -1270,7 +1328,8 @@ class Classifier:
 
                 if (epoch + 1) % 100 == 0:
                     current_lr = optimizer.param_groups[0]['lr']
-                    print(f'Fold {fold + 1}, Epoch [{epoch+1}/{self.epochs}], Train Loss: {loss.item():.4f}, Val Loss: {val_loss.item():.4f}, LR: {current_lr:.6f}')
+                    avg_train_loss = epoch_train_loss / len(train_loader)
+                    print(f'Fold {fold + 1}, Epoch [{epoch+1}/{self.epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, LR: {current_lr:.6f}')
 
             # Restore best model weights for this fold's evaluation
             if best_model_state:
@@ -1278,12 +1337,18 @@ class Classifier:
 
             # Fold validation metrics
             self.model.eval()
-            with torch.no_grad():
-                val_pred_logits = self.model(X_val_fold)
-                val_pred_probs = torch.sigmoid(val_pred_logits)
-                val_pred_labels = (val_pred_probs > 0.5).cpu().numpy()
+            val_pred_labels_list = []
+            y_val_true_list = []
             
-            y_true = y_val_fold.cpu().numpy()
+            with torch.no_grad():
+                for X_val_batch, y_val_batch in val_loader:
+                    val_pred_logits = self.model(X_val_batch)
+                    val_pred_probs = torch.sigmoid(val_pred_logits)
+                    val_pred_labels_list.extend((val_pred_probs > 0.5).cpu().numpy())
+                    y_val_true_list.extend(y_val_batch.cpu().numpy())
+            
+            y_true = np.array(y_val_true_list)
+            val_pred_labels = np.array(val_pred_labels_list)
             
             acc = accuracy_score(y_true, val_pred_labels)
             prec = precision_score(y_true, val_pred_labels, zero_division=0)
@@ -1341,7 +1406,7 @@ class Classifier:
     def predict(self, X):
         """
         Predicts the probability of validity for new data.
-
+        
         PARAMETERS:
         - X: numpy array or list of datapoints for the classifier, unscaled.
         """
@@ -1366,11 +1431,7 @@ class Classifier:
 
     def save_model(self, folder_path, file_name_prefix):
         """
-        Saves the model state, scaler, and metadata. Creates target directory if it doesn't exist.
-        
-        PARAMETERS:
-        - folder_path: Directory where the data will be stored
-        - file_name_prefix: Prefix name to identify data; prefix_model, prefix_scaler and prefix_meta
+        Saves the model state, scaler, and metadata.
         """
         if not all([self.model, self.scaler]):
             print("No model to save. Train a model first!")
@@ -1393,7 +1454,7 @@ class Classifier:
     def load_model(cls, folder_path, file_name_prefix, **kwargs):
         """
         Loads a model, scaler, and metadata from files.
-        
+
         PARAMETERS:
         - folder_path: Directory where the data is stored
         - file_name_prefix: Prefix name to identify data; prefix_model, prefix_scaler and prefix_meta
@@ -1408,7 +1469,10 @@ class Classifier:
         loaded_classifier = cls(**kwargs)
         loaded_classifier.input_dim = metadata['input_dim']
         
-        loaded_classifier.model = _PyTorchMLPClassifier(input_dim=loaded_classifier.input_dim, hidden_size=loaded_classifier.hidden_size)
+        loaded_classifier.model = _PyTorchMLPClassifier(
+            input_dim=loaded_classifier.input_dim, 
+            hidden_layer_sizes=loaded_classifier.hidden_layer_sizes
+        )
         loaded_classifier.model.load_state_dict(torch.load(model_path))
         loaded_classifier.model.to(loaded_classifier.device)
         loaded_classifier.model.eval()
