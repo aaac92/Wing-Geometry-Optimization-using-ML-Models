@@ -137,21 +137,21 @@ class Key_Point_Extraction:
 
         return CD_values, CL_values
 
-    def _interpolate_and_extract(self, path_to_file: str):
+    def _interpolate_and_extract(self, path_to_file: str, min_points=20):
         """Orchestrates the full processing pipeline for a single file."""
         alpha_list, cl_list, cd_list = self._polar_extract(path_to_file)
         alpha_array, cl_array, cd_array = self._polar_cleanup(alpha_list, cl_list, cd_list)
 
         # Check for minimum amount of points
-        if len(alpha_array) < 10:
-            raise InsufficientPointsError(f"File has only {len(alpha_array)} valid data points, which is less than the required 10.")
+        if len(alpha_array) < min_points:
+            raise InsufficientPointsError(f"File has only {len(alpha_array)} valid data points, which is less than the required {min_points}.")
         
         # Check for point distribution in key alpha ranges
         conditions = {
-            "2 points between (0, 10]": np.sum((alpha_array > 0) & (alpha_array <= 10)) >= 2,
-            "2 points between [-10, 0)": np.sum((alpha_array >= -10) & (alpha_array < 0)) >= 2,
-            "1 point between [11, 15]": np.sum((alpha_array >= 11) & (alpha_array <= 15)) >= 1,
-            "1 point between [-15, -11]": np.sum((alpha_array >= -15) & (alpha_array <= -11)) >= 1,
+            "2 points between (0, 10]": np.sum((alpha_array > 0) & (alpha_array <= 10)) >= 4,
+            "2 points between [-10, 0)": np.sum((alpha_array >= -10) & (alpha_array < 0)) >= 4,
+            "1 point between [11, 15]": np.sum((alpha_array >= 11) & (alpha_array <= 15)) >= 2,
+            "1 point between [-15, -11]": np.sum((alpha_array >= -15) & (alpha_array <= -11)) >= 2,
             "1 point between [16, 20]": np.sum((alpha_array >= 16) & (alpha_array <= 20)) >= 1,
             "1 point between [-20, -16]": np.sum((alpha_array >= -20) & (alpha_array <= -16)) >= 1,
         }
