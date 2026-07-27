@@ -5,4 +5,3 @@ __pycache__/
 data/dataset_build_data/
 data/singular_test_data/
 .vscode/
-src/recovery_status.json
