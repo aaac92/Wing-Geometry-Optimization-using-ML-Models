@@ -27,7 +27,7 @@ training_file_dir = dataset_dir / f"{dataset_name}.csv"
 model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / "mlp_regressor"
 os.makedirs(model_save_dir, exist_ok=True)
 # Verify that dataset exists
-if not os.path.exists(dataset_dir):
+if not os.path.exists(training_file_dir):
     print(f"[ERROR] Dataset not found at '{training_file_dir}'. Please check the file path.")
     sys.exit()
 
@@ -70,7 +70,7 @@ def objective(trial):
         log_trans=log_trans
     )
 
-    final_metrics = regressor.train(dataset_dir=training_file_dir)
+    final_metrics = regressor.train(data_path=training_file_dir)
 
     # Optimize for MAE
     mae = final_metrics.get('MAE', 0)
@@ -112,9 +112,9 @@ final_model = MLP_Regressor(
     weight='None',
     log_trans=best_params['log_trans']
 )
-final_model.train(dataset_dir=dataset_dir)
+final_model.train(data_path=training_file_dir)
 
-names = ["Murata", "Beelzebul", "Buer", "Odysseus", "Paimon", "Ronnova", "Columbina"]
+names = ["Murata", "Beelzebul", "Buer", "Odysseus", "Paimon", "Ronove", "Columbina"]
 best_mae_name = random.choice(names)
 
 # Save parameters for best model (Dumping `best_params` inherently maps the entire dynamic architecture)

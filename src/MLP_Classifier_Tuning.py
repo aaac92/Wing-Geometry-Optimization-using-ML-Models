@@ -109,7 +109,7 @@ final_model = Classifier(
 final_model.train(data_path=training_file_dir)
 
 # Setup names for saving
-names = ["Barbatos", "Focalors", "Istaroth", "Calipso", "Asmoday", "Kuutar"]
+names = ["Barbatos", "Focalors", "Istaroth", "Calipso", "Asmoday", "Lauma"]
 best_f1_name = random.choice(names)
 
 # Save parameters for best model

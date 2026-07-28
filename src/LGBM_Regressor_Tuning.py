@@ -19,7 +19,7 @@ training_file_dir = dataset_dir / f"{dataset_name}.csv"
 model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / "lgbm_regressor"
 os.makedirs(model_save_dir, exist_ok=True)
 # Verify that dataset exists
-if not os.path.exists(dataset_dir):
+if not os.path.exists(training_file_dir):
     print(f"[ERROR] Dataset not found at '{training_file_dir}'. Please check the file path.")
     sys.exit()
 
@@ -37,10 +37,10 @@ def objective(trial):
     n_estimators = trial.suggest_int('n_estimators', 1000, 4000, step=500)
     lr = trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
     lr_decay = trial.suggest_float('lr_decay', 0.90, 0.99)
-    num_leaves = trial.suggest_int('num_leaves', 20, 100)
-    max_depth = trial.suggest_int('max_depth', 5, 20)
+    num_leaves = trial.suggest_int('num_leaves', 20, 100, step=20)
+    max_depth = trial.suggest_int('max_depth', 5, 20, step=5)
     objective_type = trial.suggest_categorical('objective', ['regression_l2', 'combo'])
-    weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'exponential'])
+    weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'linear', 'exponential', 'quantile', 'polynomial'])
 
     print(f"PARAMETERS:")
     print(f"Estimators = {n_estimators}, LR = {lr:.4f}, LR Decay = {lr_decay:.4f}")
@@ -59,7 +59,7 @@ def objective(trial):
         weight=weight
     )
 
-    final_metrics = regressor.train(training_file_dir=training_file_dir)
+    final_metrics = regressor.train(data_path=training_file_dir)
 
     # Optimize for MAE
     mae = final_metrics.get('MAE', float('inf'))
@@ -97,9 +97,9 @@ final_model = LGBM_Regressor(
     objective=best_params['objective'],
     weight=best_params['weight']
 )
-final_model.train(training_file_dir=training_file_dir)
+final_model.train(data_path=training_file_dir)
 
-names = ["Murata", "Beelzebul", "Buer", "Icarus", "Paimon", "Ronnova", "Columbina"]
+names = [ "Marbas", "Orobas", "Agares", "Foras", "Phobos", "Nemesis", "Kuutar"]
 best_mae_name = random.choice(names)
 
 # Save parameters for best model

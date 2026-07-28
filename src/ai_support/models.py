@@ -203,7 +203,7 @@ class MLP_Regressor:
             # This uses the target value as the weight
             weights = y
             weights_train = weights*(len(y)/weights.sum())
-        if self.weight == 'frequency':
+        elif self.weight == 'frequency':
             # This uses bin-based inverse frequency weighting.
             # Creates bins and counts data inside of them to assign a weight value to that bin of data. 
             # Bins that are less dense will have a higher weight value.
@@ -423,6 +423,10 @@ class MLP_Regressor:
 
             if epoch % 100 == 0:
                 print(f"Loss at epoch {epoch}: {val_loss.item():.4f}")
+
+        # Restore the weights from the best validation-loss epoch
+        if best_model_state:
+            self.model.load_state_dict(best_model_state)
 
     def _evaluate(self, X_test, y_test):
         '''
