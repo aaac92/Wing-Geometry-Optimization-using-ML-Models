@@ -1,277 +1,118 @@
 import sys
 import os
-import re
+import optuna
 import json
 import random
-import itertools
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.model_selection import train_test_split
 from pathlib import Path
 from ai_support import LGBM_Regressor
 
-# === Setup and Configuration === #
+# === Directory configuration === #
+# Get the path to the src directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
-# Add this path to the list of places Python looks for modules.
-sys.path.insert(0, project_root)
-# Path to regressor dataset
-Training_File = "Airfoils_for_Regressor_E_Dataset_16_autocorrected.csv"
-DATA_PATH = project_root / Training_File
-match = re.search(r"(?<=Dataset_)\d+", Training_File)
-if match:
-    dataset_num = int(match.group())
-# Folder where the best trained models will be saved
-MODEL_SAVE_FOLDER = project_root / "AI_Models" / f"Dataset_{dataset_num}" / "optimized_LGBM_regressor_model"
-os.makedirs(MODEL_SAVE_FOLDER, exist_ok=True)
-if not os.path.exists(DATA_PATH):
-    print(f"[ERROR] Dataset not found at '{DATA_PATH}'. Please check the file path.")
+datasets_dir = project_root / "data" / "datasets"
+# Path to dataset
+dataset_num = 17
+dataset_name = f"regressor_dataset_{dataset_num}"
+dataset_dir = datasets_dir / f"dataset_{dataset_num}"
+training_file_dir = dataset_dir / f"{dataset_name}.csv"
+model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / "lgbm_regressor"
+os.makedirs(model_save_dir, exist_ok=True)
+# Verify that dataset exists
+if not os.path.exists(dataset_dir):
+    print(f"[ERROR] Dataset not found at '{training_file_dir}'. Please check the file path.")
     sys.exit()
 
+# === Optuna Objective Function === #
+N_TRIALS = 30
+def objective(trial):
+    """
+    Takes a trial object from Optuna, suggests hyperparameters for LightGBM, 
+    trains the regressor, and evaluates the performance.
+    """
+    print("\n" + "="*50)
+    print(f"Starting Trial {trial.number + 1}/{N_TRIALS}")
 
-# Define the grid of hyperparameters for the LGBM regressor.
-param_grid = {
-    'n_estimators': [3000],
-    'learning_rate': [0.3],
-    'num_leaves': [70],
-    'max_depth': [15],
-    'objective': ['regression_l2'],
-    'weights': ['None'],
-    'os_mode': ['top', 'hybrid'],
-    'rep_factor':[15, 20]
-}
+    # Dynamically build hyperparameter space
+    n_estimators = trial.suggest_int('n_estimators', 1000, 4000, step=500)
+    lr = trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
+    lr_decay = trial.suggest_float('lr_decay', 0.90, 0.99)
+    num_leaves = trial.suggest_int('num_leaves', 20, 100)
+    max_depth = trial.suggest_int('max_depth', 5, 20)
+    objective_type = trial.suggest_categorical('objective', ['regression_l2', 'combo'])
+    weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'exponential'])
 
-# === Initialize Best Model Trackers === #
-# For MAE, a lower score is better.
-best_mae_info = {'score': float('inf'), 'model': None, 'params': None}
-# For R2 Score, a higher score is better.
-best_r2_info = {'score': float('-inf'), 'model': None, 'params': None}
+    print(f"PARAMETERS:")
+    print(f"Estimators = {n_estimators}, LR = {lr:.4f}, LR Decay = {lr_decay:.4f}")
+    print(f"Leaves = {num_leaves}, Max Depth = {max_depth}")
+    print(f"Objective = {objective_type}, Weight = {weight}")
+    print("="*50)
 
-
-# === Grid Search Execution === #
-all_results = []
-
-parameter_combinations = list(itertools.product(
-    param_grid['n_estimators'],
-    param_grid['learning_rate'],
-    param_grid['num_leaves'],
-    param_grid['max_depth'],
-    param_grid['objective'],
-    param_grid['weights'],
-    param_grid['os_mode'],
-    param_grid['rep_factor']
-))
-
-print(f"\nStarting LGBM Regressor Grid Search for {len(parameter_combinations)} Combinations...")
-
-for i, params in enumerate(parameter_combinations):
-    ne, lr, nl, md, obj, weight, mode, rep = params
-    
-    print("\n" + "="*90)
-    print(f"RUN {i+1}/{len(parameter_combinations)}")
-    print(f"PARAMETERS: N_Estimators={ne}, LR={lr}, NumLeaves={nl}, MaxDepth={md}, Oversampling Factor={rep}")
-    print(f"MODES: Weight Type={weight}, Oversampling mode={mode}, Objective={obj}")
-    print("="*90)
-
-    # Instantiate the regressor with the current set of parameters
+    # Instantiate and train the regressor
     regressor = LGBM_Regressor(
-        n_estimators=ne,
+        n_estimators=n_estimators,
         learning_rate=lr,
-        num_leaves=nl,
-        max_depth=md,
-        objective=obj,
-        weight=weight,
-        os_mode=mode,
-        rep_factor=rep
+        lr_decay=lr_decay,
+        num_leaves=num_leaves,
+        max_depth=max_depth,
+        objective=objective_type,
+        weight=weight
     )
 
-    # Train the model and get the final evaluation metrics
-    final_metrics = regressor.train(data_path=DATA_PATH)
+    final_metrics = regressor.train(training_file_dir=training_file_dir)
+
+    # Optimize for MAE
+    mae = final_metrics.get('MAE', float('inf'))
     
-    # Check if the current model is a new "best" and capture it
-    current_mae = final_metrics.get('MAE', float('inf'))
-    current_r2 = final_metrics.get('R2_Score', float('-inf'))
+    trial.set_user_attr('R2-Score', final_metrics.get('R2_Score', float('-inf')))
 
-    if current_mae < best_mae_info['score']:
-        best_mae_info['score'] = current_mae
-        best_mae_info['model'] = regressor
-        best_mae_info['params'] = params
-        print(f"New Best MAE: {best_mae_info['score']:.4f}. Model captured.")
+    return mae
 
-    if current_r2 > best_r2_info['score']:
-        best_r2_info['score'] = current_r2
-        best_r2_info['model'] = regressor
-        best_r2_info['params'] = params
-        print(f"New Best R2 Score: {best_r2_info['score']:.4f}. Model captured.")
+# === Optuna Study Execution === #
+print(f"\nStarting Optuna Optimization for {N_TRIALS} Trials...")
 
-    # Store the results of the run
-    run_result = {
-        'n_estimators': ne,
-        'learning_rate': lr,
-        'num_leaves': nl,
-        'max_depth': md,
-        'objective': obj,
-        'weight type': weight,
-        'os_mode': mode,
-        'rep_factor': rep,
-        'MAE': current_mae,
-        'R2_Score': current_r2
-    }
-    all_results.append(run_result)
+study = optuna.create_study(direction='minimize') 
+study.optimize(objective, n_trials=N_TRIALS) 
 
+
+# === Final Report and Model Saving === #
 print("\n" + "#"*60)
-print("Grid Search Complete. Analyzing Results...")
+print("Optimization Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
-# === Error Analysis on the Best Model (by MAE) === #
-print("\n" + "#"*60)
-print("Performing Error Analysis on the Best MAE Model...")
-print("#"*60 + "\n")
+print(f"Best MAE: {study.best_value:.4f}")
+print("Best parameters found:")
+best_params = study.best_params
+for key, value in best_params.items():
+    print(f"  - {key}: {value}")
 
-# We need to recreate the exact test set that the best model was evaluated on.
-# It is crucial that these parameters match the ones used in the model's class.
-# All provided regressor classes use test_size=0.2 and random_state=42.
+# Retrain the final best model
+print("\n--- Retraining and Saving the Best Model ---")
+final_model = LGBM_Regressor(
+    n_estimators=best_params['n_estimators'],
+    learning_rate=best_params['learning_rate'],
+    lr_decay=best_params['lr_decay'],
+    num_leaves=best_params['num_leaves'],
+    max_depth=best_params['max_depth'],
+    objective=best_params['objective'],
+    weight=best_params['weight']
+)
+final_model.train(training_file_dir=training_file_dir)
 
-# Select the best model found during the grid search
-best_model = best_mae_info['model']
-
-if best_model:
-    # Load and split the data exactly as it was during training
-    print("Re-creating test set for analysis...")
-    df_analysis = pd.read_csv(DATA_PATH)
-    X_analysis = df_analysis.iloc[:, :-1].values
-    y_analysis = df_analysis.iloc[:, -1].values
-
-    _, X_test, _, y_test = train_test_split(
-        X_analysis, y_analysis, test_size=0.2, random_state=42
-    )
-
-    # Make predictions on the recreated test set
-    print("Generating predictions with the best model...")
-    y_pred = best_model.predict(X_test)
-
-    # Perform the error analysis and visualization
-    # Ensure y_test and y_pred are flattened to 1D arrays for plotting
-    y_test_flat = y_test.ravel()
-    y_pred_flat = y_pred.ravel()
-    
-    residuals = y_test_flat - y_pred_flat
-
-    # Plot: Actual vs. Predicted
-    plt.figure(figsize=(16, 7))
-    plt.subplot(1, 2, 1)
-    sns.scatterplot(x=y_test_flat, y=y_pred_flat, alpha=0.6)
-    perfect_line = np.linspace(min(y_test_flat), max(y_test_flat), 100)
-    plt.plot(perfect_line, perfect_line, color='red', linestyle='--')
-    plt.title('Best Model: Actual vs. Predicted Values', fontsize=14)
-    plt.xlabel('Actual Values (Test Set)', fontsize=12)
-    plt.ylabel('Predicted Values', fontsize=12)
-    plt.grid(True)
-
-    # Plot: Residuals vs. Predicted
-    plt.subplot(1, 2, 2)
-    sns.scatterplot(x=y_pred_flat, y=residuals, alpha=0.6)
-    plt.axhline(y=0, color='red', linestyle='--')
-    plt.title('Best Model: Residuals vs. Predicted Values', fontsize=14)
-    plt.xlabel('Predicted Values', fontsize=12)
-    plt.ylabel('Residuals (Actual - Predicted)', fontsize=12)
-    plt.grid(True)
-    
-    plt.suptitle('Error Analysis for Best Performing Model', fontsize=16, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
-
-    # Find and display the 10 worst outliers based on absolute error
-    print("\n--- Top 10 Worst Predictions on Test Set (by Absolute Error) ---")
-    errors = np.abs(residuals)
-    top_10_worst_indices = np.argsort(errors)[-10:][::-1]
-    
-    for i, idx in enumerate(top_10_worst_indices):
-        features = X_test[idx]
-        actual = y_test_flat[idx]
-        predicted = y_pred_flat[idx]
-        
-        feature_str = ""
-        # Use your specific format if there are exactly 6 features
-        if len(features) == 6:
-            c1, c2, c3, c4, c5, c6 = features
-            feature_str = f"[{c1:.4f}, {c2:.4f}, {c3:.4f}] [{c4:.4f}, {c5:.4f}, {c6:.4f}]"
-        else:
-            # Otherwise, use a generic format
-            feature_str = "Features: [" + ", ".join([f"{f:.4f}" for f in features]) + "]"
-            
-        print(f"\n{i+1}.- {feature_str}")
-        print(f"     Actual: {actual:.4f}, Predicted: {predicted:.4f}, Error: {errors[idx]:.4f}")
-else:
-    print("No best MAE model was found, skipping error analysis.")
-
-# === Final Saving and Reporting === #
-# Create name lists for saving the model
-names = ["Murata", "Barbatos", "Beelzebul", "Buer", "Focalors", "Istaroth", "Phanes", "Asmoday", "Paimon", "Alice", "Ronnova"]
+names = ["Murata", "Beelzebul", "Buer", "Icarus", "Paimon", "Ronnova", "Columbina"]
 best_mae_name = random.choice(names)
-best_r2_name = random.choice(names)
-# Save the Best Models
-print("--- Saving Best Performing Models ---")
-if best_mae_info['model']:
-    ne, lr, nl, md, obj, weight, mode, rep = best_mae_info['params']
-    best_result = {
-        'num_estimators': ne,
-        'learning_rate': lr,
-        'noise_level': nl,
-        'Max_depth': md,
-        'Objectve': obj,
-        'Weight': weight,
-        'Oversampling mode': mode,
-        'Oversampling factor': rep
-    }
-    json_name = f"{best_mae_name}_regressor_model_parameters.json"
-    param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
-    with open(param_file, 'w') as json_file:
-        json.dump(best_result, json_file, indent=4)
-    file_name_prefix = f"{best_mae_name}_regressor_model"
-    best_mae_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
-else:
-    print("No best MAE model was captured to save.")
 
-if best_r2_info['model']:
-    if best_r2_info['model'] is not best_mae_info['model']:
-        ne, lr, nl, md, obj, weight, mode, rep = best_r2_info['params']
-        best_result = {
-            'num_estimators': ne,
-            'learning_rate': lr,
-            'noise_level': nl,
-            'Max_depth': md,
-            'Objectve': obj,
-            'Weight': weight,
-            'Oversampling mode': mode,
-            'Oversampling factor': rep
-        }
-        json_name = f"{best_r2_name}_regressor_model_parameters.json"
-        param_file = os.path.join(MODEL_SAVE_FOLDER, json_name)
-        with open(param_file, 'w') as json_file:
-            json.dump(best_result, json_file, indent=4)
-        file_name_prefix = f"{best_r2_name}_regressor_model"
-        best_r2_info['model'].save_model(MODEL_SAVE_FOLDER, file_name_prefix)
-    else:
-        print("Best R2 model is the same as the best MAE model. Not saving a duplicate.")
-else:
-    print("No best R2 model was captured to save.")
+# Save parameters for best model
+json_name = f"{best_mae_name}_regressor_model_parameters.json"
+param_file = os.path.join(model_save_dir, json_name)
+with open(param_file, 'w') as json_file:
+    json.dump(best_params, json_file, indent=4)
 
-# Final Report
-results_df = pd.DataFrame(all_results)
-best_mae_run = results_df.sort_values(by="MAE", ascending=True).iloc[0]
-best_r2_run = results_df.sort_values(by="R2_Score", ascending=False).iloc[0]
+# Save model
+final_model.save_model(model_save_dir, best_mae_name)
 
-print("\n--- Best Parameters Based on MAE (Lower is Better) ---")
-print(f"\nName: {best_mae_name}")
-print(best_mae_run)
-
-print("\n--- Best Parameters Based on R2 Score (Higher is Better) ---")
-print(f"\nName: {best_r2_name}")
-print(best_r2_run)
-
-results_csv_path = MODEL_SAVE_FOLDER / "lgbm_grid_search_results.csv"
+# Save all results
+results_df = study.trials_dataframe()
+results_csv_path = model_save_dir / f"{best_mae_name}_optuna_search_results.csv"
 results_df.to_csv(results_csv_path, index=False)
-print(f"\nFull grid search results have been saved to '{results_csv_path}'")
+print(f"\nFull optimization results saved to '{results_csv_path}'")
