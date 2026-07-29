@@ -18,6 +18,8 @@ from ux_support import Progress_GUI, recovery_json, recovery_Fabius
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 # Define final directories
+dataset_build_data = project_root / "data" / "dataset_build_data"
+dataset_build_data.mkdir(exist_ok=True)
 airfoils_dir = project_root / "data" / "dataset_build_data" / "airfoils"
 force_files_dir = project_root / "data" / "dataset_build_data" / "force files"
 polars_dir = project_root / "data" / "dataset_build_data" / "polars"
