@@ -243,6 +243,11 @@ class Xfoil_Polar_Creator:
         Sends a command to the XFOIL process and waits for the expected prompt.
         Utilizes pexpect's native timeout and matching rather than threads.
         """
+        if proc is None:
+            if self.verbose:
+                print(f"[ERROR] _send_command called with no active XFOIL process (command='{command}').")
+            return False
+
         if self.verbose:
             print(f"[CMD] Sending: {command if command else '-> <enter>'}")
         
