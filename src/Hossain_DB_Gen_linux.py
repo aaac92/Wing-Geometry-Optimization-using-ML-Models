@@ -308,14 +308,36 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
         print("No airfoils found to process for polar generation.")
         return
 
-    num_workers = min(cpu_count() - 1, len(airfoil_abs_paths))
+    # --- Pre-allocation recovery filtering --- #
+    completion_flag = "XFOIL process completed successfully"
+    pending_airfoil_paths = []
+    skipped_count = 0
+    for file in airfoil_abs_paths:
+        airfoil_name = os.path.splitext(os.path.basename(file))[0]
+        polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
+        if os.path.exists(polar_abs_path):
+            with open(polar_abs_path, 'r') as f:
+                if completion_flag in f.read():
+                    skipped_count += 1
+                    continue
+        pending_airfoil_paths.append(file)
+
+    if skipped_count:
+        print(f"[INFO] Recovery scan: skipping {skipped_count} already-completed airfoil(s).")
+
+    if not pending_airfoil_paths:
+        print("[INFO] All airfoils already have completed polars. Nothing to dispatch.")
+        rar_Alma.compress_folder(polars_temp_dir, polars_dir, polar_dataset_name)
+        return
+
+    num_workers = min(cpu_count() - 1, len(pending_airfoil_paths))
 
     with Manager() as manager:
         progress_queue = manager.Queue()
         worker_status_list = manager.list(["Initializing..."] * num_workers)
 
         tasks = []
-        for i, file in enumerate(airfoil_abs_paths):
+        for i, file in enumerate(pending_airfoil_paths):
             airfoil_name = os.path.splitext(os.path.basename(file))[0]
             polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
             tasks.append((file, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
