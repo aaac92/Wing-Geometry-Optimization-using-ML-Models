@@ -309,21 +309,47 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
         return
 
     # --- Pre-allocation recovery filtering --- #
+    # polar_worker() also checks this flag, but only after a task has already
+    # been dispatched to a pool worker. On a resumed run that check has to be
+    # re-run for every already-completed airfoil (potentially tens of
+    # thousands), which is what was driving the rapid XFOIL spawn/kill cycling.
+    # Filtering here removes completed airfoils from the queue before the Pool
+    # is ever created, matching the intended recovery design.
     completion_flag = "XFOIL process completed successfully"
-    pending_airfoil_paths = []
-    skipped_count = 0
+    complete_paths = []
+    partial_paths = []   # polar file exists but no flag yet -> polar_worker resumes mid-sequence
+    fresh_paths = []     # no polar file yet -> starts from ASEQ[0]
+
     for file in airfoil_abs_paths:
         airfoil_name = os.path.splitext(os.path.basename(file))[0]
         polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
         if os.path.exists(polar_abs_path):
             with open(polar_abs_path, 'r') as f:
                 if completion_flag in f.read():
-                    skipped_count += 1
+                    complete_paths.append(file)
                     continue
-        pending_airfoil_paths.append(file)
+            partial_paths.append(file)
+        else:
+            fresh_paths.append(file)
 
-    if skipped_count:
-        print(f"[INFO] Recovery scan: skipping {skipped_count} already-completed airfoil(s).")
+    os.makedirs(polars_temp_dir, exist_ok=True)  # first-ever run: XPR only creates this once a task spawns
+    polar_files_on_disk = get_all_files_from(polars_temp_dir, extension='txt')
+    matched_polar_count = len(complete_paths) + len(partial_paths)
+    print(
+        f"[INFO] Recovery scan: {len(airfoil_abs_paths)} airfoil(s) found | "
+        f"{len(polar_files_on_disk)} polar file(s) on disk | "
+        f"{len(complete_paths)} confirmed complete (flagged) | "
+        f"{len(partial_paths)} partial (will resume) | "
+        f"{len(fresh_paths)} not started."
+    )
+    if len(polar_files_on_disk) != matched_polar_count:
+        print(
+            f"[WARNING] {len(polar_files_on_disk)} polar file(s) on disk vs "
+            f"{matched_polar_count} matched to a current airfoil by name "
+            f"({len(polar_files_on_disk) - matched_polar_count} unmatched) -- check for a naming mismatch."
+        )
+
+    pending_airfoil_paths = partial_paths + fresh_paths
 
     if not pending_airfoil_paths:
         print("[INFO] All airfoils already have completed polars. Nothing to dispatch.")
