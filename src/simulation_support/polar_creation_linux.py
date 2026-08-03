@@ -171,6 +171,8 @@ class Xfoil_Polar_Creator:
         try:
             proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
             if proc is False:
+                print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts, flagging as complete (likely a geometry issue).")
+                self.completion_flag(polar_file_path)
                 return False 
 
             for alfa in alfa_sequence:
@@ -183,6 +185,8 @@ class Xfoil_Polar_Creator:
                 else:
                     proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
                     if proc is False:
+                        print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts, flagging as complete (likely a geometry issue).")
+                        self.completion_flag(polar_file_path)
                         return False 
                     if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
                         print(f"[WARNING] Could not execute ALFA {alfa}. Re-initializing and continuing.")

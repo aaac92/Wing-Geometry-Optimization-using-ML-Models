@@ -208,6 +208,54 @@ def Airfoil_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate
 
     return
 
+def _resolve_polar_status(polar_abs_path, ASEQ, completion_flag):
+    '''
+    Determines an existing polar file's status against ASEQ, and repairs the
+    completion flag if the file already has every required angle but the
+    flag write itself was interrupted (e.g. killed between the last ALFA and
+    QUIT/close). Without this repair, such a file recomputes an empty angle
+    list on every future resume attempt and is silently treated as "not
+    complete" forever, since it never re-enters run_simulation() to reach
+    the completion_flag() call.
+
+    Returns:
+        status (str): 'complete', 'partial', or 'corrupt'
+        angles_remaining (list[float] or None): angles still needed;
+            None for 'corrupt' (caller decides the full-range reprocessing).
+    '''
+    with open(polar_abs_path, 'r') as f:
+        content = f.read()
+
+    if completion_flag in content:
+        return 'complete', []
+
+    last_alfa = -999
+    for line in reversed(content.splitlines()):
+        try:
+            # Assuming alpha is the first column in the data section
+            last_alfa = float(line.strip().split()[0])
+            break
+        except (ValueError, IndexError):
+            continue
+
+    if last_alfa <= -999:
+        return 'corrupt', None  # File exists but is empty or corrupt
+
+    start_angle = last_alfa + ASEQ[2]
+    num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
+    angles_remaining = [start_angle + j * ASEQ[2] for j in range(num_steps)]
+
+    if not angles_remaining:
+        # Every required angle is already in the file -- repair the flag.
+        try:
+            with open(polar_abs_path, "a") as f:
+                f.write(f"\n{completion_flag}")
+        except IOError as e:
+            print(f"[ERROR] Could not repair completion flag on {polar_abs_path}: {e}")
+        return 'complete', []
+
+    return 'partial', angles_remaining
+
 def polar_worker(args):
     '''
     Worker function to run XFOIL simulation for a single airfoil.
@@ -221,31 +269,16 @@ def polar_worker(args):
     # --- Recovery Logic for each polar file --- #
     completion_flag = "XFOIL process completed successfully"
     if os.path.exists(polar_abs_path):
-        with open(polar_abs_path, 'r') as f:
-            if completion_flag in f.read():
-                if progress_queue:
-                    progress_queue.put(1)
-                return  # Skip if already completed
-        
-        # --- Incomplete file, determine where to resume --- #
-        with open(polar_abs_path, 'r') as f:
-            lines = f.readlines()
-        
-        last_alfa = -999
-        for line in reversed(lines):
-            try:
-                # Assuming alpha is the first column in the data section
-                current_alfa = float(line.strip().split()[0])
-                last_alfa = current_alfa
-                break
-            except (ValueError, IndexError):
-                continue
-        
-        if last_alfa > -999:
-            start_angle = last_alfa + ASEQ[2]
-            num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
-            ANGLES = [start_angle + j * ASEQ[2] for j in range(num_steps)]
-        else: # File exists but is empty or corrupt
+        status, angles_remaining = _resolve_polar_status(polar_abs_path, ASEQ, completion_flag)
+
+        if status == 'complete':
+            if progress_queue:
+                progress_queue.put(1)
+            return  # Skip if already completed (or just repaired)
+
+        if status == 'partial':
+            ANGLES = angles_remaining
+        else: # 'corrupt' -- file exists but is empty or corrupt
             num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
             ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
 
@@ -324,14 +357,14 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
         airfoil_name = os.path.splitext(os.path.basename(file))[0]
         polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
         if os.path.exists(polar_abs_path):
-            with open(polar_abs_path, 'r') as f:
-                if completion_flag in f.read():
-                    complete_paths.append(file)
-                    continue
-            partial_paths.append(file)
+            status, _ = _resolve_polar_status(polar_abs_path, ASEQ, completion_flag)
+            if status == 'complete':  # includes flag repaired just now
+                complete_paths.append(file)
+            else:
+                partial_paths.append(file)
         else:
             fresh_paths.append(file)
-
+            
     os.makedirs(polars_temp_dir, exist_ok=True)  # first-ever run: XPR only creates this once a task spawns
     polar_files_on_disk = get_all_files_from(polars_temp_dir, extension='txt')
     matched_polar_count = len(complete_paths) + len(partial_paths)
