@@ -231,12 +231,14 @@ def _resolve_polar_status(polar_abs_path, ASEQ, completion_flag):
 
     last_alfa = -999
     for line in reversed(content.splitlines()):
-        try:
-            # Assuming alpha is the first column in the data section
-            last_alfa = float(line.strip().split()[0])
-            break
-        except (ValueError, IndexError):
-            continue
+        parts = line.strip().split()
+        if len(parts) >= 4:
+            try:
+                last_alfa = float(parts[0])
+                float(parts[1])
+                break
+            except (ValueError, IndexError):
+                continue
 
     if last_alfa <= -999:
         return 'corrupt', None  # File exists but is empty or corrupt

@@ -90,8 +90,10 @@ class Xfoil_Polar_Creator:
     def initialize_xfoil(self, airfoil_file_path, polar_file_path, iter, visc, mach):
         """
         Runs the standard initialization of XFOIL and tries to process rough airfoils.
+        Returns a tuple containing the active process (or False) and the most recent error message.
         """
-        for attempt in range(5):
+        last_error_msg = "Unknown initialization failure."
+        for attempt in range(4):
             # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
             if self.process_logging:
                 h, t = _resource_snapshot()
@@ -138,11 +140,12 @@ class Xfoil_Polar_Creator:
                     if not self._send_command(proc, "y", expect_prompt=".OPERva   c>"):
                         raise RuntimeError(f"Failed to confirm regime parameter overwrite for {airfoil_file_path}")
 
-                return proc
+                return proc, "Success"
 
             except RuntimeError as e:
+                last_error_msg = str(e)
                 if self.process_logging:
-                    self._debug_logger.debug(f"  FAIL attempt={attempt} reason={e}")
+                    self._debug_logger.debug(f"  FAIL attempt={attempt} reason={last_error_msg}")
                 if proc:
                     try:
                         proc.close(force=True)
@@ -158,11 +161,11 @@ class Xfoil_Polar_Creator:
                     proc = None
 
                 if attempt == 3:
-                    return False
+                    return False, last_error_msg
             
             continue
 
-        return False
+        return False, last_error_msg
 
     def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200):
         """
@@ -176,9 +179,9 @@ class Xfoil_Polar_Creator:
 
         proc = None
         try:
-            proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+            proc, init_msg = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
             if proc is False:
-                print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts, aborting run.")
+                print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts. Reason: {init_msg}. Aborting run.")
                 return False 
 
             for alfa in alfa_sequence:
@@ -187,9 +190,9 @@ class Xfoil_Polar_Creator:
 
                 while attempts < 2 and not success:
                     if proc is None:
-                        proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+                        proc, init_msg = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
                         if proc is False:
-                            print(f"[INFO] {airfoil_file_path.name}: exhausted initialization during alpha sweep.")
+                            print(f"[INFO] {airfoil_file_path.name}: exhausted initialization during alpha sweep. Reason: {init_msg}.")
                             return False
                     
                     if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
