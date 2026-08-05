@@ -91,7 +91,7 @@ class Xfoil_Polar_Creator:
         """
         Runs the standard initialization of XFOIL and tries to process rough airfoils.
         """
-        for attempt in range(4):
+        for attempt in range(5):
             # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
             if self.process_logging:
                 h, t = _resource_snapshot()
@@ -129,7 +129,14 @@ class Xfoil_Polar_Creator:
                 # Set up polar accumulation using the temporary polar path
                 if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to setup PACC for {airfoil_file_path}")
                 if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} failed")
-                if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): raise RuntimeError(f"Final confirmation for {airfoil_file_path}'s polar simulation failed")
+                
+                # Handling floating point truncation overwrite prompt safely
+                match_idx = self._send_command(proc, "", expect_prompt=[".OPERva   c>", "y/n>"])
+                if match_idx == -1:
+                    raise RuntimeError(f"Final confirmation for {airfoil_file_path}'s polar simulation failed")
+                elif match_idx == 1:
+                    if not self._send_command(proc, "y", expect_prompt=".OPERva   c>"):
+                        raise RuntimeError(f"Failed to confirm regime parameter overwrite for {airfoil_file_path}")
 
                 return proc
 
@@ -171,36 +178,39 @@ class Xfoil_Polar_Creator:
         try:
             proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
             if proc is False:
-                print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts, flagging as complete (likely a geometry issue).")
-                self.completion_flag(polar_file_path)
+                print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts, aborting run.")
                 return False 
 
             for alfa in alfa_sequence:
-                if proc is not None:
+                attempts = 0
+                success = False
+
+                while attempts < 2 and not success:
+                    if proc is None:
+                        proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+                        if proc is False:
+                            print(f"[INFO] {airfoil_file_path.name}: exhausted initialization during alpha sweep.")
+                            return False
+                    
                     if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
-                        print(f"[WARNING] Could not execute ALFA {alfa} for {airfoil_file_path.name}. Re-initializing and continuing.")
+                        attempts += 1
+                        print(f"[WARNING] Could not execute ALFA {alfa} for {airfoil_file_path.name} (Attempt {attempts}/2). Re-initializing.")
                         proc.close(force=True)
                         proc = None
-                        continue
-                else:
-                    proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
-                    if proc is False:
-                        print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts, flagging as complete (likely a geometry issue).")
-                        self.completion_flag(polar_file_path)
-                        return False 
-                    if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
-                        print(f"[WARNING] Could not execute ALFA {alfa}. Re-initializing and continuing.")
-                        proc.close(force=True)
-                        proc = None
-                        continue    
+                    else:
+                        success = True
+                        
+                if not success:
+                    print(f"[WARNING] ALFA {alfa} completely failed for {airfoil_file_path.name}. Skipping this angle.")
 
             # --- FINISH AND CLEAN UP PROCESS ---
             if self.verbose:
                 print("[INFO] Finalizing XFOIL process.")
-            if not self._send_command(proc, "PACC", expect_prompt=".OPERv   c>"): return False
-            if not self._send_command(proc, ""): return False 
-            if not self._send_command(proc, "QUIT", quit=True): return False
-            proc.close()
+            if proc is not None:
+                if not self._send_command(proc, "PACC", expect_prompt=".OPERv   c>"): return False
+                if not self._send_command(proc, ""): return False 
+                if not self._send_command(proc, "QUIT", quit=True): return False
+                proc.close()
 
             self.completion_flag(polar_file_path)
 
@@ -250,22 +260,25 @@ class Xfoil_Polar_Creator:
         if proc is None:
             if self.verbose:
                 print(f"[ERROR] _send_command called with no active XFOIL process (command='{command}').")
-            return False
+            return False if not isinstance(expect_prompt, list) else -1
 
         if self.verbose:
             print(f"[CMD] Sending: {command if command else '-> <enter>'}")
         
         try:
             proc.sendline(command)
-            proc.expect_exact(expect_prompt, timeout=timeout_sec)
-            return True
+            if isinstance(expect_prompt, list):
+                return proc.expect_exact(expect_prompt, timeout=timeout_sec)
+            else:
+                proc.expect_exact(expect_prompt, timeout=timeout_sec)
+                return True
         except pexpect.TIMEOUT:
             if self.verbose:
                 print(f"[ERROR] Timeout waiting for prompt '{expect_prompt}' after sending '{command}'.")
-            return False
+            return False if not isinstance(expect_prompt, list) else -1
         except pexpect.EOF:
             if quit:
-                return True # We expect EOF if we told the program to quit
+                return True if not isinstance(expect_prompt, list) else 0
             if self.verbose:
                 print(f"[ERROR] XFOIL closed unexpectedly while waiting for '{expect_prompt}'.")
-            return False
+            return False if not isinstance(expect_prompt, list) else -1

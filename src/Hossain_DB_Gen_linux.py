@@ -279,6 +279,11 @@ def polar_worker(args):
         if status == 'partial':
             ANGLES = angles_remaining
         else: # 'corrupt' -- file exists but is empty or corrupt
+            print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh file.")
+            try:
+                os.remove(polar_abs_path)
+            except OSError:
+                pass
             num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
             ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
 
@@ -360,8 +365,15 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
             status, _ = _resolve_polar_status(polar_abs_path, ASEQ, completion_flag)
             if status == 'complete':  # includes flag repaired just now
                 complete_paths.append(file)
-            else:
+            elif status == 'partial':
                 partial_paths.append(file)
+            else: # 'corrupt'
+                print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh start.")
+                try:
+                    os.remove(polar_abs_path)
+                except OSError:
+                    pass
+                fresh_paths.append(file)
         else:
             fresh_paths.append(file)
             
