@@ -229,8 +229,25 @@ def _resolve_polar_status(polar_abs_path, ASEQ, completion_flag):
     if completion_flag in content:
         return 'complete', []
 
+    lines = content.splitlines()
+
+    # XFOIL always emits "alpha CL CD CDp CM Top_Xtr Bot_Xtr" as the column
+    # header, regardless of version or flow regime. Data rows only ever
+    # appear below it (past its dashed underline), so scanning must be
+    # scoped to that region -- otherwise numeric tokens in the metadata
+    # above (e.g. "1 1 Reynolds number fixed ... Mach number fixed") can be
+    # misread as a valid alpha/CL data row.
+    header_idx = None
+    for i, line in enumerate(lines):
+        if line.strip().split()[:2] == ['alpha', 'CL']:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        return 'corrupt', None  # Column header missing -- malformed file
+
     last_alfa = -999
-    for line in reversed(content.splitlines()):
+    for line in reversed(lines[header_idx + 2:]):
         parts = line.strip().split()
         if len(parts) >= 4:
             try:
@@ -241,7 +258,7 @@ def _resolve_polar_status(polar_abs_path, ASEQ, completion_flag):
                 continue
 
     if last_alfa <= -999:
-        return 'corrupt', None  # File exists but is empty or corrupt
+        return 'corrupt', None  # Header present but no data rows beneath it
 
     start_angle = last_alfa + ASEQ[2]
     num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
@@ -262,7 +279,7 @@ def polar_worker(args):
     '''
     Worker function to run XFOIL simulation for a single airfoil.
     '''
-    airfoil_abs_path, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list = args
+    airfoil_abs_path, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list, verbose, corrupted_files_list = args
 
     # Obtain airfoil name for GUI
     airfoil_name = os.path.basename(airfoil_abs_path)
@@ -281,7 +298,9 @@ def polar_worker(args):
         if status == 'partial':
             ANGLES = angles_remaining
         else: # 'corrupt' -- file exists but is empty or corrupt
-            print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh file.")
+            if verbose:
+                print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh file.")
+            corrupted_files_list.append(polar_abs_path)
             try:
                 os.remove(polar_abs_path)
             except OSError:
@@ -360,6 +379,7 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
     partial_paths = []   # polar file exists but no flag yet -> polar_worker resumes mid-sequence
     fresh_paths = []     # no polar file yet -> starts from ASEQ[0]
 
+    corrupted_count = 0
     for file in airfoil_abs_paths:
         airfoil_name = os.path.splitext(os.path.basename(file))[0]
         polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
@@ -370,7 +390,9 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
             elif status == 'partial':
                 partial_paths.append(file)
             else: # 'corrupt'
-                print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh start.")
+                if verbose:
+                    print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh start.")
+                corrupted_count += 1
                 try:
                     os.remove(polar_abs_path)
                 except OSError:
@@ -378,6 +400,9 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
                 fresh_paths.append(file)
         else:
             fresh_paths.append(file)
+
+    if corrupted_count and not verbose:
+        print(f"[INFO] {corrupted_count} corrupted polar file(s) detected and deleted. Reverting to fresh start.")
             
     os.makedirs(polars_temp_dir, exist_ok=True)  # first-ever run: XPR only creates this once a task spawns
     polar_files_on_disk = get_all_files_from(polars_temp_dir, extension='txt')
@@ -408,12 +433,13 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
     with Manager() as manager:
         progress_queue = manager.Queue()
         worker_status_list = manager.list(["Initializing..."] * num_workers)
+        corrupted_files_list = manager.list()
 
         tasks = []
         for i, file in enumerate(pending_airfoil_paths):
             airfoil_name = os.path.splitext(os.path.basename(file))[0]
             polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
-            tasks.append((file, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
+            tasks.append((file, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list, verbose, corrupted_files_list))
 
         # Define the processing job to run in a separate thread
         def processing_job():
@@ -439,6 +465,9 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
         gui.run()
 
         proc_thread.join() # Wait for the background process to finish
+
+        if corrupted_files_list and not verbose:
+            print(f"[INFO] {len(corrupted_files_list)} corrupted polar file(s) detected and deleted. Reverting to fresh file.")
 
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[INFO] Polar database generation completed at {current_time}.")

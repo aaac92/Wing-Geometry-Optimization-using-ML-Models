@@ -130,15 +130,16 @@ class Xfoil_Polar_Creator:
 
                 # Set up polar accumulation using the temporary polar path
                 if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to setup PACC for {airfoil_file_path}")
-                if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} as {polar_file_path} failed")
                 
                 # Handling floating point truncation overwrite prompt safely
-                match_idx = self._send_command(proc, "", expect_prompt=[".OPERva   c>", "y/n>"])
+                match_idx = self._send_command(proc, str(polar_file_path), expect_prompt=['Enter  polar dump filename  OR  <return> for no file   s>', "Set current parameters to old safe file values ? y/n>"])
                 if match_idx == -1:
-                    raise RuntimeError(f"Final confirmation for {airfoil_file_path}'s polar simulation failed")
+                    raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} as {polar_file_path} failed")
                 elif match_idx == 1:
-                    if not self._send_command(proc, "y", expect_prompt=".OPERva   c>"):
-                        raise RuntimeError(f"Failed to confirm regime parameter overwrite for {airfoil_file_path}")
+                    if not self._send_command(proc, "y", expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to confirm regime parameter overwrite for {airfoil_file_path}")
+                    if not self._send_command(proc, "", expect_prompt=[".OPERva   c>"]): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
+                elif match_idx == 0:
+                    if not self._send_command(proc, "", expect_prompt=[".OPERva   c>"]): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
 
                 return proc, "Success"
 
@@ -258,7 +259,7 @@ class Xfoil_Polar_Creator:
     def _send_command(self, proc, command, expect_prompt="XFOIL   c>", timeout_sec=8, quit=False):
         """
         Sends a command to the XFOIL process and waits for the expected prompt.
-        Utilizes pexpect's native timeout and matching rather than threads.
+        Utilizes pexpect's native timeout and matching.
         """
         if proc is None:
             if self.verbose:
