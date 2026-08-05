@@ -109,7 +109,7 @@ class Xfoil_Polar_Creator:
 
             try:
                 # --- SCRIPTED XFOIL COMMANDS --- #
-                if not self._send_command(proc, f"LOAD {airfoil_file_path}"): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
+                if not self._send_command(proc, f"LOAD {airfoil_file_path}", timeout_sec=15): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
                 if attempt < 3 and self.mdes_seq:
                     mdes_success = True
                     if not self._send_command(proc, "MDES"): mdes_success = False
