@@ -132,7 +132,7 @@ class Xfoil_Polar_Creator:
                 if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to setup PACC for {airfoil_file_path}")
                 
                 # Handling floating point truncation overwrite prompt safely
-                match_idx = self._send_command(proc, str(polar_file_path), expect_prompt=['Enter  polar dump filename  OR  <return> for no file   s>', "Set current parameters to old safe file values ? y/n>"])
+                match_idx = self._send_command(proc, str(polar_file_path), expect_prompt=['Enter  polar dump filename  OR  <return> for no file   s>', "Set current parameters to old save file values ? y/n>"])
                 if match_idx == -1:
                     raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} as {polar_file_path} failed")
                 elif match_idx == 1:
