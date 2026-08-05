@@ -137,9 +137,9 @@ class Xfoil_Polar_Creator:
                     raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} as {polar_file_path} failed")
                 elif match_idx == 1:
                     if not self._send_command(proc, "y", expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to confirm regime parameter overwrite for {airfoil_file_path}")
-                    if not self._send_command(proc, "", expect_prompt=[".OPERva   c>"]): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
+                    if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
                 elif match_idx == 0:
-                    if not self._send_command(proc, "", expect_prompt=[".OPERva   c>"]): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
+                    if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
 
                 return proc, "Success"
 
