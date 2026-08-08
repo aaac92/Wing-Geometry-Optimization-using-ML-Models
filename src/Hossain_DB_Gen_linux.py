@@ -25,6 +25,7 @@ force_files_dir = project_root / "data" / "dataset_build_data" / "force files"
 polars_dir = project_root / "data" / "dataset_build_data" / "polars"
 geo_files_dir = project_root / "data" / "dataset_build_data" / "geometry files"
 support_files_dir = project_root / "data" / "support"
+naca_kp_dir = project_root / "data" / "support" / "naca_kp"
 logs_dir = project_root / "data" / "logs"
 datasets_dir = project_root / "data" / "datasets"
 binaries_dir = project_root / "bin"
@@ -37,6 +38,7 @@ force_files_temp_dir = training_temp_root / "force files"
 polars_temp_dir = training_temp_root / "polars"
 AI_results_temp_dir = training_temp_root / "AI results"
 support_files_temp_dir = training_temp_root / "support_files"
+naca_kp_temp_dir = training_temp_root / "support_files" / "naca_kp"
 geo_files_temp_dir = training_temp_root / "geometry files"
 training_files_temp_dir = training_temp_root / "training files"
 # Define .rar paths and names for recovery logic
@@ -486,11 +488,9 @@ def Geometric_File_Creation(configs):
     ]
     if rec_Fabius.check_stage_status(stage_name="AVL Geometric File Formation", current_rar=geo_rar_path, required_deps=rec_dependencies):
         return
-    
+
     polars_abs_paths = get_all_files_from(polars_temp_dir)
-    key_points = Key_Point_Extraction(
-        polar_file_paths=polars_abs_paths
-        )
+    key_points = Key_Point_Extraction(polar_file_paths=polars_abs_paths)
     key_points_data = key_points.process_files()
     KP_error_log = os.path.join(geo_files_temp_dir, 'KP_error_log.txt')
     key_points.save_error_log(KP_error_log)

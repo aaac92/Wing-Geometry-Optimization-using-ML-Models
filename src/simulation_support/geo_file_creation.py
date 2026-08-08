@@ -519,7 +519,7 @@ class HossainWingFlat_Creation:
     Creates AVL geometry files for Hossin's wing with 60° winglets.
     """
 
-    def __init__(self, key_points_data: list, airfoil_abs_paths: list, output_dir: str, verbose=False, pb=False):
+    def __init__(self, key_points_data: list, airfoil_abs_paths: list, naca_key_points_data: str, output_dir: str, verbose=False, pb=False):
         """
         Initializes the geometry file creator.
 
@@ -527,6 +527,8 @@ class HossainWingFlat_Creation:
             key_points_data (list): The list of dictionaries from Key_Point_Processing.
             airfoil_abs_paths (list): A list of absolute paths (string or Path objects)
                                       to the airfoil .dat files.
+            naca_key_points_data (str): Path to NACA airfoils' key points stored in support 
+                                        files or elsewere.
             output_dir (str): The path to the directory where .avl geometry
                               files will be saved.
             verbose (bool): Toggles tqdm progress bars and information prints
@@ -534,6 +536,7 @@ class HossainWingFlat_Creation:
         self.verbose = verbose
         self.pb = pb
         self.key_points_data = key_points_data
+        self.naca_key_points_data = naca_key_points_data
         self.output_dir = Path(output_dir)
         self.errors = []
         
@@ -595,39 +598,44 @@ class HossainWingFlat_Creation:
                     geo.write(f"0.0\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
+                    geo.write(f"  0.0  0.0 0.0  0.121  0.0\n")
+                    geo.write(f"AFIL\n")
+                    geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"\n")
+                    geo.write(f"SECTION\n")
                     geo.write(f"  0.0  0.33 0.0  0.121  0.0\n")
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.00413  0.3613 0.0  0.11687  0.0\n")
-                    geo.write(f"AFIL\n")
-                    geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"NACA\n")
+                    geo.write(f"0012\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.01621  0.3905 0.0  0.1048  0.0\n")
-                    geo.write(f"AFIL\n")
-                    geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"NACA\n")
+                    geo.write(f"0012\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.03544  0.4156 0.0  0.08556  0.0\n")
-                    geo.write(f"AFIL\n")
-                    geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"NACA\n")
+                    geo.write(f"0012\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.0605  0.4348 0.0  0.0605  0.0\n")
-                    geo.write(f"AFIL\n")
-                    geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"NACA\n")
+                    geo.write(f"0012\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.08968  0.4469 0.0  0.03131  0.0\n")
-                    geo.write(f"AFIL\n")
-                    geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"NACA\n")
+                    geo.write(f"0012\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.121  0.451 0.0  0.0  0.0\n")
-                    geo.write(f"AFIL\n")
-                    geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"NACA\n")
+                    geo.write(f"0012\n")
                     geo.write(f"\n")
                     geo.write(f"END              ! end of file")
 
