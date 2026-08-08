@@ -595,7 +595,16 @@ def Final_Coefficient_Generation(verbose=False):
 
     num_workers = min(cpu_count() - 2, len(geo_files_to_process))
 
-    chunksize = max(1, len(geo_files_to_process) // (num_workers * 4))
+    # chunksize=1 (unlike XFOIL's pool.map, which lets Pool auto-scale
+    # chunksize with task count): AVL_Run_Case.run() retries each geometry
+    # file up to 3x with ~30s per-command timeouts, so individual task
+    # duration is highly variable. A larger chunksize binds several tasks to
+    # one worker for the chunk's full duration; if slow/retry-heavy tasks are
+    # clustered in the remaining queue (e.g. one wing config converging worse
+    # in AVL than another), that worker stalls mid-chunk while workers with
+    # fast chunks exhaust the queue and go idle. chunksize=1 lets the Pool
+    # hand out the next task to whichever worker is free, task by task.
+    chunksize = 1
     if existing_force_files:
         print(f"Resuming with {len(geo_files_to_process)} remaining simulations.")
     print(f"Distributing {len(geo_files_to_process)} tasks with a chunksize of {chunksize}.")
