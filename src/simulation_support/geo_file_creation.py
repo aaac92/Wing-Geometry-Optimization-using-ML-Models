@@ -43,7 +43,7 @@ class RecWingGeo_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -162,7 +162,7 @@ class SkyeyeGeo_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -251,7 +251,7 @@ class HossainWingRec_Creation:
     Creates AVL geometry files for Hossain's wing without winglets.
     """
 
-    def __init__(self, key_points_data: list, airfoil_abs_paths: list, output_dir: str, verbose=False, pb=False):
+    def __init__(self, key_points_data: list, airfoil_abs_paths: list, naca_key_points_data: str, output_dir: str, verbose=False, pb=False):
         """
         Initializes the geometry file creator.
 
@@ -259,6 +259,8 @@ class HossainWingRec_Creation:
             key_points_data (list): The list of dictionaries from Key_Point_Processing.
             airfoil_abs_paths (list): A list of absolute paths (string or Path objects)
                                       to the airfoil .dat files.
+            naca_key_points_data (str): Path to NACA airfoils' key points stored in support 
+                                        files or elsewere.
             output_dir (str): The path to the directory where .avl geometry
                               files will be saved.
             verbose (bool): Toggles tqdm progress bars and information prints
@@ -266,6 +268,7 @@ class HossainWingRec_Creation:
         self.verbose = verbose
         self.pb = pb
         self.key_points_data = key_points_data
+        self.naca_key_points_data = naca_key_points_data
         self.output_dir = Path(output_dir)
         self.errors = []
         
@@ -286,7 +289,7 @@ class HossainWingRec_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -320,9 +323,6 @@ class HossainWingRec_Creation:
                     geo.write(f"YDUPLICATE\n")
                     geo.write(f"0.0\n")
                     geo.write(f"\n")
-                    geo.write(f"CDCL\n")
-                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
-                    geo.write(f"\n")
                     geo.write(f"ANGLE\n") # Determines wing twist
                     geo.write(f"0.0\n")
                     geo.write(f"\n")
@@ -330,11 +330,15 @@ class HossainWingRec_Creation:
                     geo.write(f"  0.0  0.0 0.0  0.121  0.0\n")
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.0  0.66  0.0  0.121  0.0\n")
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
                     geo.write(f"\n")
                     geo.write(f"END              ! end of file")
 
@@ -370,7 +374,7 @@ class HossainWing60DEG_Creation:
     Creates AVL geometry files for Hossain's wing with flat winglets.
     """
 
-    def __init__(self, key_points_data: list, airfoil_abs_paths: list, output_dir: str, verbose=False, pb=False):
+    def __init__(self, key_points_data: list, airfoil_abs_paths: list, naca_key_points_data: str, output_dir: str, verbose=False, pb=False):
         """
         Initializes the geometry file creator.
 
@@ -378,6 +382,8 @@ class HossainWing60DEG_Creation:
             key_points_data (list): The list of dictionaries from Key_Point_Processing.
             airfoil_abs_paths (list): A list of absolute paths (string or Path objects)
                                       to the airfoil .dat files.
+            naca_key_points_data (str): Path to NACA airfoils' key points stored in support 
+                                        files or elsewere.
             output_dir (str): The path to the directory where .avl geometry
                               files will be saved.
             verbose (bool): Toggles tqdm progress bars and information prints
@@ -385,11 +391,21 @@ class HossainWing60DEG_Creation:
         self.verbose = verbose
         self.pb = pb
         self.key_points_data = key_points_data
+        self.naca_key_points_data = naca_key_points_data
+        self.naca_cdcl_line = self._get_naca_cdcl_line()
         self.output_dir = Path(output_dir)
         self.errors = []
         
         # Create a dictionary for fast lookups, mapping airfoil names to their full paths.
         self.airfoil_path_map = {Path(p).stem: p for p in airfoil_abs_paths}
+
+    def _get_naca_cdcl_line(self):
+        """Reads the NACA support file and returns its last non-empty line, unmodified."""
+        with open(self.naca_key_points_data, "r", encoding="utf-8") as f:
+            non_empty_lines = [line.rstrip("\n").rstrip("\r") for line in f if line.strip()]
+        if not non_empty_lines:
+            raise ValueError(f"NACA support file '{self.naca_key_points_data}' contains no data.")
+        return non_empty_lines[-1]
 
     def create_geo_files(self):
         """
@@ -405,7 +421,7 @@ class HossainWing60DEG_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -439,9 +455,6 @@ class HossainWing60DEG_Creation:
                     geo.write(f"YDUPLICATE\n")
                     geo.write(f"0.0\n")
                     geo.write(f"\n")
-                    geo.write(f"CDCL\n")
-                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
-                    geo.write(f"\n")
                     geo.write(f"ANGLE\n") # Determines wing twist
                     geo.write(f"0.0\n")
                     geo.write(f"\n")
@@ -449,41 +462,57 @@ class HossainWing60DEG_Creation:
                     geo.write(f"  0.0  0.0 0.0  0.121  0.0\n")
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.0  0.33 0.0  0.121  0.0\n")
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.00413  0.3456 0.0271  0.11687  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.01621  0.36025 0.05239  0.1048  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.03544  0.3727 0.07409  0.08556  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.0605  0.3823 0.09075  0.0605  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"    0.08968  0.3884 0.101218  0.03131  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.121  0.3905 0.10479  0.0  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"END              ! end of file")
 
@@ -537,11 +566,20 @@ class HossainWingFlat_Creation:
         self.pb = pb
         self.key_points_data = key_points_data
         self.naca_key_points_data = naca_key_points_data
+        self.naca_cdcl_line = self._get_naca_cdcl_line()
         self.output_dir = Path(output_dir)
         self.errors = []
         
         # Create a dictionary for fast lookups, mapping airfoil names to their full paths.
         self.airfoil_path_map = {Path(p).stem: p for p in airfoil_abs_paths}
+
+    def _get_naca_cdcl_line(self):
+        """Reads the NACA support file and returns its last non-empty line, unmodified."""
+        with open(self.naca_key_points_data, "r", encoding="utf-8") as f:
+            non_empty_lines = [line.rstrip("\n").rstrip("\r") for line in f if line.strip()]
+        if not non_empty_lines:
+            raise ValueError(f"NACA support file '{self.naca_key_points_data}' contains no data.")
+        return non_empty_lines[-1]
 
     def create_geo_files(self):
         """
@@ -557,7 +595,7 @@ class HossainWingFlat_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Building Flat Hossain Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -591,9 +629,6 @@ class HossainWingFlat_Creation:
                     geo.write(f"YDUPLICATE\n")
                     geo.write(f"0.0\n")
                     geo.write(f"\n")
-                    geo.write(f"CDCL\n")
-                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
-                    geo.write(f"\n")
                     geo.write(f"ANGLE\n") # Determines wing twist
                     geo.write(f"0.0\n")
                     geo.write(f"\n")
@@ -601,41 +636,57 @@ class HossainWingFlat_Creation:
                     geo.write(f"  0.0  0.0 0.0  0.121  0.0\n")
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.0  0.33 0.0  0.121  0.0\n")
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.00413  0.3613 0.0  0.11687  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.01621  0.3905 0.0  0.1048  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.03544  0.4156 0.0  0.08556  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.0605  0.4348 0.0  0.0605  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.08968  0.4469 0.0  0.03131  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
                     geo.write(f"  0.121  0.451 0.0  0.0  0.0\n")
                     geo.write(f"NACA\n")
                     geo.write(f"0012\n")
+                    geo.write(f"CDCL\n")
+                    geo.write(f"{self.naca_cdcl_line}\n")
                     geo.write(f"\n")
                     geo.write(f"END              ! end of file")
 
