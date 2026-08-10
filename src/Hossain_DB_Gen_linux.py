@@ -490,7 +490,8 @@ def Geometric_File_Creation(configs):
         return
 
     polars_abs_paths = get_all_files_from(polars_temp_dir)
-    key_points = Key_Point_Extraction(polar_file_paths=polars_abs_paths)
+    print("\n--- Extracting key aerodynamic points from polar data ---")
+    key_points = Key_Point_Extraction(polar_file_paths=polars_abs_paths, verbose=True)
     key_points_data = key_points.process_files()
     KP_error_log = os.path.join(geo_files_temp_dir, 'KP_error_log.txt')
     key_points.save_error_log(KP_error_log)
@@ -501,7 +502,6 @@ def Geometric_File_Creation(configs):
     naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0_093_RE250000.txt")
 
     for creator_class, identifier in configs:
-        print(f"\n--- Building Geometry: {identifier.upper()} using the creator class: ({creator_class.__name__}) ---")
         geo_creator = creator_class(
             key_points_data=key_points_data,
             airfoil_abs_paths=airfoil_abs_paths,
@@ -524,7 +524,9 @@ def Geometric_File_Creation(configs):
                 print(f"Warning: Could not delete {last_file.name} for recovery: {e}")
 
         # --- File Creation & Logging ---
-        geo_creator.create_geo_files()
+        print(f"\n--- Creating {identifier} geometry files ---")
+        with tqdm(total=len(geo_creator.airfoil_path_map), desc=f"{identifier} geo files", disable=False) as bar:
+            geo_creator.create_geo_files(progress_callback=bar.update)
         
         error_log_name = f'geo_{identifier}_error_log.txt'
         geo_creator.save_error_log(os.path.join(geo_files_temp_dir, error_log_name))
@@ -595,15 +597,7 @@ def Final_Coefficient_Generation(verbose=False):
 
     num_workers = min(cpu_count() - 2, len(geo_files_to_process))
 
-    # chunksize=1 (unlike XFOIL's pool.map, which lets Pool auto-scale
-    # chunksize with task count): AVL_Run_Case.run() retries each geometry
-    # file up to 3x with ~30s per-command timeouts, so individual task
-    # duration is highly variable. A larger chunksize binds several tasks to
-    # one worker for the chunk's full duration; if slow/retry-heavy tasks are
-    # clustered in the remaining queue (e.g. one wing config converging worse
-    # in AVL than another), that worker stalls mid-chunk while workers with
-    # fast chunks exhaust the queue and go idle. chunksize=1 lets the Pool
-    # hand out the next task to whichever worker is free, task by task.
+    #chunksize = max(1, len(geo_files_to_process) // (num_workers * 4))
     chunksize = 1
     if existing_force_files:
         print(f"Resuming with {len(geo_files_to_process)} remaining simulations.")
