@@ -43,7 +43,7 @@ class RecWingGeo_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -162,7 +162,7 @@ class SkyeyeGeo_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
+        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb):
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -275,10 +275,17 @@ class HossainWingRec_Creation:
         # Create a dictionary for fast lookups, mapping airfoil names to their full paths.
         self.airfoil_path_map = {Path(p).stem: p for p in airfoil_abs_paths}
 
-    def create_geo_files(self):
+    def create_geo_files(self, progress_callback=None):
         """
         Loops through the provided airfoil paths and creates a corresponding
         AVL geometry file if matching key point data is found.
+
+        Args:
+            progress_callback (callable, optional): Called once (no args) after each
+                airfoil is processed, whether it succeeded or errored. When provided,
+                the caller (e.g. the driver) owns progress display and no internal
+                tqdm bar is created here. When omitted, falls back to an internal
+                tqdm bar gated by `self.pb`, matching the previous standalone behavior.
         """
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -289,7 +296,11 @@ class HossainWingRec_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
+        items = self.airfoil_path_map.items()
+        if progress_callback is None:
+            items = tqdm(items, desc="Creating Geometry Files", disable=not self.pb)
+
+        for airfoil_name, airfoil_dat_path in items:
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -345,6 +356,9 @@ class HossainWingRec_Creation:
             except Exception as e:
                 self.errors.append({'airfoil': airfoil_name, 'error': str(e)})
                 continue
+            finally:
+                if progress_callback is not None:
+                    progress_callback()
         
         return len(self.errors)
 
@@ -407,10 +421,17 @@ class HossainWing60DEG_Creation:
             raise ValueError(f"NACA support file '{self.naca_key_points_data}' contains no data.")
         return non_empty_lines[-1]
 
-    def create_geo_files(self):
+    def create_geo_files(self, progress_callback=None):
         """
         Loops through the provided airfoil paths and creates a corresponding
         AVL geometry file if matching key point data is found.
+
+        Args:
+            progress_callback (callable, optional): Called once (no args) after each
+                airfoil is processed, whether it succeeded or errored. When provided,
+                the caller (e.g. the driver) owns progress display and no internal
+                tqdm bar is created here. When omitted, falls back to an internal
+                tqdm bar gated by `self.pb`, matching the previous standalone behavior.
         """
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -421,7 +442,11 @@ class HossainWing60DEG_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Creating Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
+        items = self.airfoil_path_map.items()
+        if progress_callback is None:
+            items = tqdm(items, desc="Creating Geometry Files", disable=not self.pb)
+
+        for airfoil_name, airfoil_dat_path in items:
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -519,6 +544,9 @@ class HossainWing60DEG_Creation:
             except Exception as e:
                 self.errors.append({'airfoil': airfoil_name, 'error': str(e)})
                 continue
+            finally:
+                if progress_callback is not None:
+                    progress_callback()
         
         return len(self.errors)
 
@@ -581,10 +609,17 @@ class HossainWingFlat_Creation:
             raise ValueError(f"NACA support file '{self.naca_key_points_data}' contains no data.")
         return non_empty_lines[-1]
 
-    def create_geo_files(self):
+    def create_geo_files(self, progress_callback=None):
         """
         Loops through the provided airfoil paths and creates a corresponding
         AVL geometry file if matching key point data is found.
+
+        Args:
+            progress_callback (callable, optional): Called once (no args) after each
+                airfoil is processed, whether it succeeded or errored. When provided,
+                the caller (e.g. the driver) owns progress display and no internal
+                tqdm bar is created here. When omitted, falls back to an internal
+                tqdm bar gated by `self.pb`, matching the previous standalone behavior.
         """
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -595,7 +630,11 @@ class HossainWingFlat_Creation:
         }
 
         # --- Iterate through the trusted airfoil paths ---
-        for airfoil_name, airfoil_dat_path in tqdm(self.airfoil_path_map.items(), desc="Building Flat Hossain Geometry Files", disable=not self.pb, dynamic_miniters=False, miniters=1, mininterval=0.1):
+        items = self.airfoil_path_map.items()
+        if progress_callback is None:
+            items = tqdm(items, desc="Creating Geometry Files", disable=not self.pb)
+
+        for airfoil_name, airfoil_dat_path in items:
             try:
                 # Find the key point data that matches the current airfoil name
                 item = key_data_map.get(airfoil_name)
@@ -693,6 +732,9 @@ class HossainWingFlat_Creation:
             except Exception as e:
                 self.errors.append({'airfoil': airfoil_name, 'error': str(e)})
                 continue
+            finally:
+                if progress_callback is not None:
+                    progress_callback()
         
         return len(self.errors)
 
