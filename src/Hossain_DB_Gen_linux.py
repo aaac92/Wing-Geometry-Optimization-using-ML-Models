@@ -597,7 +597,12 @@ def Final_Coefficient_Generation(verbose=False):
 
     num_workers = min(cpu_count() - 2, len(geo_files_to_process))
 
-    #chunksize = max(1, len(geo_files_to_process) // (num_workers * 4))
+    # chunksize=1: AVL_Run_Case's retry loop (up to 3 attempts, ~30s timeout per
+    # command) makes per-task duration highly variable. Any chunksize > 1 locks a
+    # worker into finishing its whole assigned batch before it can pull more work,
+    # so a worker stuck with several slow/retrying tasks stalls while workers with
+    # "easy" chunks run out of work and idle. Per-task IPC overhead is negligible
+    # next to multi-second AVL subprocess calls, so there's no real cost to this.
     chunksize = 1
     if existing_force_files:
         print(f"Resuming with {len(geo_files_to_process)} remaining simulations.")
