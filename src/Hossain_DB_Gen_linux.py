@@ -499,7 +499,7 @@ def Geometric_File_Creation(configs):
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
 
     # NACA 0012 CDCL support file (AVL 3.32 requires section-local CDCL)
-    naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0_093_RE250000.txt")
+    naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt")
 
     for creator_class, identifier in configs:
         geo_creator = creator_class(
