@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -243,11 +244,12 @@ class Database_Corrector:
             self._geo_temp, self._force_temp, self._support_temp,
         ]:
             d.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ['attrib', '+H', str(self._temp_root)],
-            check=False,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
+        if os.name == 'nt':
+            subprocess.run(
+                ['attrib', '+H', str(self._temp_root)],
+                check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
         shutil.copy(self.case_file_path, self._support_temp)
 
     def _teardown_temp_dirs(self) -> None:
