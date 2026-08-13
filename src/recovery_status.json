@@ -1,4 +1,7 @@
 {
     "airfoil_database_generation_complete": true,
-    "polar_database_generation_complete": true
+    "polar_database_generation_complete": true,
+    "geometric_file_creation_complete": true,
+    "final_coefficient_generation_complete": true,
+    "final_database_generation_complete": true
 }
