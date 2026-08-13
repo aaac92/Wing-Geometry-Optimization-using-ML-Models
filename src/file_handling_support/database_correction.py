@@ -62,6 +62,9 @@ class Database_Corrector:
         case_file_path,
         n_cst: int,
         aseq: List[float],
+        Re: float,
+        Mach: float,
+        naca_key_points_data,
         configs: Optional[List[Tuple[Type, str]]] = None,
         default_geo_creator_class: Optional[Type] = None,
         error_threshold: float = 0.02,
@@ -89,6 +92,16 @@ class Database_Corrector:
             CST polynomial order. Must match the CSV column count.
         aseq : list of float
             [start_alpha, end_alpha, step] for the XFOIL polar sweep.
+        Re : float
+            Reynolds number for the XFOIL polar sweep. Must match the flow
+            condition the target database was generated under.
+        Mach : float
+            Mach number for the XFOIL polar sweep. Must match the flow
+            condition the target database was generated under.
+        naca_key_points_data : str or Path
+            Path to the NACA 0012 CDCL reference file required by the geo
+            creator classes (per-section CDCL, since this AVL build lacks
+            the global CDCL option).
         configs : list of (class, str) tuples, optional
             Wing configuration classes paired with their identifier strings.
             Required if the CSV contains one-hot configuration columns.
@@ -122,6 +135,9 @@ class Database_Corrector:
         self.case_file_path = Path(case_file_path)
         self.n_cst = n_cst
         self.aseq = aseq
+        self.Re = Re
+        self.Mach = Mach
+        self.naca_key_points_data = Path(naca_key_points_data)
         self.error_threshold = error_threshold
         self.max_attempts = max_attempts
         self.top_bottom_fraction = top_bottom_fraction
@@ -396,6 +412,8 @@ class Database_Corrector:
                 airfoil_file_path=airfoil_path,
                 polar_file_path=str(polar_path),
                 alfa_sequence=angles,
+                visc=self.Re,
+                mach=self.Mach,
             )
 
             # Key point extraction
@@ -427,6 +445,7 @@ class Database_Corrector:
             geo_creator = geo_creator_class(
                 key_points_data=placeholder_list,
                 airfoil_abs_paths=[airfoil_path],
+                naca_key_points_data=str(self.naca_key_points_data),
                 output_dir=str(self._geo_temp),
                 verbose=False,
                 pb=False,
@@ -723,12 +742,15 @@ class Database_Corrector:
                 f"Remaining rows: {len(df)}/{total_rows}"
             )
 
+            # Temp dir is only torn down on a clean, full completion so it
+            # remains available for debugging after a crash or interrupt.
+            self._teardown_temp_dirs()
+
         except Exception as e:
             self._log(f"Critical error during correction: {e}", 'error')
             raise
 
         finally:
-            self._teardown_temp_dirs()
             elapsed = time.time() - start_time
             self._log(f"=== Finished in {elapsed:.2f}s ===")
             for handler in self._logger.handlers[:]:

@@ -695,7 +695,7 @@ def Final_Database_Generation(dataset_dir):
 
     return
 
-def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
+def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
     '''
     Executes validation and correction of outlier efficiency values (mostly due to buggy multiprocessing implementation) in the generated regression training database.
     '''
@@ -719,6 +719,7 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
     avl_exe = os.path.join(binaries_dir, 'avl')
     case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
     correction_temp_dir = training_temp_root / "correction_temp"
+    naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt")
 
     copernicus = Database_Corrector(
         csv_file_path=csv_path,
@@ -728,6 +729,9 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
         case_file_path=case_file,
         n_cst=n_cst,
         aseq=ASEQ,
+        Re=Re,
+        Mach=Mach,
+        naca_key_points_data=naca_0012_kp_path,
         configs=configs,
         middle_fraction=0.1,
         temp_dir=correction_temp_dir,
@@ -858,7 +862,7 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     if not status.get('database_correction_complete'):
-        Database_Correction(dataset_dir, n_cst, ASEQ, configs)
+        Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs)
         status['database_correction_complete'] = True
         rec_json.save_recovery_status(status)
 
