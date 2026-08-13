@@ -718,7 +718,9 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
     xfoil_exe = os.path.join(binaries_dir, 'xfoil')
     avl_exe = os.path.join(binaries_dir, 'avl')
     case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
-    correction_temp_dir = training_temp_root / "correction_temp"
+    # Kept independent of training_temp_root (not nested under it) -- XFOIL/AVL
+    # don't tolerate the resulting path length well. 
+    correction_temp_dir = Path.home() / '.correction_temp'
     naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt")
 
     copernicus = Database_Corrector(

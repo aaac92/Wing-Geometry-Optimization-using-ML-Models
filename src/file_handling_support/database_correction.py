@@ -121,8 +121,13 @@ class Database_Corrector:
             after top/bottom passes. Rows are selected by highest absolute
             deviation from the median E. Set to 0.0 to disable (default).
         temp_dir : Path, optional
-            Root directory for simulation intermediates.
-            Defaults to C:\\db_correction_temp.
+            Root directory for simulation intermediates. Kept independent
+            of the driver's own temp root (not nested under it) to avoid
+            excessive path length under the nested per-point subdirectories,
+            which XFOIL and AVL do not tolerate well. Defaults to
+            ``~/.correction_temp`` on Linux/macOS (dot-prefixed to stay
+            hidden) or ``C:\\correction_temp`` on Windows (hidden via
+            ``attrib +H`` in `_setup_temp_dirs`).
         verbose : bool
             If True, mirrors log output to stdout.
         append_kp : bool
@@ -151,7 +156,12 @@ class Database_Corrector:
             self._config_map = {identifier: cls for cls, identifier in configs}
 
         # Temp directory tree
-        self._temp_root = Path(temp_dir) if temp_dir else Path(r"C:\db_correction_temp")
+        if temp_dir:
+            self._temp_root = Path(temp_dir)
+        elif os.name == 'nt':
+            self._temp_root = Path(r"C:\correction_temp")
+        else:
+            self._temp_root = Path.home() / '.correction_temp'
         self._airfoils_temp = self._temp_root / "airfoils"
         self._polars_temp = self._temp_root / "polars"
         self._geo_temp = self._temp_root / "geometry files"
