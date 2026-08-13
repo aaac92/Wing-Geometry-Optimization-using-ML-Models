@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -34,7 +35,16 @@ class Database_Corrector:
     Two consecutive simulations of the same point must agree within
     `error_threshold` (fractional absolute error) for the new E value and
     refreshed key point values to be written. Points that do not converge
-    within `max_attempts` are deleted from the database.
+    within `max_attempts` are refused (dropped from the database).
+
+    Recovery
+    --------
+    Progress is checkpointed under the temp directory after every point
+    resolves (and after every simulation attempt within a point), so a
+    crashed or interrupted `run_correction()` call resumes automatically
+    on the next invocation rather than restarting. Checkpoint state lives
+    entirely under the temp root and is cleared on a clean completion, so
+    callers need no recovery-specific logic of their own.
 
     Supported dataset formats
     -------------------------
@@ -167,6 +177,10 @@ class Database_Corrector:
         self._geo_temp = self._temp_root / "geometry files"
         self._force_temp = self._temp_root / "force files"
         self._support_temp = self._temp_root / "support_files"
+        self._recovery_temp = self._temp_root / "recovery"
+        self._checkpoint_path = self._recovery_temp / "checkpoint.json"
+        self._checkpoint_df_path = self._recovery_temp / "checkpoint_df.csv"
+        self._point_progress_path = self._recovery_temp / "current_point.json"
 
         # Logger — named per file to avoid conflicts with other module loggers
         log_path = self.csv_file_path.parent / f"{self.csv_file_path.stem}_correction.log"
@@ -268,6 +282,7 @@ class Database_Corrector:
         for d in [
             self._temp_root, self._airfoils_temp, self._polars_temp,
             self._geo_temp, self._force_temp, self._support_temp,
+            self._recovery_temp,
         ]:
             d.mkdir(parents=True, exist_ok=True)
         if os.name == 'nt':
@@ -282,6 +297,139 @@ class Database_Corrector:
         """Removes the entire temp directory tree."""
         if self._temp_root.exists():
             shutil.rmtree(self._temp_root)
+
+    def _atomic_write_json(self, path: Path, data: dict) -> None:
+        """Writes JSON via a temp file + os.replace so a crash mid-write can't corrupt it."""
+        tmp_path = path.with_suffix(path.suffix + '.tmp')
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+        os.replace(tmp_path, path)
+
+    def _save_checkpoint(
+        self,
+        df: pd.DataFrame,
+        total_rows: int,
+        n_target: int,
+        passes_complete: set,
+        current_pass: Optional[str],
+        processed_this_pass: int,
+        point_counter: int,
+        corrected_indices: set,
+        refused_indices: set,
+        stats: dict,
+    ) -> None:
+        """
+        Persists pass-level progress: the working dataframe (with the pandas
+        index preserved as stable row identifiers, since refused rows are
+        dropped without renumbering) plus enough state to resume the correct
+        pass at the correct position. `point_counter` is tracked separately
+        from `processed_this_pass` (rather than derived from it) so label
+        numbering stays monotonic across a resume -- resetting it would let
+        a freshly-numbered label collide with a stale temp file left over
+        from a differently-numbered point before the crash. Written after
+        every point resolves.
+        """
+        tmp_df_path = self._checkpoint_df_path.with_suffix('.csv.tmp')
+        df.to_csv(tmp_df_path, index=True)
+        os.replace(tmp_df_path, self._checkpoint_df_path)
+
+        self._atomic_write_json(self._checkpoint_path, {
+            'csv_file_path': str(self.csv_file_path),
+            'total_rows': total_rows,
+            'n_target': n_target,
+            'passes_complete': sorted(passes_complete),
+            'current_pass': current_pass,
+            'processed_this_pass': processed_this_pass,
+            'point_counter': point_counter,
+            'corrected_indices': sorted(corrected_indices),
+            'refused_indices': sorted(refused_indices),
+            'stats': stats,
+        })
+
+    def _load_checkpoint(self) -> Optional[dict]:
+        """
+        Returns the checkpoint state dict if a valid, matching checkpoint
+        exists, else None. Mismatched `csv_file_path` (a leftover checkpoint
+        from a different target CSV sharing this temp dir) is treated as
+        no checkpoint, with a warning, rather than resumed against.
+        """
+        if not self._checkpoint_path.exists() or not self._checkpoint_df_path.exists():
+            return None
+        try:
+            with open(self._checkpoint_path, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            self._log(f"Checkpoint unreadable ({e}), starting fresh.", 'warning')
+            return None
+
+        if state.get('csv_file_path') != str(self.csv_file_path):
+            self._log(
+                "Checkpoint found but targets a different CSV "
+                f"({state.get('csv_file_path')}); starting fresh.", 'warning'
+            )
+            return None
+        return state
+
+    def _save_point_progress(
+        self,
+        idx: int,
+        label: str,
+        stored_e: float,
+        last_sim_e: Optional[float],
+        consecutive_pass: int,
+        next_attempt: int,
+        attempt_log: List[dict],
+    ) -> None:
+        """
+        Persists in-flight attempt-loop state for the single point currently
+        being validated, so a crash mid-point resumes at `next_attempt`
+        instead of re-running already-completed attempts. `next_attempt` is
+        tracked explicitly (not inferred from len(attempt_log)) since a
+        failed simulation attempt consumes an attempt without adding a
+        log entry.
+        """
+        self._atomic_write_json(self._point_progress_path, {
+            'csv_file_path': str(self.csv_file_path),
+            'idx': idx,
+            'label': label,
+            'stored_e': stored_e,
+            'last_sim_e': last_sim_e,
+            'consecutive_pass': consecutive_pass,
+            'next_attempt': next_attempt,
+            'attempt_log': attempt_log,
+        })
+
+    def _load_point_progress(self, idx: int) -> Optional[dict]:
+        """
+        Returns saved attempt-loop state for `idx` if present and matching,
+        else None. A mismatched idx means the point in progress at crash
+        time differs from the one about to be processed (shouldn't happen
+        under normal resume, since selection is deterministic given the
+        checkpointed df and index sets) -- treated as no saved state.
+        """
+        if not self._point_progress_path.exists():
+            return None
+        try:
+            with open(self._point_progress_path, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            self._log(f"Point-progress file unreadable ({e}), starting attempt 1.", 'warning')
+            return None
+
+        if state.get('csv_file_path') != str(self.csv_file_path) or state.get('idx') != idx:
+            self._log(
+                f"Point-progress file found but doesn't match idx={idx}; "
+                "starting attempt 1.", 'warning'
+            )
+            return None
+        return state
+
+    def _clear_point_progress(self) -> None:
+        """Removes the in-flight point-progress file once a point resolves."""
+        try:
+            self._point_progress_path.unlink()
+        except FileNotFoundError:
+            pass
 
     def _clean_temp_for_label(self, label: str) -> None:
         """Deletes all temp files whose filename contains `label`."""
@@ -513,6 +661,10 @@ class Database_Corrector:
         CSV value for the first attempt). Values are written to the dataframe
         only upon confirmed validation. KP values are optionally updated.
 
+        Resumes mid-attempt-loop from a saved point-progress file when one
+        matches `idx` (see `_save_point_progress`/`_load_point_progress`),
+        so a crash between attempts doesn't discard already-completed ones.
+
         Parameters
         ----------
         df : pd.DataFrame
@@ -524,18 +676,31 @@ class Database_Corrector:
 
         Returns
         -------
-        (df, outcome) where outcome is 'validated' or 'deleted'.
+        (df, outcome) where outcome is 'validated' or 'refused'.
         """
         row = df.loc[idx]
         stored_e: float = row['E']
-        self._log(f"\n  Point '{label}' (idx={idx}) | Stored E={stored_e:.8f}")
+
+        resumed = self._load_point_progress(idx)
+        if resumed is not None:
+            last_sim_e: Optional[float] = resumed['last_sim_e']
+            consecutive_pass: int = resumed['consecutive_pass']
+            attempt_log: List[dict] = resumed['attempt_log']
+            start_attempt = resumed['next_attempt']
+            self._log(
+                f"\n  Point '{label}' (idx={idx}) | Stored E={stored_e:.8f} | "
+                f"Resuming from attempt {start_attempt} "
+                f"(consecutive_pass={consecutive_pass})"
+            )
+        else:
+            last_sim_e = None
+            consecutive_pass = 0
+            attempt_log = []
+            start_attempt = 1
+            self._log(f"\n  Point '{label}' (idx={idx}) | Stored E={stored_e:.8f}")
         self._log(f"  Features: {self._format_row_for_log(row)}")
 
-        last_sim_e: Optional[float] = None
-        consecutive_pass: int = 0
-        attempt_log: List[dict] = []
-
-        for attempt in range(1, self.max_attempts + 1):
+        for attempt in range(start_attempt, self.max_attempts + 1):
             attempt_label = f"{label}_a{attempt}"
 
             result = self._simulate_point(df.loc[idx], attempt_label)
@@ -549,6 +714,10 @@ class Database_Corrector:
                     'warning',
                 )
                 consecutive_pass = 0
+                self._save_point_progress(
+                    idx, label, stored_e, last_sim_e, consecutive_pass,
+                    attempt + 1, attempt_log,
+                )
                 continue
 
             sim_e, kp_values = result
@@ -586,16 +755,21 @@ class Database_Corrector:
                     log_msg += f"Total attempts used: {attempt}"
                     
                     self._log(log_msg)
+                    self._clear_point_progress()
                     return df, 'validated'
             else:
                 consecutive_pass = 0
 
             last_sim_e = sim_e
+            self._save_point_progress(
+                idx, label, stored_e, last_sim_e, consecutive_pass,
+                attempt + 1, attempt_log,
+            )
 
         # Max attempts exhausted without two consecutive passes
         self._log(
             f"  FAILED: max_attempts={self.max_attempts} reached without "
-            f"validation. Row at idx={idx} will be removed from DB.",
+            f"validation. Row at idx={idx} will be refused (removed from DB).",
             'error',
         )
         self._log(f"  Full attempt history for idx={idx}:")
@@ -609,8 +783,9 @@ class Database_Corrector:
                 f"{kp_log_str}"
             )
 
+        self._clear_point_progress()
         df = df.drop(index=idx)
-        return df, 'deleted'
+        return df, 'refused'
 
     def run_correction(self) -> None:
         """
@@ -625,7 +800,18 @@ class Database_Corrector:
 
         Dynamic re-sorting ensures that a corrected value which shifts rank
         (after E is updated) is correctly skipped in favor of the next
-        unprocessed extreme value.
+        unprocessed extreme value. The middle pass recomputes its candidate
+        list once per entry (including on resume) rather than re-sorting
+        every iteration, matching the original single-run behavior; this
+        recomputation is deterministic given the checkpointed df and index
+        sets, so it's safe to repeat on resume without re-processing points.
+
+        Recovery
+        --------
+        If a checkpoint from an interrupted run exists and targets this same
+        CSV, resumes from it: skips whichever passes are already marked
+        complete, and continues the in-progress pass (if any) from its
+        recorded position rather than restarting it. See the class docstring.
 
         Output
         ------
@@ -649,27 +835,57 @@ class Database_Corrector:
         self._setup_temp_dirs()
 
         try:
-            df = pd.read_csv(self.csv_file_path)
-            total_rows = len(df)
-            n_target = max(1, int(total_rows * self.top_bottom_fraction))
-            self._log(
-                f"Total rows: {total_rows} | "
-                f"Target per top/bottom pass: {n_target} "
-                f"({self.top_bottom_fraction:.1%})"
-            )
-
-            corrected_indices: set = set()
-            deleted_indices: set = set()
-            stats = {'validated': 0, 'deleted': 0}
+            checkpoint = self._load_checkpoint()
+            if checkpoint is not None:
+                df = pd.read_csv(self._checkpoint_df_path, index_col=0)
+                total_rows = checkpoint['total_rows']
+                n_target = checkpoint['n_target']
+                passes_complete: set = set(checkpoint['passes_complete'])
+                resumed_pass: Optional[str] = checkpoint['current_pass']
+                resumed_processed = checkpoint['processed_this_pass']
+                resumed_point_counter = checkpoint['point_counter']
+                corrected_indices: set = set(checkpoint['corrected_indices'])
+                refused_indices: set = set(checkpoint['refused_indices'])
+                stats = checkpoint['stats']
+                self._log(
+                    f"Resuming from checkpoint: passes_complete={sorted(passes_complete)} | "
+                    f"in-progress={resumed_pass} | "
+                    f"validated={stats['validated']} | refused={stats['refused']}"
+                )
+            else:
+                df = pd.read_csv(self.csv_file_path)
+                total_rows = len(df)
+                n_target = max(1, int(total_rows * self.top_bottom_fraction))
+                passes_complete = set()
+                resumed_pass = None
+                resumed_processed = 0
+                resumed_point_counter = 0
+                corrected_indices = set()
+                refused_indices = set()
+                stats = {'validated': 0, 'refused': 0}
+                self._log(
+                    f"Total rows: {total_rows} | "
+                    f"Target per top/bottom pass: {n_target} "
+                    f"({self.top_bottom_fraction:.1%})"
+                )
 
             # ── Top and bottom passes (dynamic re-sort per iteration) ── #
             for direction, ascending in [('top', False), ('bottom', True)]:
+                if direction in passes_complete:
+                    self._log(f"\n=== {direction.upper()} pass already complete, skipping ===")
+                    continue
+
                 self._log(
                     f"\n=== {direction.upper()} pass "
                     f"({'descending' if not ascending else 'ascending'} E) ==="
                 )
-                processed_this_pass = 0
-                point_counter = 0
+                if resumed_pass == direction:
+                    processed_this_pass = resumed_processed
+                    point_counter = resumed_point_counter
+                    self._log(f"  Resuming at point {processed_this_pass + 1}/{n_target}")
+                else:
+                    processed_this_pass = 0
+                    point_counter = 0
 
                 while processed_this_pass < n_target:
                     # Re-sort on current df values after each correction so that a corrected E that shifted rank is not re-selected.
@@ -680,7 +896,7 @@ class Database_Corrector:
                         (
                             i for i in sorted_idx
                             if i not in corrected_indices
-                            and i not in deleted_indices
+                            and i not in refused_indices
                         ),
                         None,
                     )
@@ -701,35 +917,60 @@ class Database_Corrector:
                         corrected_indices.add(next_idx)
                         stats['validated'] += 1
                     else:
-                        deleted_indices.add(next_idx)
-                        stats['deleted'] += 1
+                        refused_indices.add(next_idx)
+                        stats['refused'] += 1
 
                     processed_this_pass += 1
+                    self._save_checkpoint(
+                        df, total_rows, n_target, passes_complete, direction,
+                        processed_this_pass, point_counter,
+                        corrected_indices, refused_indices, stats,
+                    )
 
-            if self.middle_fraction > 0:
+                passes_complete.add(direction)
+                self._save_checkpoint(
+                    df, total_rows, n_target, passes_complete, None, 0, 0,
+                    corrected_indices, refused_indices, stats,
+                )
+
+            if self.middle_fraction > 0 and 'middle' not in passes_complete:
                 n_middle = max(1, int(total_rows * self.middle_fraction))
+                already_done = resumed_processed if resumed_pass == 'middle' else 0
+                remaining_target = max(0, n_middle - already_done)
                 self._log(
                     f"\n=== MIDDLE pass: {n_middle} rows "
                     f"({self.middle_fraction:.1%}), selected by absolute "
                     f"deviation from median E ==="
                 )
+                if already_done:
+                    self._log(f"  Resuming at point {already_done + 1}/{n_middle}")
+
                 median_e = df['E'].median()
-                # Eligible: rows not already processed in top/bottom passes
+                # Eligible: rows not already processed in top/bottom/middle passes.
+                # Recomputed fresh here (rather than persisted) -- deterministic
+                # given the checkpointed df and index sets, so re-entry after a
+                # resume naturally excludes whatever middle already resolved
+                # before the crash without any extra bookkeeping. Capped at
+                # remaining_target (not n_middle) so a resume can't reprocess
+                # already-resolved points on top of a fresh n_middle-sized batch.
                 eligible_idx = df.index.difference(
-                    pd.Index(list(corrected_indices | deleted_indices))
+                    pd.Index(list(corrected_indices | refused_indices))
                 )
                 middle_order = (
                     df.loc[eligible_idx, 'E']
                     .sub(median_e)
                     .abs()
                     .sort_values(ascending=False)
-                    .head(n_middle)
+                    .head(remaining_target)
                     .index.tolist()
                 )
 
-                for point_counter, next_idx in enumerate(middle_order, start=1):
-                    if next_idx in corrected_indices or next_idx in deleted_indices:
+                point_counter = already_done
+                processed_this_pass = already_done
+                for next_idx in middle_order:
+                    if next_idx in corrected_indices or next_idx in refused_indices:
                         continue
+                    point_counter += 1
                     label = f"middle_{point_counter}"
                     self._log(
                         f"\n--- [MIDDLE] Point {point_counter}/{n_middle} ---"
@@ -739,8 +980,21 @@ class Database_Corrector:
                         corrected_indices.add(next_idx)
                         stats['validated'] += 1
                     else:
-                        deleted_indices.add(next_idx)
-                        stats['deleted'] += 1
+                        refused_indices.add(next_idx)
+                        stats['refused'] += 1
+
+                    processed_this_pass += 1
+                    self._save_checkpoint(
+                        df, total_rows, n_target, passes_complete, 'middle',
+                        processed_this_pass, point_counter,
+                        corrected_indices, refused_indices, stats,
+                    )
+
+                passes_complete.add('middle')
+                self._save_checkpoint(
+                    df, total_rows, n_target, passes_complete, None, 0, 0,
+                    corrected_indices, refused_indices, stats,
+                )
 
             # Overwrite the original CSV with corrected data
             df.to_csv(self.csv_file_path, index=False)
@@ -748,12 +1002,13 @@ class Database_Corrector:
             self._log(f"Output saved to: {self.csv_file_path.name}")
             self._log(
                 f"Validated: {stats['validated']} | "
-                f"Deleted: {stats['deleted']} | "
+                f"Refused: {stats['refused']} | "
                 f"Remaining rows: {len(df)}/{total_rows}"
             )
 
-            # Temp dir is only torn down on a clean, full completion so it
-            # remains available for debugging after a crash or interrupt.
+            # Temp dir (including all checkpoint state) is only torn down on a
+            # clean, full completion so it remains available for debugging
+            # and resuming after a crash or interrupt.
             self._teardown_temp_dirs()
 
         except Exception as e:
