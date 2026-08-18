@@ -3,12 +3,14 @@ import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type
 
 import pandas as pd
+from tqdm import tqdm
 
 from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, AVL_Run_Case
@@ -63,6 +65,12 @@ class Database_Corrector:
     # Known config identifiers, must match Training_Data_Generator.config_headers
     _KNOWN_CONFIGS: List[str] = ["rec", "flat", "60DEG"]
 
+    # Decimal places used to build the airfoil-lookup index key. Trades a
+    # small chance of missing a true match sitting right at a rounding
+    # boundary (safely falls back to CST regeneration) for O(1) lookups
+    # instead of an exact per-point tolerance scan.
+    _CST_MATCH_DECIMALS: int = 4
+
     def __init__(
         self,
         csv_file_path,
@@ -81,6 +89,7 @@ class Database_Corrector:
         max_attempts: int = 10,
         top_bottom_fraction: float = 0.05,
         middle_fraction: float = 0.0,
+        source_airfoils_dir=None,
         temp_dir=None,
         verbose: bool = False,
         append_kp: bool = False,
@@ -130,6 +139,15 @@ class Database_Corrector:
             Fraction of rows to sample from the middle of the E distribution
             after top/bottom passes. Rows are selected by highest absolute
             deviation from the median E. Set to 0.0 to disable (default).
+        source_airfoils_dir : str or Path, optional
+            Directory of already-generated airfoil .dat files from the
+            original database run (e.g. the driver's
+            ``training_temp_root / "airfoils"``), each carrying a
+            CST-coefficient header. When provided, points are sourced by
+            looking up a matching file here first, falling back to CST
+            regeneration only when no unambiguous match exists (zero or
+            multiple files share the same rounded CST key). When omitted,
+            every point is always regenerated from CST coefficients.
         temp_dir : Path, optional
             Root directory for simulation intermediates. Kept independent
             of the driver's own temp root (not nested under it) to avoid
@@ -157,8 +175,13 @@ class Database_Corrector:
         self.max_attempts = max_attempts
         self.top_bottom_fraction = top_bottom_fraction
         self.middle_fraction = middle_fraction
+        self.source_airfoils_dir = Path(source_airfoils_dir) if source_airfoils_dir else None
         self.verbose = verbose
         self.append_kp = append_kp
+
+        # Populated once per run_correction() call by _build_airfoil_index();
+        # empty means every point falls back to CST regeneration.
+        self._airfoil_index: Dict[Tuple[float, ...], List[Path]] = {}
 
         # Build internal config map: identifier string -> geo creator class
         self._config_map: Dict[str, Type] = {}
@@ -297,6 +320,118 @@ class Database_Corrector:
         """Removes the entire temp directory tree."""
         if self._temp_root.exists():
             shutil.rmtree(self._temp_root)
+
+    def _read_dat_cst_header(self, file_path: Path, expected_count: int) -> List[float]:
+        """
+        Reads a CST-coefficient header from a .dat file's first 1KB.
+        Adapted from db_airfoil_cst_finder.py's read_dat_header: tries a
+        bracketed, comma-separated text header first, falls back to raw
+        float32 binary. Returns [] if neither yields `expected_count` values.
+        """
+        try:
+            with open(file_path, "rb") as f:
+                raw = f.read(1024)
+            text = raw.decode(errors="ignore")
+
+            match = re.search(r"\[([^\]]+)\]", text)
+            if match:
+                numbers = match.group(1).split(",")
+                values = [float(n.strip()) for n in numbers if n.strip() != ""]
+                return values[:expected_count]
+
+            with open(file_path, "rb") as f:
+                data = f.read(expected_count * 4)
+            if len(data) == expected_count * 4:
+                return list(struct.unpack(f"{expected_count}f", data))
+        except (OSError, ValueError, struct.error) as e:
+            self._log(f"Could not read CST header from {file_path.name}: {e}", 'warning')
+        return []
+
+    def _build_airfoil_index(self) -> Dict[Tuple[float, ...], List[Path]]:
+        """
+        Walks `source_airfoils_dir` once, mapping a rounded CST-coefficient
+        tuple (see `_CST_MATCH_DECIMALS`) to the list of files sharing it.
+        Built fresh on every `run_correction()` call, fresh or resumed --
+        the source directory is immutable during correction, so this is
+        cheaper and safer than persisting/invalidating a cached index.
+        Returns {} (every point falls back to regeneration) if
+        `source_airfoils_dir` wasn't provided or doesn't exist.
+        """
+        if self.source_airfoils_dir is None or not self.source_airfoils_dir.exists():
+            if self.source_airfoils_dir is not None:
+                self._log(
+                    f"source_airfoils_dir not found: {self.source_airfoils_dir}. "
+                    "All points will be regenerated from CST.", 'warning'
+                )
+            return {}
+
+        expected_count = len(self._cst_l_cols) + len(self._cst_u_cols)
+        dat_files = list(self.source_airfoils_dir.rglob("*.dat"))
+
+        index: Dict[Tuple[float, ...], List[Path]] = {}
+        for file_path in tqdm(dat_files, desc="Indexing available airfoils"):
+            header_values = self._read_dat_cst_header(file_path, expected_count)
+            if len(header_values) != expected_count:
+                continue
+            key = tuple(round(v, self._CST_MATCH_DECIMALS) for v in header_values)
+            index.setdefault(key, []).append(file_path)
+
+        self._log(
+            f"Airfoil index built: {len(dat_files)} files scanned, "
+            f"{len(index)} unique CST keys."
+        )
+        return index
+
+    def _source_airfoil(self, row: pd.Series, label: str) -> Path:
+        """
+        Resolves the airfoil .dat file for one point. Called once per point
+        (not per attempt -- CST-defined geometry is invariant across
+        retries of the same point). Reuses an already-sourced file on disk
+        first (covers resuming mid-point after a crash), then tries the
+        prebuilt index, falling back to CST regeneration whenever no
+        unambiguous match exists -- mirrors current behavior exactly, just
+        without repeating the work on every attempt.
+        """
+        airfoil_path = self._airfoils_temp / f"{label}.dat"
+        if airfoil_path.exists():
+            return airfoil_path
+
+        cst_coeffs = (
+            list(row[self._cst_l_cols].values) +
+            list(row[self._cst_u_cols].values)
+        )
+
+        if self._airfoil_index:
+            key = tuple(round(v, self._CST_MATCH_DECIMALS) for v in cst_coeffs)
+            matches = self._airfoil_index.get(key, [])
+            if len(matches) == 1:
+                shutil.copy(matches[0], airfoil_path)
+                return airfoil_path
+            elif len(matches) > 1:
+                self._log(
+                    f"  Ambiguous airfoil match for '{label}' "
+                    f"({len(matches)} files share this CST key); regenerating.",
+                    'warning',
+                )
+            # 0 matches falls through silently -- expected occasionally
+            # (e.g. a point whose source airfoil was itself refused in an
+            # earlier correction pass), not worth a warning every time.
+
+        airfoil_creator = Airfoil_Generator(
+            base_airfoil_csv=self.base_airfoil_csv,
+            n_cst=self.n_cst,
+            verbose=False,
+        )
+        x_mod, yu_mod, yl_mod = airfoil_creator.generate(cst_coeffs=cst_coeffs)
+        airfoil_creator._create_dat_file(
+            output_dir=self._airfoils_temp,
+            n_cst=self.n_cst,
+            x=x_mod,
+            yl=yl_mod,
+            yu=yu_mod,
+            file_name=label,
+        )
+        return airfoil_path
 
     def _atomic_write_json(self, path: Path, data: dict) -> None:
         """Writes JSON via a temp file + os.replace so a crash mid-write can't corrupt it."""
@@ -502,20 +637,19 @@ class Database_Corrector:
         return " | ".join(parts)
 
     def _simulate_point(
-        self, row: pd.Series, label: str
+        self, row: pd.Series, label: str, airfoil_path: Path
     ) -> Optional[Tuple[float, List[float]]]:
         """
         Executes the full aerodynamic simulation pipeline for one data point.
 
         Pipeline
         --------
-        1. Generate airfoil geometry from CST coefficients (Airfoil_Generator).
-        2. Compute drag polar (XFOIL).
-        3. Extract key points via GPR interpolation (Key_Point_Extraction).
-        4. Determine geo creator class from one-hot config encoding.
-        5. Build AVL wing geometry file (geo creator class).
-        6. Compute aerodynamic force coefficients (AVL_Run_Case).
-        7. Return E = CLtot / CDtot and the six key point values.
+        1. Compute drag polar (XFOIL) from the already-sourced airfoil.
+        2. Extract key points via GPR interpolation (Key_Point_Extraction).
+        3. Determine geo creator class from one-hot config encoding.
+        4. Build AVL wing geometry file (geo creator class).
+        5. Compute aerodynamic force coefficients (AVL_Run_Case).
+        6. Return E = CLtot / CDtot and the six key point values.
 
         Parameters
         ----------
@@ -523,6 +657,10 @@ class Database_Corrector:
             Data row containing CST coefficients and configuration encoding.
         label : str
             Unique label for temp file naming.
+        airfoil_path : Path
+            Path to the airfoil .dat file for this point, sourced once per
+            point (by lookup or CST regeneration) rather than per attempt --
+            see `_source_airfoil`.
 
         Returns
         -------
@@ -530,29 +668,6 @@ class Database_Corrector:
         kp_values order: [CLneg, CDneg, CLcdmin, CDmin, CLpos, CDpos]
         """
         try:
-            # Extract CST coefficients: lower surface first, then upper
-            cst_coeffs = (
-                list(row[self._cst_l_cols].values) +
-                list(row[self._cst_u_cols].values)
-            )
-
-            # Airfoil geometry
-            airfoil_creator = Airfoil_Generator(
-                base_airfoil_csv=self.base_airfoil_csv,
-                n_cst=self.n_cst,
-                verbose=False,
-            )
-            x_mod, yu_mod, yl_mod = airfoil_creator.generate(cst_coeffs=cst_coeffs)
-            airfoil_creator._create_dat_file(
-                output_dir=self._airfoils_temp,
-                n_cst=self.n_cst,
-                x=x_mod,
-                yl=yl_mod,
-                yu=yu_mod,
-                file_name=label,
-            )
-            airfoil_path = self._airfoils_temp / f"{label}.dat"
-
             # XFOIL polar curve creation
             num_steps = int((self.aseq[1] - self.aseq[0]) / self.aseq[2]) + 1
             angles = [self.aseq[0] + j * self.aseq[2] for j in range(num_steps)]
@@ -680,6 +795,7 @@ class Database_Corrector:
         """
         row = df.loc[idx]
         stored_e: float = row['E']
+        airfoil_path = self._source_airfoil(row, label)
 
         resumed = self._load_point_progress(idx)
         if resumed is not None:
@@ -703,7 +819,7 @@ class Database_Corrector:
         for attempt in range(start_attempt, self.max_attempts + 1):
             attempt_label = f"{label}_a{attempt}"
 
-            result = self._simulate_point(df.loc[idx], attempt_label)
+            result = self._simulate_point(df.loc[idx], attempt_label, airfoil_path)
 
             # Clean temp files produced by this attempt before the next iteration
             self._clean_temp_for_label(attempt_label)
@@ -756,6 +872,7 @@ class Database_Corrector:
                     
                     self._log(log_msg)
                     self._clear_point_progress()
+                    self._clean_temp_for_label(label)
                     return df, 'validated'
             else:
                 consecutive_pass = 0
@@ -784,6 +901,7 @@ class Database_Corrector:
             )
 
         self._clear_point_progress()
+        self._clean_temp_for_label(label)
         df = df.drop(index=idx)
         return df, 'refused'
 
@@ -833,6 +951,7 @@ class Database_Corrector:
             self._log(f"Backup already exists ({backup_path.name}), skipping copy.")
 
         self._setup_temp_dirs()
+        self._airfoil_index = self._build_airfoil_index()
 
         try:
             checkpoint = self._load_checkpoint()
@@ -887,6 +1006,9 @@ class Database_Corrector:
                     processed_this_pass = 0
                     point_counter = 0
 
+                while_pbar = tqdm(
+                    total=n_target, initial=processed_this_pass, desc=f"{direction} pass"
+                )
                 while processed_this_pass < n_target:
                     # Re-sort on current df values after each correction so that a corrected E that shifted rank is not re-selected.
                     sorted_idx = (
@@ -921,11 +1043,13 @@ class Database_Corrector:
                         stats['refused'] += 1
 
                     processed_this_pass += 1
+                    while_pbar.update(1)
                     self._save_checkpoint(
                         df, total_rows, n_target, passes_complete, direction,
                         processed_this_pass, point_counter,
                         corrected_indices, refused_indices, stats,
                     )
+                while_pbar.close()
 
                 passes_complete.add(direction)
                 self._save_checkpoint(
@@ -967,6 +1091,7 @@ class Database_Corrector:
 
                 point_counter = already_done
                 processed_this_pass = already_done
+                middle_pbar = tqdm(total=n_middle, initial=already_done, desc="middle pass")
                 for next_idx in middle_order:
                     if next_idx in corrected_indices or next_idx in refused_indices:
                         continue
@@ -984,11 +1109,13 @@ class Database_Corrector:
                         stats['refused'] += 1
 
                     processed_this_pass += 1
+                    middle_pbar.update(1)
                     self._save_checkpoint(
                         df, total_rows, n_target, passes_complete, 'middle',
                         processed_this_pass, point_counter,
                         corrected_indices, refused_indices, stats,
                     )
+                middle_pbar.close()
 
                 passes_complete.add('middle')
                 self._save_checkpoint(

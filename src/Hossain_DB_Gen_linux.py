@@ -719,7 +719,7 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
     avl_exe = os.path.join(binaries_dir, 'avl')
     case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
     # Kept independent of training_temp_root (not nested under it) -- XFOIL/AVL
-    # don't tolerate the resulting path length well. 
+    # don't tolerate the resulting path length well.
     correction_temp_dir = Path.home() / '.correction_temp'
     naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt")
 
@@ -736,6 +736,7 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
         naca_key_points_data=naca_0012_kp_path,
         configs=configs,
         middle_fraction=0.1,
+        source_airfoils_dir=airfoils_temp_dir,
         temp_dir=correction_temp_dir,
         verbose=False
     )
