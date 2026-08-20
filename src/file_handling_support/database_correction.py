@@ -1,13 +1,15 @@
 import json
 import logging
 import os
+import queue
 import re
 import shutil
 import struct
 import subprocess
+import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Callable, Dict, List, Optional, Tuple, Type
 
 import pandas as pd
 from tqdm import tqdm
@@ -15,6 +17,7 @@ from tqdm import tqdm
 from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, AVL_Run_Case
 from geometric_support import Airfoil_Generator
+from ux_support import Progress_GUI
 
 
 class Database_Corrector:
@@ -763,7 +766,8 @@ class Database_Corrector:
             return None
 
     def _correct_point(
-        self, df: pd.DataFrame, idx: int, label: str
+        self, df: pd.DataFrame, idx: int, label: str,
+        on_status: Optional[Callable[[str], None]] = None,
     ) -> Tuple[pd.DataFrame, str]:
         """
         Validates and corrects a single data point.
@@ -788,14 +792,25 @@ class Database_Corrector:
             Row index of the point to validate.
         label : str
             Unique label for temp file naming and log identification.
+        on_status : callable, optional
+            Called with a short human-readable string at the same points
+            the attempt loop already logs (result of each attempt,
+            validation, failure) -- lets a caller mirror live status
+            somewhere other than the log file, e.g. a GUI detail view.
+            No-op when omitted.
 
         Returns
         -------
         (df, outcome) where outcome is 'validated' or 'refused'.
         """
+        def _status(text: str) -> None:
+            if on_status is not None:
+                on_status(text)
+
         row = df.loc[idx]
         stored_e: float = row['E']
         airfoil_path = self._source_airfoil(row, label)
+        _status(f"{label}: sourcing airfoil / starting attempt 1")
 
         resumed = self._load_point_progress(idx)
         if resumed is not None:
@@ -829,6 +844,7 @@ class Database_Corrector:
                     f"  Attempt {attempt}/{self.max_attempts}: simulation failed.",
                     'warning',
                 )
+                _status(f"{label}: attempt {attempt}/{self.max_attempts} failed")
                 consecutive_pass = 0
                 self._save_point_progress(
                     idx, label, stored_e, last_sim_e, consecutive_pass,
@@ -855,6 +871,10 @@ class Database_Corrector:
                 f"sim_E={sim_e:.8f} | ref={reference:.8f} | "
                 f"error={error:.4%} | consecutive_pass={consecutive_pass}"
             )
+            _status(
+                f"{label}: attempt {attempt}/{self.max_attempts} | "
+                f"sim_E={sim_e:.4f} | error={error:.2%}"
+            )
 
             if error <= self.error_threshold:
                 consecutive_pass += 1
@@ -871,6 +891,7 @@ class Database_Corrector:
                     log_msg += f"Total attempts used: {attempt}"
                     
                     self._log(log_msg)
+                    _status(f"{label}: validated (E={sim_e:.4f})")
                     self._clear_point_progress()
                     self._clean_temp_for_label(label)
                     return df, 'validated'
@@ -902,8 +923,181 @@ class Database_Corrector:
 
         self._clear_point_progress()
         self._clean_temp_for_label(label)
+        _status(f"{label}: refused (max attempts reached)")
         df = df.drop(index=idx)
         return df, 'refused'
+
+    def _run_top_bottom_pass(
+        self, on_progress: Callable[[int], None], on_status: Callable[[str], None],
+        df: pd.DataFrame, direction: str, ascending: bool, n_target: int,
+        processed_this_pass: int, point_counter: int,
+        corrected_indices: set, refused_indices: set, stats: dict,
+        passes_complete: set, total_rows: int,
+    ) -> Tuple[pd.DataFrame, set, set, dict]:
+        """Body of one top or bottom pass -- see run_correction for the dynamic re-sort rationale."""
+        while processed_this_pass < n_target:
+            sorted_idx = df['E'].sort_values(ascending=ascending).index.tolist()
+            next_idx = next(
+                (i for i in sorted_idx if i not in corrected_indices and i not in refused_indices),
+                None,
+            )
+            if next_idx is None:
+                self._log(f"No more unprocessed rows for {direction} pass.")
+                break
+
+            point_counter += 1
+            label = f"{direction}_{point_counter}"
+            self._log(f"\n--- [{direction.upper()}] Point {processed_this_pass + 1}/{n_target} ---")
+            on_status(f"Starting {label} ({processed_this_pass + 1}/{n_target})")
+
+            df, outcome = self._correct_point(df, next_idx, label, on_status=on_status)
+
+            if outcome == 'validated':
+                corrected_indices.add(next_idx)
+                stats['validated'] += 1
+            else:
+                refused_indices.add(next_idx)
+                stats['refused'] += 1
+
+            processed_this_pass += 1
+            on_progress(processed_this_pass)
+            self._save_checkpoint(
+                df, total_rows, n_target, passes_complete, direction,
+                processed_this_pass, point_counter,
+                corrected_indices, refused_indices, stats,
+            )
+
+        passes_complete.add(direction)
+        self._save_checkpoint(
+            df, total_rows, n_target, passes_complete, None, 0, 0,
+            corrected_indices, refused_indices, stats,
+        )
+        return df, corrected_indices, refused_indices, stats
+
+    def _run_middle_pass(
+        self, on_progress: Callable[[int], None], on_status: Callable[[str], None],
+        df: pd.DataFrame, n_middle: int, already_done: int,
+        corrected_indices: set, refused_indices: set, stats: dict,
+        passes_complete: set, total_rows: int, n_target: int,
+    ) -> Tuple[pd.DataFrame, set, set, dict]:
+        """Body of the middle pass -- see run_correction for why the candidate list is recomputed fresh."""
+        median_e = df['E'].median()
+        remaining_target = max(0, n_middle - already_done)
+        eligible_idx = df.index.difference(
+            pd.Index(list(corrected_indices | refused_indices))
+        )
+        middle_order = (
+            df.loc[eligible_idx, 'E']
+            .sub(median_e)
+            .abs()
+            .sort_values(ascending=False)
+            .head(remaining_target)
+            .index.tolist()
+        )
+
+        point_counter = already_done
+        processed_this_pass = already_done
+        for next_idx in middle_order:
+            if next_idx in corrected_indices or next_idx in refused_indices:
+                continue
+            point_counter += 1
+            label = f"middle_{point_counter}"
+            self._log(f"\n--- [MIDDLE] Point {point_counter}/{n_middle} ---")
+            on_status(f"Starting {label} ({point_counter}/{n_middle})")
+
+            df, outcome = self._correct_point(df, next_idx, label, on_status=on_status)
+            if outcome == 'validated':
+                corrected_indices.add(next_idx)
+                stats['validated'] += 1
+            else:
+                refused_indices.add(next_idx)
+                stats['refused'] += 1
+
+            processed_this_pass += 1
+            on_progress(processed_this_pass)
+            self._save_checkpoint(
+                df, total_rows, n_target, passes_complete, 'middle',
+                processed_this_pass, point_counter,
+                corrected_indices, refused_indices, stats,
+            )
+
+        passes_complete.add('middle')
+        self._save_checkpoint(
+            df, total_rows, n_target, passes_complete, None, 0, 0,
+            corrected_indices, refused_indices, stats,
+        )
+        return df, corrected_indices, refused_indices, stats
+
+    def _run_pass_with_gui(
+        self,
+        pass_fn: Callable[..., Tuple[pd.DataFrame, set, set, dict]],
+        pass_kwargs: dict,
+        n_target: int,
+        initial_completed: int,
+        window_title: str,
+        header_text: str,
+    ) -> Tuple[pd.DataFrame, set, set, dict]:
+        """
+        Runs `pass_fn(on_progress=..., on_status=..., **pass_kwargs)` in a
+        background thread while a Progress_GUI window owns the main thread
+        -- mirrors the threading.Thread + gui.run() + thread.join() pattern
+        Hossain_DB_Gen_linux.py already uses for its own multiprocessing
+        stages, adapted here to a single sequential worker (num_workers=1)
+        instead of a process pool. Replaces the tqdm bars, which were
+        getting corrupted by other tools' stdout output interleaving with
+        their carriage-return redraws during validation.
+
+        The window is guaranteed to close regardless of how pass_fn exits
+        -- full completion, an early break when no unprocessable rows
+        remain, or an exception -- by padding the progress queue up to
+        n_target in a finally block; otherwise Progress_GUI's own
+        completion check (files_completed >= total_files) would never
+        fire and the window would hang open indefinitely. Any exception
+        from pass_fn is captured and re-raised here, on the main thread,
+        once the window has closed -- run_correction's checkpoint/recovery
+        flow depends on failures actually propagating, which the driver's
+        existing multiprocessing usage of this same GUI does not need to
+        guarantee (its worker pool isn't relied on to fail loudly).
+        """
+        progress_queue: "queue.Queue" = queue.Queue()
+        worker_status_list = ["Starting..."]
+        state = {'processed': initial_completed, 'error': None, 'result': None}
+
+        def on_progress(processed_count: int) -> None:
+            state['processed'] = processed_count
+            progress_queue.put(1)
+
+        def on_status(text: str) -> None:
+            worker_status_list[0] = text
+
+        def _target():
+            try:
+                state['result'] = pass_fn(on_progress=on_progress, on_status=on_status, **pass_kwargs)
+            except Exception as e:
+                state['error'] = e
+            finally:
+                remaining = max(0, n_target - state['processed'])
+                for _ in range(remaining):
+                    progress_queue.put(1)
+
+        thread = threading.Thread(target=_target)
+        thread.start()
+
+        gui = Progress_GUI(
+            total_files=n_target,
+            progress_queue=progress_queue,
+            worker_status_list=worker_status_list,
+            num_workers=1,
+            window_title=window_title,
+            header_text=header_text,
+            initial_completed=initial_completed,
+        )
+        gui.run()
+        thread.join()
+
+        if state['error'] is not None:
+            raise state['error']
+        return state['result']
 
     def run_correction(self) -> None:
         """
@@ -1006,61 +1200,23 @@ class Database_Corrector:
                     processed_this_pass = 0
                     point_counter = 0
 
-                while_pbar = tqdm(
-                    total=n_target, initial=processed_this_pass, desc=f"{direction} pass"
-                )
-                while processed_this_pass < n_target:
-                    # Re-sort on current df values after each correction so that a corrected E that shifted rank is not re-selected.
-                    sorted_idx = (
-                        df['E'].sort_values(ascending=ascending).index.tolist()
-                    )
-                    next_idx = next(
-                        (
-                            i for i in sorted_idx
-                            if i not in corrected_indices
-                            and i not in refused_indices
-                        ),
-                        None,
-                    )
-                    if next_idx is None:
-                        self._log(f"No more unprocessed rows for {direction} pass.")
-                        break
-
-                    point_counter += 1
-                    label = f"{direction}_{point_counter}"
-                    self._log(
-                        f"\n--- [{direction.upper()}] "
-                        f"Point {processed_this_pass + 1}/{n_target} ---"
-                    )
-
-                    df, outcome = self._correct_point(df, next_idx, label)
-
-                    if outcome == 'validated':
-                        corrected_indices.add(next_idx)
-                        stats['validated'] += 1
-                    else:
-                        refused_indices.add(next_idx)
-                        stats['refused'] += 1
-
-                    processed_this_pass += 1
-                    while_pbar.update(1)
-                    self._save_checkpoint(
-                        df, total_rows, n_target, passes_complete, direction,
-                        processed_this_pass, point_counter,
-                        corrected_indices, refused_indices, stats,
-                    )
-                while_pbar.close()
-
-                passes_complete.add(direction)
-                self._save_checkpoint(
-                    df, total_rows, n_target, passes_complete, None, 0, 0,
-                    corrected_indices, refused_indices, stats,
+                df, corrected_indices, refused_indices, stats = self._run_pass_with_gui(
+                    pass_fn=self._run_top_bottom_pass,
+                    pass_kwargs=dict(
+                        df=df, direction=direction, ascending=ascending, n_target=n_target,
+                        processed_this_pass=processed_this_pass, point_counter=point_counter,
+                        corrected_indices=corrected_indices, refused_indices=refused_indices,
+                        stats=stats, passes_complete=passes_complete, total_rows=total_rows,
+                    ),
+                    n_target=n_target,
+                    initial_completed=processed_this_pass,
+                    window_title="Database Correction Progress",
+                    header_text=f"{direction.capitalize()} pass ({'descending' if not ascending else 'ascending'} E)",
                 )
 
             if self.middle_fraction > 0 and 'middle' not in passes_complete:
                 n_middle = max(1, int(total_rows * self.middle_fraction))
                 already_done = resumed_processed if resumed_pass == 'middle' else 0
-                remaining_target = max(0, n_middle - already_done)
                 self._log(
                     f"\n=== MIDDLE pass: {n_middle} rows "
                     f"({self.middle_fraction:.1%}), selected by absolute "
@@ -1069,58 +1225,18 @@ class Database_Corrector:
                 if already_done:
                     self._log(f"  Resuming at point {already_done + 1}/{n_middle}")
 
-                median_e = df['E'].median()
-                # Eligible: rows not already processed in top/bottom/middle passes.
-                # Recomputed fresh here (rather than persisted) -- deterministic
-                # given the checkpointed df and index sets, so re-entry after a
-                # resume naturally excludes whatever middle already resolved
-                # before the crash without any extra bookkeeping. Capped at
-                # remaining_target (not n_middle) so a resume can't reprocess
-                # already-resolved points on top of a fresh n_middle-sized batch.
-                eligible_idx = df.index.difference(
-                    pd.Index(list(corrected_indices | refused_indices))
-                )
-                middle_order = (
-                    df.loc[eligible_idx, 'E']
-                    .sub(median_e)
-                    .abs()
-                    .sort_values(ascending=False)
-                    .head(remaining_target)
-                    .index.tolist()
-                )
-
-                point_counter = already_done
-                processed_this_pass = already_done
-                middle_pbar = tqdm(total=n_middle, initial=already_done, desc="middle pass")
-                for next_idx in middle_order:
-                    if next_idx in corrected_indices or next_idx in refused_indices:
-                        continue
-                    point_counter += 1
-                    label = f"middle_{point_counter}"
-                    self._log(
-                        f"\n--- [MIDDLE] Point {point_counter}/{n_middle} ---"
-                    )
-                    df, outcome = self._correct_point(df, next_idx, label)
-                    if outcome == 'validated':
-                        corrected_indices.add(next_idx)
-                        stats['validated'] += 1
-                    else:
-                        refused_indices.add(next_idx)
-                        stats['refused'] += 1
-
-                    processed_this_pass += 1
-                    middle_pbar.update(1)
-                    self._save_checkpoint(
-                        df, total_rows, n_target, passes_complete, 'middle',
-                        processed_this_pass, point_counter,
-                        corrected_indices, refused_indices, stats,
-                    )
-                middle_pbar.close()
-
-                passes_complete.add('middle')
-                self._save_checkpoint(
-                    df, total_rows, n_target, passes_complete, None, 0, 0,
-                    corrected_indices, refused_indices, stats,
+                df, corrected_indices, refused_indices, stats = self._run_pass_with_gui(
+                    pass_fn=self._run_middle_pass,
+                    pass_kwargs=dict(
+                        df=df, n_middle=n_middle, already_done=already_done,
+                        corrected_indices=corrected_indices, refused_indices=refused_indices,
+                        stats=stats, passes_complete=passes_complete,
+                        total_rows=total_rows, n_target=n_target,
+                    ),
+                    n_target=n_middle,
+                    initial_completed=already_done,
+                    window_title="Database Correction Progress",
+                    header_text="Middle pass (deviation from median E)",
                 )
 
             # Overwrite the original CSV with corrected data

@@ -6,7 +6,7 @@ import queue as queue_mod
 class Progress_GUI:
     """A Tkinter GUI to show multiprocessing progress."""
 
-    def __init__(self, total_files, progress_queue, worker_status_list, num_workers, window_title, header_text):
+    def __init__(self, total_files, progress_queue, worker_status_list, num_workers, window_title, header_text, initial_completed=0):
         self.total_files = total_files
         self.progress_queue = progress_queue
         self.worker_status_list = worker_status_list
@@ -14,7 +14,14 @@ class Progress_GUI:
         self.window_title = window_title
         self.header_text = header_text
 
-        self.files_completed = 0
+        # initial_completed lets a resumed run start the bar/ETA at the
+        # right offset instead of counting back up from 0. The ETA rate
+        # below is still computed only from progress made THIS session
+        # (files_completed - initial_completed over elapsed time since
+        # this window opened), since start_time has no knowledge of how
+        # long the earlier, already-completed portion actually took.
+        self.initial_completed = initial_completed
+        self.files_completed = initial_completed
         self.start_time = time.time()
         self.is_finished = False
 
@@ -80,7 +87,11 @@ class Progress_GUI:
         self.progress_label.config(text=f"Files processed: {self.files_completed}/{self.total_files} ({percent:.1f}%)")
 
         elapsed = time.time() - self.start_time
-        eta_seconds = (elapsed / self.files_completed) * (self.total_files - self.files_completed) if self.files_completed > 0 else 0
+        completed_this_session = self.files_completed - self.initial_completed
+        eta_seconds = (
+            (elapsed / completed_this_session) * (self.total_files - self.files_completed)
+            if completed_this_session > 0 else 0
+        )
         self.eta_label.config(text=self.format_eta(eta_seconds))
         
         self.root.after(500, self.update_simple_view)
@@ -163,7 +174,11 @@ class Progress_GUI:
             label.config(text=f"Processing: {status_text}")
         
         elapsed = time.time() - self.start_time
-        eta_seconds = (elapsed / self.files_completed) * (self.total_files - self.files_completed) if self.files_completed > 0 else 0
+        completed_this_session = self.files_completed - self.initial_completed
+        eta_seconds = (
+            (elapsed / completed_this_session) * (self.total_files - self.files_completed)
+            if completed_this_session > 0 else 0
+        )
         self.detail_eta_label.config(text=self.format_eta(eta_seconds))
         
         self.detail_window.after(500, self.update_detailed_view)
