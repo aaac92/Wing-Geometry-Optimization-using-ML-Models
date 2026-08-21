@@ -735,7 +735,7 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
         Mach=Mach,
         naca_key_points_data=naca_0012_kp_path,
         configs=configs,
-        middle_fraction=0.1,
+        middle_fraction=0.01,
         source_airfoils_dir=airfoils_temp_dir,
         temp_dir=correction_temp_dir,
         verbose=False

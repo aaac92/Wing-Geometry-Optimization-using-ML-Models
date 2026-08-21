@@ -89,13 +89,13 @@ class Database_Corrector:
         configs: Optional[List[Tuple[Type, str]]] = None,
         default_geo_creator_class: Optional[Type] = None,
         error_threshold: float = 0.02,
-        max_attempts: int = 10,
-        top_bottom_fraction: float = 0.05,
+        max_attempts: int = 6,
+        top_bottom_fraction: float = 0.01,
         middle_fraction: float = 0.0,
         source_airfoils_dir=None,
         temp_dir=None,
         verbose: bool = False,
-        append_kp: bool = False,
+        append_kp: bool = True,
     ):
         """
         Parameters
@@ -706,7 +706,14 @@ class Database_Corrector:
                 high_cl_point[1],  # CDpos
             ]
             placeholder_list = [{
-                'file_path': polar_path.name,
+                # Must strip (via the geo creator's own
+                # "polar_"/"key_polar_"/".txt" stripping) to exactly
+                # airfoil_path.stem, since that's the key the geo creator
+                # looks itself up by (airfoil_path_map keyed on the airfoil's
+                # own filename stem) -- NOT polar_path.name, which is
+                # attempt-scoped and no longer matches the airfoil's
+                # point-scoped stem now that they're sourced independently.
+                'file_path': f"{airfoil_path.stem}.txt",
                 'min_cl_point': {'CL': low_cl_point[0],  'CD': low_cl_point[1]},
                 'max_cl_point': {'CL': high_cl_point[0], 'CD': high_cl_point[1]},
                 'min_cd_point': {'CL': min_cd_point[0],  'CD': min_cd_point[1]},
@@ -728,11 +735,20 @@ class Database_Corrector:
             )
             geo_creator.create_geo_files()
 
-            avl_files = list(self._geo_temp.glob(f"*{label}*_geo.avl"))
+            if geo_creator.errors:
+                for err in geo_creator.errors:
+                    self._log(f"  Geo creator error: {err}", 'warning')
+
+            # Output is named {airfoil_stem}_{config}_geo.avl by every geo
+            # creator class -- no attempt-specific component, since the
+            # creator names files after the airfoil it was given, not after
+            # our per-attempt label.
+            avl_files = list(self._geo_temp.glob(f"{airfoil_path.stem}_*_geo.avl"))
             if not avl_files:
                 self._log(
-                    f"No .avl geo file found matching '*{label}*_geo.avl' "
-                    "after geo creator ran.", 'error'
+                    f"No .avl geo file found matching "
+                    f"'{airfoil_path.stem}_*_geo.avl' after geo creator ran.",
+                    'error',
                 )
                 return None
             geo_path = avl_files[0]
