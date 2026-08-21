@@ -95,7 +95,7 @@ class Database_Corrector:
         source_airfoils_dir=None,
         temp_dir=None,
         verbose: bool = False,
-        append_kp: bool = True,
+        append_kp: bool = False,
     ):
         """
         Parameters
