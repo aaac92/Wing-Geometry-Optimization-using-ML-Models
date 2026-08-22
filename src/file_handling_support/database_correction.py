@@ -19,7 +19,6 @@ from simulation_support import Key_Point_Extraction, AVL_Run_Case
 from geometric_support import Airfoil_Generator
 from ux_support import Progress_GUI
 
-
 class Database_Corrector:
     """
     Validates and corrects outlier aerodynamic efficiency (E = CL/CD) values
@@ -817,7 +816,7 @@ class Database_Corrector:
 
         Returns
         -------
-        (df, outcome) where outcome is 'validated' or 'refused'.
+        (df, outcome) where outcome is 'validated', 'corrected', or 'refused'.
         """
         def _status(text: str) -> None:
             if on_status is not None:
@@ -901,16 +900,18 @@ class Database_Corrector:
                         for col, val in zip(self._kp_cols, kp_values):
                             df.loc[idx, col] = val
                             
-                    log_msg = f"  VALIDATED | New E={sim_e:.8f} | "
+                    outcome = 'validated' if len(attempt_log) == 2 else 'corrected'
+                    
+                    log_msg = f"  {outcome.upper()} | New E={sim_e:.8f} | "
                     if self.append_kp:
                         log_msg += "KP updated | "
                     log_msg += f"Total attempts used: {attempt}"
                     
                     self._log(log_msg)
-                    _status(f"{label}: validated (E={sim_e:.4f})")
+                    _status(f"{label}: {outcome} (E={sim_e:.4f})")
                     self._clear_point_progress()
                     self._clean_temp_for_label(label)
-                    return df, 'validated'
+                    return df, outcome
             else:
                 consecutive_pass = 0
 
@@ -968,9 +969,9 @@ class Database_Corrector:
 
             df, outcome = self._correct_point(df, next_idx, label, on_status=on_status)
 
-            if outcome == 'validated':
+            if outcome in ('validated', 'corrected'):
                 corrected_indices.add(next_idx)
-                stats['validated'] += 1
+                stats[outcome] += 1
             else:
                 refused_indices.add(next_idx)
                 stats['refused'] += 1
@@ -1022,9 +1023,9 @@ class Database_Corrector:
             on_status(f"Starting {label} ({point_counter}/{n_middle})")
 
             df, outcome = self._correct_point(df, next_idx, label, on_status=on_status)
-            if outcome == 'validated':
+            if outcome in ('validated', 'corrected'):
                 corrected_indices.add(next_idx)
-                stats['validated'] += 1
+                stats[outcome] += 1
             else:
                 refused_indices.add(next_idx)
                 stats['refused'] += 1
@@ -1176,10 +1177,11 @@ class Database_Corrector:
                 corrected_indices: set = set(checkpoint['corrected_indices'])
                 refused_indices: set = set(checkpoint['refused_indices'])
                 stats = checkpoint['stats']
+                stats.setdefault('corrected', 0)
                 self._log(
                     f"Resuming from checkpoint: passes_complete={sorted(passes_complete)} | "
                     f"in-progress={resumed_pass} | "
-                    f"validated={stats['validated']} | refused={stats['refused']}"
+                    f"validated={stats['validated']} | corrected={stats['corrected']} | refused={stats['refused']}"
                 )
             else:
                 df = pd.read_csv(self.csv_file_path)
@@ -1191,7 +1193,7 @@ class Database_Corrector:
                 resumed_point_counter = 0
                 corrected_indices = set()
                 refused_indices = set()
-                stats = {'validated': 0, 'refused': 0}
+                stats = {'validated': 0, 'corrected': 0, 'refused': 0}
                 self._log(
                     f"Total rows: {total_rows} | "
                     f"Target per top/bottom pass: {n_target} "
@@ -1261,6 +1263,7 @@ class Database_Corrector:
             self._log(f"Output saved to: {self.csv_file_path.name}")
             self._log(
                 f"Validated: {stats['validated']} | "
+                f"Corrected: {stats['corrected']} | "
                 f"Refused: {stats['refused']} | "
                 f"Remaining rows: {len(df)}/{total_rows}"
             )
