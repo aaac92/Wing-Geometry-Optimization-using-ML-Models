@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import queue
 import re
@@ -8,6 +9,7 @@ import struct
 import subprocess
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Type
 
@@ -18,6 +20,40 @@ from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, AVL_Run_Case
 from geometric_support import Airfoil_Generator
 from ux_support import Progress_GUI
+
+
+@dataclass
+class AccelerationConfig:
+    """
+    Tunable parameters for the per-pass acceleration mechanism.
+
+    Acceleration is a per-pass trust ledger (`accel_value`, reset to
+    `initial` at the start of every top/bottom/middle pass) that grows
+    when a resolved point's original database value is confirmed correct
+    ('validated'), and shrinks when a point needed correction or was
+    refused/dropped -- by different amounts, since a refusal is stronger
+    evidence of an unreliable point than one that just needed correcting.
+
+    As the ledger moves away from `initial`, it shrinks how many of the
+    pass's `n_target` points actually get tested -- dropped from the
+    least-extreme, not-yet-tested end of the current ranking first, down
+    to `floor_fraction * n_target` -- and grows the tested count back
+    toward `n_target` if trust erodes again. Never expands past `n_target`.
+
+    See Database_Corrector._accel_n_effective / _accel_update.
+    """
+    enabled: bool = True
+    initial: float = 1.0
+    reward_validated: float = 1.0
+    penalty_corrected: float = 1.0
+    penalty_dropped: float = 2.0
+    streak_bonus: float = 0.15
+    streak_cap: int = 10
+    step_size: float = 3.0
+    hysteresis: float = 0.0
+    floor_fraction: float = 0.10
+    cap: float = 20.0
+
 
 class Database_Corrector:
     """
@@ -95,6 +131,7 @@ class Database_Corrector:
         temp_dir=None,
         verbose: bool = False,
         append_kp: bool = False,
+        accel_config: Optional[AccelerationConfig] = None,
     ):
         """
         Parameters
@@ -162,6 +199,13 @@ class Database_Corrector:
             If True, mirrors log output to stdout.
         append_kp : bool
             If True, requires and writes key point tracking columns.
+        accel_config : AccelerationConfig, optional
+            Tunable parameters for the per-pass acceleration mechanism
+            (see AccelerationConfig). Defaults to AccelerationConfig()
+            when omitted, i.e. acceleration is on with its own defaults.
+            Pass AccelerationConfig(enabled=False) to disable it and test
+            the full n_target/n_middle every pass, matching pre-acceleration
+            behavior.
         """
         self.csv_file_path = Path(csv_file_path)
         self.base_airfoil_csv = Path(base_airfoil_csv)
@@ -180,6 +224,7 @@ class Database_Corrector:
         self.source_airfoils_dir = Path(source_airfoils_dir) if source_airfoils_dir else None
         self.verbose = verbose
         self.append_kp = append_kp
+        self.accel_config = accel_config if accel_config is not None else AccelerationConfig()
 
         # Populated once per run_correction() call by _build_airfoil_index();
         # empty means every point falls back to CST regeneration.
@@ -454,6 +499,9 @@ class Database_Corrector:
         corrected_indices: set,
         refused_indices: set,
         stats: dict,
+        accel_value: float,
+        accel_streak: int,
+        accel_prev_d: int,
     ) -> None:
         """
         Persists pass-level progress: the working dataframe (with the pandas
@@ -465,6 +513,12 @@ class Database_Corrector:
         a freshly-numbered label collide with a stale temp file left over
         from a differently-numbered point before the crash. Written after
         every point resolves.
+
+        `accel_value`/`accel_streak`/`accel_prev_d` are the per-pass
+        acceleration ledger (see AccelerationConfig / _accel_n_effective).
+        Persisted so a resumed run reconstructs the exact effective target
+        the interrupted run was using, rather than recomputing one from
+        scratch -- see `_accel_n_effective`.
         """
         tmp_df_path = self._checkpoint_df_path.with_suffix('.csv.tmp')
         df.to_csv(tmp_df_path, index=True)
@@ -481,6 +535,9 @@ class Database_Corrector:
             'corrected_indices': sorted(corrected_indices),
             'refused_indices': sorted(refused_indices),
             'stats': stats,
+            'accel_value': accel_value,
+            'accel_streak': accel_streak,
+            'accel_prev_d': accel_prev_d,
         })
 
     def _load_checkpoint(self) -> Optional[dict]:
@@ -944,15 +1001,114 @@ class Database_Corrector:
         df = df.drop(index=idx)
         return df, 'refused'
 
+    # ── Acceleration ──────────────────────────────────────────────────── #
+
+    def _accel_n_effective(
+        self, accel_value: float, prev_d: int, n_target: int,
+    ) -> Tuple[int, int]:
+        """
+        Maps the current per-pass acceleration ledger to how many of
+        `n_target` points should actually be tested, and the drop count
+        `d` used to get there (`n_target - d`).
+
+        `d` is derived from net movement off `accel_config.initial`, in
+        units of `accel_config.step_size`, clamped so testing never drops
+        below `floor_fraction * n_target` and never exceeds `n_target`
+        (acceleration only ever reduces the per-pass workload).
+
+        When `accel_config.hysteresis > 0`, `d` only moves once `net`
+        clears a margin past the next threshold in either direction
+        (Schmitt-trigger style dead-band) rather than at the bare
+        division boundary, to avoid the count flapping by +/-1 when `net`
+        sits close to a boundary. `prev_d` carries that state across
+        calls -- pass back the `d` this function last returned, and
+        persist it in the checkpoint so a resumed run reconstructs the
+        exact target the interrupted run was using rather than a value
+        recomputed from a possibly-changed config.
+
+        With acceleration disabled, always returns `(n_target, 0)`.
+        """
+        cfg = self.accel_config
+        if not cfg.enabled or cfg.step_size <= 0:
+            return n_target, 0
+
+        n_floor = max(1, math.ceil(cfg.floor_fraction * n_target))
+        max_d = max(0, n_target - n_floor)
+        net = accel_value - cfg.initial
+
+        if cfg.hysteresis > 0:
+            d = prev_d
+            while d < max_d and net >= (d + 1) * cfg.step_size + cfg.hysteresis:
+                d += 1
+            while d > 0 and net < d * cfg.step_size - cfg.hysteresis:
+                d -= 1
+        else:
+            d = math.floor(net / cfg.step_size)
+
+        d = max(0, min(d, max_d))
+        return n_target - d, d
+
+    def _accel_update(
+        self, accel_value: float, accel_streak: int, outcome: str,
+    ) -> Tuple[float, int]:
+        """
+        Updates the per-pass acceleration ledger from one resolved point's
+        classification, which is exactly `outcome` from `_correct_point`:
+
+        - 'validated' (original database value confirmed correct): streak
+          increments and the reward is amplified by
+          `1 + streak_bonus * min(streak - 1, streak_cap)`, giving
+          consecutive validations a growing bonus without letting one long
+          streak grow unbounded.
+        - 'corrected' (value needed correcting but converged): streak
+          resets, ledger drops by `penalty_corrected`.
+        - 'refused' (dropped, never converged): streak resets, ledger
+          drops by `penalty_dropped` (default larger -- a stronger signal
+          of an unreliable point than one that just needed correcting).
+
+        Clamped to `accel_config.initial +/- accel_config.cap` so the
+        ledger itself can't run away over a long pass; the operationally
+        meaningful, further-clamped quantity is `_accel_n_effective`'s
+        `d`, not this raw value.
+
+        No-op (returns inputs unchanged) when acceleration is disabled.
+        """
+        cfg = self.accel_config
+        if not cfg.enabled:
+            return accel_value, accel_streak
+
+        if outcome == 'validated':
+            accel_streak += 1
+            multiplier = 1 + cfg.streak_bonus * min(accel_streak - 1, cfg.streak_cap)
+            accel_value += cfg.reward_validated * multiplier
+        else:
+            accel_streak = 0
+            accel_value -= cfg.penalty_corrected if outcome == 'corrected' else cfg.penalty_dropped
+
+        lo, hi = cfg.initial - cfg.cap, cfg.initial + cfg.cap
+        accel_value = min(max(accel_value, lo), hi)
+        return accel_value, accel_streak
+
     def _run_top_bottom_pass(
         self, on_progress: Callable[[int], None], on_status: Callable[[str], None],
+        on_accel: Callable[[int, float], None],
         df: pd.DataFrame, direction: str, ascending: bool, n_target: int,
         processed_this_pass: int, point_counter: int,
         corrected_indices: set, refused_indices: set, stats: dict,
         passes_complete: set, total_rows: int,
+        accel_value: float, accel_streak: int, accel_prev_d: int,
     ) -> Tuple[pd.DataFrame, set, set, dict]:
-        """Body of one top or bottom pass -- see run_correction for the dynamic re-sort rationale."""
-        while processed_this_pass < n_target:
+        """
+        Body of one top or bottom pass -- see run_correction for the dynamic
+        re-sort rationale. `n_effective` (how many of `n_target` are
+        actually tested this pass) is recomputed from the acceleration
+        ledger at the top of every iteration, so it can shrink OR grow
+        back across the loop's lifetime -- selection itself (dynamic
+        re-sort, first not-yet-resolved index) is unaffected; acceleration
+        only moves the stopping line.
+        """
+        n_effective, accel_prev_d = self._accel_n_effective(accel_value, accel_prev_d, n_target)
+        while processed_this_pass < n_effective:
             sorted_idx = df['E'].sort_values(ascending=ascending).index.tolist()
             next_idx = next(
                 (i for i in sorted_idx if i not in corrected_indices and i not in refused_indices),
@@ -964,8 +1120,8 @@ class Database_Corrector:
 
             point_counter += 1
             label = f"{direction}_{point_counter}"
-            self._log(f"\n--- [{direction.upper()}] Point {processed_this_pass + 1}/{n_target} ---")
-            on_status(f"Starting {label} ({processed_this_pass + 1}/{n_target})")
+            self._log(f"\n--- [{direction.upper()}] Point {processed_this_pass + 1}/{n_effective} ---")
+            on_status(f"Starting {label} ({processed_this_pass + 1}/{n_effective})")
 
             df, outcome = self._correct_point(df, next_idx, label, on_status=on_status)
 
@@ -976,28 +1132,45 @@ class Database_Corrector:
                 refused_indices.add(next_idx)
                 stats['refused'] += 1
 
+            accel_value, accel_streak = self._accel_update(accel_value, accel_streak, outcome)
+            n_effective, accel_prev_d = self._accel_n_effective(accel_value, accel_prev_d, n_target)
+
             processed_this_pass += 1
             on_progress(processed_this_pass)
+            on_accel(n_target - n_effective, accel_value)
             self._save_checkpoint(
                 df, total_rows, n_target, passes_complete, direction,
                 processed_this_pass, point_counter,
                 corrected_indices, refused_indices, stats,
+                accel_value, accel_streak, accel_prev_d,
             )
 
         passes_complete.add(direction)
         self._save_checkpoint(
             df, total_rows, n_target, passes_complete, None, 0, 0,
             corrected_indices, refused_indices, stats,
+            self.accel_config.initial, 0, 0,
         )
         return df, corrected_indices, refused_indices, stats
 
     def _run_middle_pass(
         self, on_progress: Callable[[int], None], on_status: Callable[[str], None],
+        on_accel: Callable[[int, float], None],
         df: pd.DataFrame, n_middle: int, already_done: int,
         corrected_indices: set, refused_indices: set, stats: dict,
         passes_complete: set, total_rows: int, n_target: int,
+        accel_value: float, accel_streak: int, accel_prev_d: int,
     ) -> Tuple[pd.DataFrame, set, set, dict]:
-        """Body of the middle pass -- see run_correction for why the candidate list is recomputed fresh."""
+        """
+        Body of the middle pass -- see run_correction for why the candidate
+        list is recomputed fresh (unaffected by acceleration: the ranking
+        itself doesn't change, only how much of it gets consumed).
+        `n_effective` bounds `processed_this_pass` exactly as in
+        `_run_top_bottom_pass`; because `middle_order` is a fixed
+        precomputed list rather than a live re-sort, an explicit cursor
+        walks it in rank order instead of a `for` loop, so the stopping
+        condition can be re-checked (and can grow back) on every step.
+        """
         median_e = df['E'].median()
         remaining_target = max(0, n_middle - already_done)
         eligible_idx = df.index.difference(
@@ -1014,13 +1187,17 @@ class Database_Corrector:
 
         point_counter = already_done
         processed_this_pass = already_done
-        for next_idx in middle_order:
+        n_effective, accel_prev_d = self._accel_n_effective(accel_value, accel_prev_d, n_middle)
+        cursor = 0
+        while cursor < len(middle_order) and processed_this_pass < n_effective:
+            next_idx = middle_order[cursor]
+            cursor += 1
             if next_idx in corrected_indices or next_idx in refused_indices:
                 continue
             point_counter += 1
             label = f"middle_{point_counter}"
-            self._log(f"\n--- [MIDDLE] Point {point_counter}/{n_middle} ---")
-            on_status(f"Starting {label} ({point_counter}/{n_middle})")
+            self._log(f"\n--- [MIDDLE] Point {point_counter}/{n_effective} ---")
+            on_status(f"Starting {label} ({point_counter}/{n_effective})")
 
             df, outcome = self._correct_point(df, next_idx, label, on_status=on_status)
             if outcome in ('validated', 'corrected'):
@@ -1030,18 +1207,24 @@ class Database_Corrector:
                 refused_indices.add(next_idx)
                 stats['refused'] += 1
 
+            accel_value, accel_streak = self._accel_update(accel_value, accel_streak, outcome)
+            n_effective, accel_prev_d = self._accel_n_effective(accel_value, accel_prev_d, n_middle)
+
             processed_this_pass += 1
             on_progress(processed_this_pass)
+            on_accel(n_middle - n_effective, accel_value)
             self._save_checkpoint(
                 df, total_rows, n_target, passes_complete, 'middle',
                 processed_this_pass, point_counter,
                 corrected_indices, refused_indices, stats,
+                accel_value, accel_streak, accel_prev_d,
             )
 
         passes_complete.add('middle')
         self._save_checkpoint(
             df, total_rows, n_target, passes_complete, None, 0, 0,
             corrected_indices, refused_indices, stats,
+            self.accel_config.initial, 0, 0,
         )
         return df, corrected_indices, refused_indices, stats
 
@@ -1075,9 +1258,24 @@ class Database_Corrector:
         flow depends on failures actually propagating, which the driver's
         existing multiprocessing usage of this same GUI does not need to
         guarantee (its worker pool isn't relied on to fail loudly).
+
+        Also seeds and threads through the acceleration display: an
+        `on_accel(dropped, value)` callback alongside `on_progress`/
+        `on_status`, mutating a shared `acceleration_state` dict the GUI
+        polls the same way it already polls `worker_status_list`. Requests
+        the GUI's detailed_only/show_acceleration mode (see GUI.py) --
+        default-window-is-detail-view with the acceleration readout,
+        gated behind `accel_config.enabled` so a disabled config falls
+        back to the plain detail view with no readout.
         """
         progress_queue: "queue.Queue" = queue.Queue()
         worker_status_list = ["Starting..."]
+
+        accel_value0 = pass_kwargs.get('accel_value', self.accel_config.initial)
+        accel_prev_d0 = pass_kwargs.get('accel_prev_d', 0)
+        _, initial_d = self._accel_n_effective(accel_value0, accel_prev_d0, n_target)
+        acceleration_state = {'dropped': initial_d, 'value': accel_value0}
+
         state = {'processed': initial_completed, 'error': None, 'result': None}
 
         def on_progress(processed_count: int) -> None:
@@ -1087,9 +1285,16 @@ class Database_Corrector:
         def on_status(text: str) -> None:
             worker_status_list[0] = text
 
+        def on_accel(dropped: int, value: float) -> None:
+            acceleration_state['dropped'] = dropped
+            acceleration_state['value'] = value
+
         def _target():
             try:
-                state['result'] = pass_fn(on_progress=on_progress, on_status=on_status, **pass_kwargs)
+                state['result'] = pass_fn(
+                    on_progress=on_progress, on_status=on_status,
+                    on_accel=on_accel, **pass_kwargs,
+                )
             except Exception as e:
                 state['error'] = e
             finally:
@@ -1108,6 +1313,9 @@ class Database_Corrector:
             window_title=window_title,
             header_text=header_text,
             initial_completed=initial_completed,
+            detailed_only=True,
+            show_acceleration=self.accel_config.enabled,
+            acceleration_state=acceleration_state,
         )
         gui.run()
         thread.join()
@@ -1134,6 +1342,15 @@ class Database_Corrector:
         every iteration, matching the original single-run behavior; this
         recomputation is deterministic given the checkpointed df and index
         sets, so it's safe to repeat on resume without re-processing points.
+
+        Acceleration
+        ------------
+        Each pass tracks a trust ledger (see `AccelerationConfig`) that
+        shrinks how many of its target points actually get tested as
+        validated points accumulate, and grows the tested count back if
+        points start needing correction or refusal. Resets per pass;
+        persisted in the checkpoint so a resume uses the exact effective
+        target the interrupted run was using.
 
         Recovery
         --------
@@ -1178,6 +1395,12 @@ class Database_Corrector:
                 refused_indices: set = set(checkpoint['refused_indices'])
                 stats = checkpoint['stats']
                 stats.setdefault('corrected', 0)
+                # Per-pass acceleration ledger. .get(...) defaults cover a
+                # checkpoint written before this field existed -- resumes
+                # as if this pass had just started at accel_config.initial.
+                resumed_accel_value = checkpoint.get('accel_value', self.accel_config.initial)
+                resumed_accel_streak = checkpoint.get('accel_streak', 0)
+                resumed_accel_prev_d = checkpoint.get('accel_prev_d', 0)
                 self._log(
                     f"Resuming from checkpoint: passes_complete={sorted(passes_complete)} | "
                     f"in-progress={resumed_pass} | "
@@ -1194,6 +1417,9 @@ class Database_Corrector:
                 corrected_indices = set()
                 refused_indices = set()
                 stats = {'validated': 0, 'corrected': 0, 'refused': 0}
+                resumed_accel_value = self.accel_config.initial
+                resumed_accel_streak = 0
+                resumed_accel_prev_d = 0
                 self._log(
                     f"Total rows: {total_rows} | "
                     f"Target per top/bottom pass: {n_target} "
@@ -1213,10 +1439,16 @@ class Database_Corrector:
                 if resumed_pass == direction:
                     processed_this_pass = resumed_processed
                     point_counter = resumed_point_counter
+                    accel_value = resumed_accel_value
+                    accel_streak = resumed_accel_streak
+                    accel_prev_d = resumed_accel_prev_d
                     self._log(f"  Resuming at point {processed_this_pass + 1}/{n_target}")
                 else:
                     processed_this_pass = 0
                     point_counter = 0
+                    accel_value = self.accel_config.initial
+                    accel_streak = 0
+                    accel_prev_d = 0
 
                 df, corrected_indices, refused_indices, stats = self._run_pass_with_gui(
                     pass_fn=self._run_top_bottom_pass,
@@ -1225,6 +1457,7 @@ class Database_Corrector:
                         processed_this_pass=processed_this_pass, point_counter=point_counter,
                         corrected_indices=corrected_indices, refused_indices=refused_indices,
                         stats=stats, passes_complete=passes_complete, total_rows=total_rows,
+                        accel_value=accel_value, accel_streak=accel_streak, accel_prev_d=accel_prev_d,
                     ),
                     n_target=n_target,
                     initial_completed=processed_this_pass,
@@ -1235,6 +1468,14 @@ class Database_Corrector:
             if self.middle_fraction > 0 and 'middle' not in passes_complete:
                 n_middle = max(1, int(total_rows * self.middle_fraction))
                 already_done = resumed_processed if resumed_pass == 'middle' else 0
+                if resumed_pass == 'middle':
+                    already_accel_value = resumed_accel_value
+                    already_accel_streak = resumed_accel_streak
+                    already_accel_prev_d = resumed_accel_prev_d
+                else:
+                    already_accel_value = self.accel_config.initial
+                    already_accel_streak = 0
+                    already_accel_prev_d = 0
                 self._log(
                     f"\n=== MIDDLE pass: {n_middle} rows "
                     f"({self.middle_fraction:.1%}), selected by absolute "
@@ -1250,6 +1491,8 @@ class Database_Corrector:
                         corrected_indices=corrected_indices, refused_indices=refused_indices,
                         stats=stats, passes_complete=passes_complete,
                         total_rows=total_rows, n_target=n_target,
+                        accel_value=already_accel_value, accel_streak=already_accel_streak,
+                        accel_prev_d=already_accel_prev_d,
                     ),
                     n_target=n_middle,
                     initial_completed=already_done,
