@@ -372,8 +372,13 @@ class Database_Corrector:
         """
         Reads a CST-coefficient header from a .dat file's first 1KB.
         Adapted from db_airfoil_cst_finder.py's read_dat_header: tries a
-        bracketed, comma-separated text header first, falls back to raw
-        float32 binary. Returns [] if neither yields `expected_count` values.
+        bracketed, comma- or space-delimited text header first, falls back
+        to raw float32 binary. Returns [] if neither yields `expected_count`
+        values.
+
+        Values are expected in the same order `_source_airfoil` builds them
+        for comparison: CST lower coefficients followed by CST upper
+        coefficients.
         """
         try:
             with open(file_path, "rb") as f:
@@ -382,8 +387,12 @@ class Database_Corrector:
 
             match = re.search(r"\[([^\]]+)\]", text)
             if match:
-                numbers = match.group(1).split(",")
-                values = [float(n.strip()) for n in numbers if n.strip() != ""]
+                # Header writers have used both comma-delimited
+                # ("[0.1, 0.2]") and space-delimited ("[0.1 0.2]") bracketed
+                # lists -- split on either so both are parsed instead of the
+                # space-delimited case silently failing to yield any values.
+                numbers = re.split(r"[,\s]+", match.group(1).strip())
+                values = [float(n) for n in numbers if n != ""]
                 return values[:expected_count]
 
             with open(file_path, "rb") as f:
@@ -429,31 +438,81 @@ class Database_Corrector:
         )
         return index
 
-    def _source_airfoil(self, row: pd.Series, label: str) -> Path:
+    def _source_airfoil(self, row: pd.Series, label: str) -> Tuple[Path, str, bool]:
         """
         Resolves the airfoil .dat file for one point. Called once per point
         (not per attempt -- CST-defined geometry is invariant across
         retries of the same point). Reuses an already-sourced file on disk
-        first (covers resuming mid-point after a crash), then tries the
-        prebuilt index, falling back to CST regeneration whenever no
-        unambiguous match exists -- mirrors current behavior exactly, just
-        without repeating the work on every attempt.
-        """
-        airfoil_path = self._airfoils_temp / f"{label}.dat"
-        if airfoil_path.exists():
-            return airfoil_path
+        first (covers resuming mid-point after a crash) -- but only if its
+        embedded CST header still matches this row's own coefficients; a
+        mismatch means the file is a stale leftover from an earlier
+        run/crash (e.g. a different row previously resolved to the same
+        label), so it is discarded and re-sourced rather than trusted.
+        Otherwise tries the prebuilt index, falling back to CST regeneration
+        whenever no unambiguous match exists.
 
+        Returns
+        -------
+        (airfoil_path, actual_airfoil_name, is_reconstruction)
+            `actual_airfoil_name` is the original source file's name for an
+            index-matched airfoil, or the reconstructed file's own name when
+            no source match exists (or a resumed cache-hit had none) --
+            `is_reconstruction` distinguishes the two for logging.
+        """
+        def _header_derived_name(path: Path) -> Optional[str]:
+            """
+            Recovers the original name embedded in a .dat header (the
+            `file_name` an earlier `_create_dat_file` call was given, or an
+            index-matched file's own original name -- both survive a
+            straight `shutil.copy`). Used only for a resumed cache-hit,
+            where neither branch below runs to tell us directly. Returns
+            None if the header doesn't match the expected format.
+            """
+            try:
+                with open(path, "rb") as f:
+                    text = f.read(1024).decode(errors="ignore")
+            except OSError:
+                return None
+            match = re.match(r"^([^\r\n\[]+?)\s+based on", text)
+            return match.group(1).strip() if match else None
+
+        airfoil_path = self._airfoils_temp / f"{label}.dat"
         cst_coeffs = (
             list(row[self._cst_l_cols].values) +
             list(row[self._cst_u_cols].values)
         )
+
+        if airfoil_path.exists():
+            expected_count = len(self._cst_l_cols) + len(self._cst_u_cols)
+            cached_values = self._read_dat_cst_header(airfoil_path, expected_count)
+            cached_key = tuple(round(v, self._CST_MATCH_DECIMALS) for v in cached_values)
+            current_key = tuple(round(v, self._CST_MATCH_DECIMALS) for v in cst_coeffs)
+            if len(cached_values) == expected_count and cached_key == current_key:
+                header_name = _header_derived_name(airfoil_path)
+                if header_name is not None:
+                    return airfoil_path, header_name, (header_name == label)
+                return airfoil_path, airfoil_path.name, False
+            self._log(
+                f"  Cached airfoil temp file for '{label}' does not match "
+                f"this row's CST coefficients (stale leftover from a "
+                f"previous run/crash); discarding and re-sourcing.",
+                'warning',
+            )
+            try:
+                airfoil_path.unlink()
+            except OSError:
+                pass
 
         if self._airfoil_index:
             key = tuple(round(v, self._CST_MATCH_DECIMALS) for v in cst_coeffs)
             matches = self._airfoil_index.get(key, [])
             if len(matches) == 1:
                 shutil.copy(matches[0], airfoil_path)
-                return airfoil_path
+                self._log(
+                    f"  Sourced airfoil for '{label}' from index match: "
+                    f"{matches[0]}"
+                )
+                return airfoil_path, matches[0].name, False
             elif len(matches) > 1:
                 self._log(
                     f"  Ambiguous airfoil match for '{label}' "
@@ -478,7 +537,11 @@ class Database_Corrector:
             yu=yu_mod,
             file_name=label,
         )
-        return airfoil_path
+        self._log(
+            f"  Sourced airfoil for '{label}' via CST regeneration "
+            f"(no unambiguous match in source_airfoils_dir)."
+        )
+        return airfoil_path, airfoil_path.name, True
 
     def _atomic_write_json(self, path: Path, data: dict) -> None:
         """Writes JSON via a temp file + os.replace so a crash mid-write can't corrupt it."""
@@ -625,10 +688,17 @@ class Database_Corrector:
         except FileNotFoundError:
             pass
 
-    def _clean_temp_for_label(self, label: str) -> None:
-        """Deletes all temp files whose filename contains `label`."""
-        for d in [self._airfoils_temp, self._polars_temp,
-                  self._geo_temp, self._force_temp]:
+    def _clean_temp_for_label(self, label: str, dirs: Optional[List[Path]] = None) -> None:
+        """
+        Deletes all temp files whose filename contains `label`.
+        `dirs` defaults to all four temp dirs; pass a subset to scope the
+        sweep (e.g. geo/force dirs only, so as not to touch the point-scoped
+        airfoil .dat file that must survive across attempts).
+        """
+        if dirs is None:
+            dirs = [self._airfoils_temp, self._polars_temp,
+                    self._geo_temp, self._force_temp]
+        for d in dirs:
             for f in d.glob(f"*{label}*"):
                 try:
                     f.unlink()
@@ -682,8 +752,8 @@ class Database_Corrector:
 
     def _format_row_for_log(self, row: pd.Series) -> str:
         """Returns a structured string of all row features for log output."""
-        cst_l = list(row[self._cst_l_cols].values.round(8))
-        cst_u = list(row[self._cst_u_cols].values.round(8))
+        cst_l = [round(float(v), 8) for v in row[self._cst_l_cols].values]
+        cst_u = [round(float(v), 8) for v in row[self._cst_u_cols].values]
         parts = [f"CST_lower={cst_l}", f"CST_upper={cst_u}"]
         
         if self.append_kp:
@@ -881,8 +951,16 @@ class Database_Corrector:
 
         row = df.loc[idx]
         stored_e: float = row['E']
-        airfoil_path = self._source_airfoil(row, label)
+        airfoil_path, actual_airfoil_name, is_reconstruction = self._source_airfoil(row, label)
         _status(f"{label}: sourcing airfoil / starting attempt 1")
+
+        # 1-based CSV line number: header occupies line 1, so DataFrame
+        # index 0 is line 2.
+        database_line_id = idx + 2
+        airfoil_field_label = (
+            "Airfoil for validation (reconstruction)" if is_reconstruction
+            else "Airfoil for validation"
+        )
 
         resumed = self._load_point_progress(idx)
         if resumed is not None:
@@ -891,7 +969,9 @@ class Database_Corrector:
             attempt_log: List[dict] = resumed['attempt_log']
             start_attempt = resumed['next_attempt']
             self._log(
-                f"\n  Point '{label}' (idx={idx}) | Stored E={stored_e:.8f} | "
+                f"\n  Point \"{label}\" idx: {database_line_id} | "
+                f"Stored E={stored_e:.8f} | "
+                f"{airfoil_field_label}: {actual_airfoil_name} | "
                 f"Resuming from attempt {start_attempt} "
                 f"(consecutive_pass={consecutive_pass})"
             )
@@ -900,7 +980,11 @@ class Database_Corrector:
             consecutive_pass = 0
             attempt_log = []
             start_attempt = 1
-            self._log(f"\n  Point '{label}' (idx={idx}) | Stored E={stored_e:.8f}")
+            self._log(
+                f"\n  Point \"{label}\" idx: {database_line_id} | "
+                f"Stored E={stored_e:.8f} | "
+                f"{airfoil_field_label}: {actual_airfoil_name}"
+            )
         self._log(f"  Features: {self._format_row_for_log(row)}")
 
         for attempt in range(start_attempt, self.max_attempts + 1):
@@ -910,6 +994,13 @@ class Database_Corrector:
 
             # Clean temp files produced by this attempt before the next iteration
             self._clean_temp_for_label(attempt_label)
+            # AVL geo files ("{label}_{config}_geo.avl") and force files
+            # ("force_{label}_{config}.txt") are named after the point-scoped
+            # label, not attempt_label (see _simulate_point), so the sweep
+            # above never touches them. Clean them by `label` here, scoped to
+            # just these two dirs, so a failed/stale attempt's output can't
+            # be silently read by a later attempt's _extract_force_data call.
+            self._clean_temp_for_label(label, dirs=[self._geo_temp, self._force_temp])
 
             if result is None:
                 self._log(
