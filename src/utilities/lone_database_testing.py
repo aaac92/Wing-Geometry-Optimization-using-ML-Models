@@ -63,35 +63,43 @@ def get_user_inputs() -> dict:
     args = parser.parse_args()
 
     # Case ID
-    case_id = args.case_id or input("Enter Case Identifier [debug_case]: ").strip() or "debug_case"
+    case_id = args.case_id or input("Enter Case Identifier, or press enter for default [debug_case]: ").strip() or "debug_case"
 
-    # CST Order
+    # CST Order (Mandatory)
     if args.n_cst is not None:
         n_cst = args.n_cst
     else:
-        n_cst_in = input("Enter CST order (n_cst) [5]: ").strip()
-        n_cst = int(n_cst_in) if n_cst_in else 5
+        while True:
+            n_cst_in = input("Enter CST order (n_cst): ").strip()
+            if n_cst_in.isdigit():
+                n_cst = int(n_cst_in)
+                break
+            print("[ERROR] CST order must be specified as an integer.")
 
-    # CST Coefficients
+    # CST Coefficients (Mandatory)
     if args.cst_coeffs is not None:
         cst_array = parse_cst_coefficients(args.cst_coeffs, n_cst)
     else:
-        cst_in = input(f"Enter {2*n_cst} space-separated CST coefficients (lower then upper) [zeros]: ").strip()
-        cst_array = parse_cst_coefficients(cst_in, n_cst)
+        while True:
+            cst_in = input(f"Enter {2*n_cst} space-separated CST coefficients (lower then upper): ").strip()
+            if cst_in:
+                cst_array = parse_cst_coefficients(cst_in, n_cst)
+                break
+            print("[ERROR] CST coefficients must be specified.")
 
-    # Flow Conditions
-    reynolds = args.reynolds if args.reynolds is not None else float(input("Enter Reynolds number [250000]: ").strip() or 2.5e5)
-    mach = args.mach if args.mach is not None else float(input("Enter Mach number [0.09281]: ").strip() or 0.09281)
+    # Flow Conditions (Defaultable)
+    reynolds = args.reynolds if args.reynolds is not None else float(input("Enter Reynolds number, or press enter for default [250000]: ").strip() or 2.5e5)
+    mach = args.mach if args.mach is not None else float(input("Enter Mach number, or press enter for default [0.09281]: ").strip() or 0.09281)
 
-    # Alpha sequence
+    # Alpha sequence (Defaultable)
     if args.aseq is not None:
         aseq_parts = [float(x) for x in args.aseq.replace(",", " ").split()]
         aseq = aseq_parts if len(aseq_parts) == 3 else [-20.0, 20.0, 0.5]
     else:
-        aseq_in = input("Enter Alpha sequence (start end step) [-20 20 0.5]: ").strip()
+        aseq_in = input("Enter Alpha sequence (start end step), or press enter for default [-20 20 0.5]: ").strip()
         aseq = [float(x) for x in aseq_in.split()] if aseq_in else [-20.0, 20.0, 0.5]
 
-    # Wing Configuration Validation
+    # Wing Configuration Validation (Mandatory)
     config_in = args.wing_config.lower() if args.wing_config else None
     while config_in not in WING_CONFIG_MAP:
         if config_in is not None:
