@@ -5,12 +5,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 import numpy as np
 
-# Adjust sys.path to resolve project root and src modules
 current_file = Path(__file__).resolve()
 project_root = current_file.parents[2]
-src_dir = project_root / "src"
-if str(src_dir) not in sys.path:
-    sys.path.insert(0, str(src_dir))
 
 from cst_modeling.foil import check_validity
 from simulation_support import (
@@ -146,6 +142,7 @@ def extract_force_metrics(file_path: Path) -> Optional[Tuple[str, float, float]]
         return None
 
 def main():
+    print("Now executing Environment Setup & Input Ingestion")
     # Input Handling and Environment Setup
     inputs = get_user_inputs()
     
@@ -171,6 +168,7 @@ def main():
 
     airfoil_name = inputs["case_id"]
 
+    print("Now executing Airfoil Genesis & Geometric Validation")
     # Airfoil Genesis and Geometric Validation
     airfoil_creator = Airfoil_Generator(
         base_airfoil_csv=str(base_airfoil_path),
@@ -220,6 +218,7 @@ def main():
     )
     airfoil_dat_path = airfoils_temp_dir / f"{airfoil_name}.dat"
 
+    print("Now executing Aerodynamic Polar Formulation")
     # Aerodynamic Polar Formulation
     polar_file_path = polars_temp_dir / f"polar_{airfoil_name}.txt"
     xfoil_case = XPR(
@@ -229,14 +228,20 @@ def main():
         polar_dir=polars_temp_dir,
         verbose=inputs["verbose"]
     )
+    
+    aseq = inputs["aseq"]
+    num_steps = int((aseq[1] - aseq[0]) / aseq[2]) + 1
+    angles = [aseq[0] + j * aseq[2] for j in range(num_steps)]
+
     xfoil_case.run_simulation(
         airfoil_file_path=str(airfoil_dat_path),
         polar_file_path=str(polar_file_path),
-        alfa_sequence=inputs["aseq"],
+        alfa_sequence=angles,
         visc=inputs["reynolds"],
         mach=inputs["mach"]
     )
 
+    print("Now executing Aerodynamic Key Point Extraction")
     # Aerodynamic Key Point Extraction
     key_points = Key_Point_Extraction(
         polar_file_paths=[str(polar_file_path)],
@@ -244,6 +249,7 @@ def main():
     )
     key_points_data = key_points.process_files()
 
+    print("Now executing AVL Configuration Formulation")
     # AVL Configuration Formulation
     creator_class, identifier = WING_CONFIG_MAP[inputs["wing_config"]]
     geo_creator = creator_class(
@@ -262,6 +268,7 @@ def main():
         if found_geos:
             geo_file_path = found_geos[0]
 
+    print("Now executing AVL Execution & Force Extraction")
     # AVL Execution and Force Extraction
     case_file_temp = support_files_temp_dir / case_file_src.name
     with open(case_file_src, 'r') as src_f, open(case_file_temp, 'w') as dst_f:
