@@ -123,7 +123,7 @@ class Database_Corrector:
         naca_key_points_data,
         configs: Optional[List[Tuple[Type, str]]] = None,
         default_geo_creator_class: Optional[Type] = None,
-        error_threshold: float = 0.02,
+        error_threshold: float = 0.05,
         max_attempts: int = 6,
         top_bottom_fraction: float = 0.01,
         middle_fraction: float = 0.0,
