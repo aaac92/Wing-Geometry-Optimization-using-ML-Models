@@ -32,7 +32,7 @@ if not os.path.exists(training_file_dir):
     sys.exit()
 
 # === Optuna Objective Function === #
-N_TRIALS = 12
+N_TRIALS = 80
 def objective(trial):
     """
     Takes a trial object from Optuna, suggests hyperparameters, 
