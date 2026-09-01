@@ -242,7 +242,7 @@ class MLP_Regressor:
             val_subset = Subset(train_dataset, val_i)
 
             # Create dataloaders using the dynamically calculated batch size
-            train_loader = DataLoader(train_subset, batch_size=calculated_batch_size, shuffle=True)
+            train_loader = DataLoader(train_subset, batch_size=calculated_batch_size, shuffle=True, drop_last=True)
             val_loader = DataLoader(val_subset, batch_size=calculated_batch_size, shuffle=True)
 
             # Initialize model
@@ -547,7 +547,9 @@ class MLP_Regressor:
             hidden_layer_sizes=regressor.hidden_layer_sizes,
             dropout_rate=regressor.dropout_rate
         )
-        regressor.model.load_state_dict(torch.load(os.path.join(folder_path, f"{file_name_prefix}_model.pth")))
+        model_weights_path = os.path.join(folder_path, f"{file_name_prefix}_model.pth")
+        state_dict = torch.load(model_weights_path, map_location=regressor.device, weights_only=True)
+        regressor.model.load_state_dict(state_dict)
         regressor.model.to(regressor.device)
         regressor.model.eval()
 
@@ -1284,7 +1286,11 @@ class Classifier:
 
             neg_count = (y_train_fold == 0).sum().item()
             pos_count = (y_train_fold == 1).sum().item()
-            weight = torch.tensor([pos_count / neg_count], device=self.device) if pos_count > 0 else torch.tensor([1.0], device=self.device)
+            if pos_count > 0 and neg_count > 0:
+                weight_val = neg_count / pos_count
+            else:
+                weight_val = 1.0
+            weight = torch.tensor([weight_val], device=self.device, dtype=torch.float32)
             
             # Loss for training (weighted) and validation (unweighted)
             loss_fn = nn.BCEWithLogitsLoss(pos_weight=weight)
@@ -1477,7 +1483,8 @@ class Classifier:
             input_dim=loaded_classifier.input_dim, 
             hidden_layer_sizes=loaded_classifier.hidden_layer_sizes
         )
-        loaded_classifier.model.load_state_dict(torch.load(model_path))
+        state_dict = torch.load(model_path, map_location=loaded_classifier.device, weights_only=True)
+        loaded_classifier.model.load_state_dict(state_dict)
         loaded_classifier.model.to(loaded_classifier.device)
         loaded_classifier.model.eval()
 
