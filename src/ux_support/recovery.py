@@ -5,8 +5,11 @@ from typing import List, Tuple
 from file_handling_support import compression_Alma
 
 class recovery_json:
-    def __init__(self):
-        recovery_file_path = Path(__file__).resolve().parent.parent / "recovery_status.json"
+    def __init__(self, directory: Path = None):
+        if directory is not None:
+            recovery_file_path = Path(directory) / "recovery_status.json"
+        else:
+            recovery_file_path = Path(__file__).resolve().parent.parent / "recovery_status.json"
         self.recovery_file = recovery_file_path
 
     def get_recovery_status(self):
