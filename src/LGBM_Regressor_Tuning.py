@@ -3,8 +3,16 @@ import os
 import optuna
 import json
 import random
+import platform
 from pathlib import Path
 from ai_support import LGBM_Regressor
+from ux_support import recovery_json
+
+# === Recovery Setup === #
+recovery_dir = Path("C:/lgbm_reg_rec") if platform.system() == "Windows" else Path.home() / ".lgbm_reg_rec"
+recovery_dir.mkdir(parents=True, exist_ok=True)
+rec_json = recovery_json(directory=recovery_dir)
+status = rec_json.get_recovery_status()
 
 # === Directory configuration === #
 # Get the path to the src directory.
@@ -69,10 +77,19 @@ def objective(trial):
     return mae
 
 # === Optuna Study Execution === #
-print(f"\nStarting Optuna Optimization for {N_TRIALS} Trials...")
+storage = f"sqlite:///{recovery_dir / 'optuna_study.db'}"
+study = optuna.create_study(study_name=dataset_name, storage=storage, direction='minimize', load_if_exists=True)
 
-study = optuna.create_study(direction='minimize') 
-study.optimize(objective, n_trials=N_TRIALS) 
+if not status.get('optuna_complete', False):
+    completed_trials = len(study.get_trials(states=(optuna.trial.TrialState.COMPLETE,)))
+    remaining_trials = N_TRIALS - completed_trials
+
+    if remaining_trials > 0:
+        print(f"\nStarting Optuna Optimization for {remaining_trials} Trials...")
+        study.optimize(objective, n_trials=remaining_trials)
+
+    status['optuna_complete'] = True
+    rec_json.save_recovery_status(status)
 
 
 # === Final Report and Model Saving === #
@@ -86,33 +103,46 @@ best_params = study.best_params
 for key, value in best_params.items():
     print(f"  - {key}: {value}")
 
-# Retrain the final best model
-print("\n--- Retraining and Saving the Best Model ---")
-final_model = LGBM_Regressor(
-    n_estimators=best_params['n_estimators'],
-    learning_rate=best_params['learning_rate'],
-    lr_decay=best_params['lr_decay'],
-    num_leaves=best_params['num_leaves'],
-    max_depth=best_params['max_depth'],
-    objective=best_params['objective'],
-    weight=best_params['weight']
-)
-final_model.train(data_path=training_file_dir)
-
 names = [ "Marbas", "Orobas", "Agares", "Foras", "Phobos", "Nemesis", "Kuutar"]
-best_mae_name = random.choice(names)
+if 'best_mae_name' not in status:
+    status['best_mae_name'] = random.choice(names)
+    rec_json.save_recovery_status(status)
+best_mae_name = status['best_mae_name']
 
-# Save parameters for best model
-json_name = f"{best_mae_name}_regressor_model_parameters.json"
-param_file = os.path.join(model_save_dir, json_name)
-with open(param_file, 'w') as json_file:
-    json.dump(best_params, json_file, indent=4)
+if not status.get('finalized', False):
+    # Retrain the final best model
+    print("\n--- Retraining and Saving the Best Model ---")
+    final_model = LGBM_Regressor(
+        n_estimators=best_params['n_estimators'],
+        learning_rate=best_params['learning_rate'],
+        lr_decay=best_params['lr_decay'],
+        num_leaves=best_params['num_leaves'],
+        max_depth=best_params['max_depth'],
+        objective=best_params['objective'],
+        weight=best_params['weight']
+    )
+    final_model.train(data_path=training_file_dir)
 
-# Save model
-final_model.save_model(model_save_dir, best_mae_name)
+    # Save parameters for best model
+    json_name = f"{best_mae_name}_regressor_model_parameters.json"
+    param_file = os.path.join(model_save_dir, json_name)
+    with open(param_file, 'w') as json_file:
+        json.dump(best_params, json_file, indent=4)
 
-# Save all results
-results_df = study.trials_dataframe()
-results_csv_path = model_save_dir / f"{best_mae_name}_optuna_search_results.csv"
-results_df.to_csv(results_csv_path, index=False)
-print(f"\nFull optimization results saved to '{results_csv_path}'")
+    # Save model
+    final_model.save_model(model_save_dir, best_mae_name)
+
+    # Save all results
+    results_df = study.trials_dataframe()
+    results_csv_path = model_save_dir / f"{best_mae_name}_optuna_search_results.csv"
+    results_df.to_csv(results_csv_path, index=False)
+    print(f"\nFull optimization results saved to '{results_csv_path}'")
+
+    status['finalized'] = True
+    rec_json.save_recovery_status(status)
+
+# === Recovery Cleanup === #
+rec_json.recover_cleanup()
+db_path = recovery_dir / 'optuna_study.db'
+if db_path.exists():
+    db_path.unlink()
