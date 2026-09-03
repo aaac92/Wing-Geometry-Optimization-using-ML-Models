@@ -40,7 +40,7 @@ if not os.path.exists(training_file_dir):
     sys.exit()
 
 # === Optuna Objective Function === #
-N_TRIALS = 80
+N_TRIALS = 120
 def objective(trial):
     """
     Takes a trial object from Optuna, suggests hyperparameters, 
@@ -57,15 +57,19 @@ def objective(trial):
     
     dr = trial.suggest_float('dropout_rate', 0.01, 0.05)
     lr = trial.suggest_float('learning_rate', 0.001, 0.05, log=True)
-    log_trans = trial.suggest_categorical('log_trans', [True])
-    patience = trial.suggest_int('patience', 30, 80)
+    batch_size = trial.suggest_categorical('batch_size', [512, 1024, 2048, 4096])
+    log_trans = trial.suggest_categorical('log_trans', [True, False])
+    patience = trial.suggest_int('patience', 8, 35)
+    weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'combo', 'exponential', 'linear'])
 
     print(f"PARAMETERS:")
     print(f"Layers = {hidden_layer_sizes}")
     print(f"Dropout Rate = {dr}")
     print(f"Learning Rate = {lr}")
+    print(f"Batch Size = {batch_size}")
     print(f"Log Transform = {log_trans}")
     print(f"Patience = {patience}")
+    print(f"Weight Type = {weight}")
     print("="*50)
 
     # Instantiate and train the regressor
@@ -73,8 +77,9 @@ def objective(trial):
         hidden_layer_sizes=hidden_layer_sizes,
         dropout_rate=dr,
         learning_rate=lr,
+        batch_size=batch_size,
         patience=patience,
-        weight='None',
+        weight=weight,
         log_trans=log_trans
     )
 
@@ -132,8 +137,9 @@ if not status.get('finalized', False):
         hidden_layer_sizes=best_hidden_layer_sizes,
         dropout_rate=best_params['dropout_rate'],
         learning_rate=best_params['learning_rate'],
+        batch_size=best_params['batch_size'],
         patience=best_params['patience'],
-        weight='None',
+        weight=best_params['weight'],
         log_trans=best_params['log_trans']
     )
     final_model.train(data_path=training_file_dir)

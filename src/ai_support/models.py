@@ -49,18 +49,20 @@ class MLP_Regressor:
                  hidden_layer_sizes=[128, 128, 128, 128, 64],
                  dropout_rate=0.05,
                  learning_rate=1e-3,
+                 batch_size=1024,
                  epochs=500,
-                 patience=50,
+                 patience=16,
                  k=5,
                  test_split=0.2,
-                 random_state=92,
-                 weight=None,
+                 random_state=42,
+                 weight='None',
                  log_trans=False):
         
         # Hyperparameters
         self.hidden_layer_sizes = hidden_layer_sizes
         self.dropout_rate = dropout_rate
         self.learning_rate = learning_rate
+        self.batch_size = batch_size
         
         # Other training parameters
         self.epochs = epochs
@@ -78,6 +80,7 @@ class MLP_Regressor:
         self.scaler = None
         self.input_dim = None # Will be determined after data is loaded
         self.log_transform = log_trans
+        self.y_min = None
         
         if self.device.type == "cuda":
             print(f"MLP Regressor initialized. Training will use device: {torch.cuda.get_device_name()}")
@@ -98,9 +101,9 @@ class MLP_Regressor:
         output = df.iloc[:, -1].values.astype(np.float32)
 
         # Optional logarithmic output transformation and data split for testing
-        if self.log_transform == True:
-            # Split log data
-            output = np.log1p(output)
+        if self.log_transform:
+            self.y_min = float(output.min())
+            output = np.log1p(output - self.y_min)
             train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
         else:
             # Split data
@@ -126,7 +129,8 @@ class MLP_Regressor:
     def _find_max_batch_size(self, X_t, y_t, weights_t):
         """
         Dynamically finds the maximum batch size that fits in GPU VRAM by
-        catching OutOfMemory exceptions and halving the batch size.
+        catching OutOfMemory exceptions and halving the batch size. 
+        (Use only if you want to train with Large Batches) (Currently out of service)
         """
         if self.device.type == 'cpu':
             return len(X_t)
@@ -222,9 +226,6 @@ class MLP_Regressor:
         else: 
             weights_train = torch.ones(len(y), dtype=torch.float32)
 
-        # --- DYNAMIC BATCH SIZE INTEGRATION ---
-        calculated_batch_size = self._find_max_batch_size(X, y, weights_train)
-
         best_model_state = None
 
         # Create dataset from tensors
@@ -233,7 +234,7 @@ class MLP_Regressor:
         all_scores_mae = []
         all_scores_r2 = []
 
-        print(f"Starting regressor training using {self.k} folds...")
+        print(f"Starting regressor training using {self.k} folds with batch size {self.batch_size}...")
         for fold, (train_i, val_i) in enumerate(kf.split(train_dataset)):
             print(f"Processing fold: {fold + 1}/{self.k}")
 
@@ -241,9 +242,9 @@ class MLP_Regressor:
             train_subset = Subset(train_dataset, train_i)
             val_subset = Subset(train_dataset, val_i)
 
-            # Create dataloaders using the dynamically calculated batch size
-            train_loader = DataLoader(train_subset, batch_size=calculated_batch_size, shuffle=True, drop_last=True)
-            val_loader = DataLoader(val_subset, batch_size=calculated_batch_size, shuffle=True)
+            # Create dataloaders using the selected mini-batch size
+            train_loader = DataLoader(train_subset, batch_size=self.batch_size, shuffle=True, drop_last=True)
+            val_loader = DataLoader(val_subset, batch_size=self.batch_size, shuffle=False)
 
             # Initialize model
             self.model = _PyTorchMLPRegressor(
@@ -266,9 +267,9 @@ class MLP_Regressor:
                     preds = preds.cpu().numpy()
                     targets = targets.cpu().numpy()
 
-                    if self.log_transform == True:
-                        targets = np.expm1(targets).astype(np.float32)
-                        preds = np.expm1(preds).astype(np.float32)
+                    if self.log_transform:
+                        targets = (np.expm1(targets) + self.y_min).astype(np.float32)
+                        preds = (np.expm1(preds) + self.y_min).astype(np.float32)
 
                     pred.extend(preds)
                     target.extend(targets)
@@ -456,10 +457,10 @@ class MLP_Regressor:
                 targets = targets.cpu().numpy()
 
                 # Remove log transform in case it's used
-                if self.log_transform == True:
+                if self.log_transform:
                     # Inverse transformation
-                    targets = np.expm1(targets).astype(np.float32)
-                    test_preds = np.expm1(test_preds).astype(np.float32)
+                    targets = (np.expm1(targets) + self.y_min).astype(np.float32)
+                    test_preds = (np.expm1(test_preds) + self.y_min).astype(np.float32)
 
                 # Accumulates data for calculation
                 pred_cumulative.extend(test_preds)
@@ -493,8 +494,8 @@ class MLP_Regressor:
         with torch.no_grad():
             preds = self.model(X)
             preds = preds.cpu().numpy()
-            if self.log_transform == True:
-                preds = np.expm1(preds)
+            if self.log_transform:
+                preds = np.expm1(preds) + self.y_min
         
         predictions = preds
 
@@ -516,7 +517,7 @@ class MLP_Regressor:
         torch.save(self.model.state_dict(), os.path.join(folder_path, f"{file_name_prefix}_model.pth"))
         joblib.dump(self.scaler, os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib"))
 
-        metadata = {'input_dim': self.input_dim}
+        metadata = {'input_dim': self.input_dim, 'y_min': self.y_min}
         with open(os.path.join(folder_path, f"{file_name_prefix}_meta.json"), 'w') as f:
             json.dump(metadata, f)
 
@@ -537,6 +538,7 @@ class MLP_Regressor:
         # Re-create the class instance, passing any saved hyperparameters
         regressor = cls(**kwargs)
         regressor.input_dim = metadata['input_dim']
+        regressor.y_min = metadata.get('y_min', None)
 
         # Load the scaler
         regressor.scaler = joblib.load(os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib"))
