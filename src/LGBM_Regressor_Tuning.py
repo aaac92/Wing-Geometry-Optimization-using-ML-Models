@@ -10,22 +10,32 @@ from ai_support import LGBM_Regressor
 from ux_support import recovery_json
 
 # === LightGBM Logger Deduplication === #
-# The lr_decay callback (lgb.reset_parameter) in LGBM_Regressor.train() re-triggers
-# LightGBM's internal param-conflict check on every boosting iteration. That check
-# reports num_leaves as "not explicitly set" even though it is, so the
-# "constrain tree depth ... without explicitly setting num_leaves" message repeats
-# once per iteration (thousands of times per trial). This is cosmetic only: the
-# num_leaves value actually used for training is unaffected. This logger prints
-# that specific message once per process run instead of on every iteration.
+# Two LightGBM Info-level messages are printed on every fit() call / every boosting
+# iteration and flood the terminal across many folds/trials. Neither indicates a
+# real problem, so this logger prints each one once per process run instead of
+# repeatedly:
+#   1. "constrain tree depth ... without explicitly setting num_leaves" - the
+#      lr_decay callback (lgb.reset_parameter) re-triggers LightGBM's internal
+#      param-conflict check on every boosting iteration, which reports num_leaves
+#      as "not explicitly set" even though it is. Cosmetic only; the num_leaves
+#      value actually used for training is unaffected.
+#   2. "Auto-choosing col-wise multi-threading" - printed once per fit() call
+#      (i.e. once per fold) while LightGBM times whether column-wise or row-wise
+#      histogram building is faster. The timing test costs microseconds; purely
+#      informational, no functional impact.
 class _DedupLogger:
     _seen = set()
     def info(self, msg):
         if "constrain tree depth" in msg:
-            if "num_leaves_maxdepth" not in self._seen:
-                self._seen.add("num_leaves_maxdepth")
-                print(msg + " (further repeats of this message suppressed)")
+            key = "num_leaves_maxdepth"
+        elif "Auto-choosing" in msg and "multi-threading" in msg:
+            key = "auto_choosing_multithreading"
+        else:
+            print(msg)
             return
-        print(msg)
+        if key not in self._seen:
+            self._seen.add(key)
+            print(msg + " (further repeats of this message suppressed)")
     def warning(self, msg):
         print(msg)
 

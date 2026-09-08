@@ -772,7 +772,8 @@ class LGBM_Regressor:
             self.model.fit(
                 X_train_fold, y_train_fold,
                 sample_weight=weights_train_fold,
-                eval_set=[(X_val_fold, y_val_fold)],
+                eval_X=X_val_fold,
+                eval_y=y_val_fold,
                 eval_metric=eval_metric,
                 callbacks=[
                     lgb.early_stopping(self.stopping_rounds, verbose=False),
