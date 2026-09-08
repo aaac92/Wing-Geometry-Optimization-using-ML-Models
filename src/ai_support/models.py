@@ -691,6 +691,7 @@ class LGBM_Regressor:
             num_bins = 20
             y_min, y_max = y.min().item(), y.max().item()
             bin_indices = torch.bucketize(torch.tensor(y), torch.linspace(y_min, y_max, num_bins+1), right=False).numpy() - 1
+            bin_indices = np.clip(bin_indices, 0, num_bins - 1)
             bin_counts = np.bincount(bin_indices, minlength=num_bins).astype(float)
             inv_freq = np.where(bin_counts == 0, 1.0, 1.0/bin_counts)
             weights = inv_freq[bin_indices]
