@@ -65,7 +65,7 @@ if not os.path.exists(training_file_dir):
     sys.exit()
 
 # === Optuna Objective Function === #
-N_TRIALS = 60
+N_TRIALS = 150
 def objective(trial):
     """
     Takes a trial object from Optuna, suggests hyperparameters for LightGBM, 
