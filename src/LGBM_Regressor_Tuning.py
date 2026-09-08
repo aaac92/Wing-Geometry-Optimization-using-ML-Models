@@ -4,9 +4,32 @@ import optuna
 import json
 import random
 import platform
+import lightgbm as lgb
 from pathlib import Path
 from ai_support import LGBM_Regressor
 from ux_support import recovery_json
+
+# === LightGBM Logger Deduplication === #
+# The lr_decay callback (lgb.reset_parameter) in LGBM_Regressor.train() re-triggers
+# LightGBM's internal param-conflict check on every boosting iteration. That check
+# reports num_leaves as "not explicitly set" even though it is, so the
+# "constrain tree depth ... without explicitly setting num_leaves" message repeats
+# once per iteration (thousands of times per trial). This is cosmetic only: the
+# num_leaves value actually used for training is unaffected. This logger prints
+# that specific message once per process run instead of on every iteration.
+class _DedupLogger:
+    _seen = set()
+    def info(self, msg):
+        if "constrain tree depth" in msg:
+            if "num_leaves_maxdepth" not in self._seen:
+                self._seen.add("num_leaves_maxdepth")
+                print(msg + " (further repeats of this message suppressed)")
+            return
+        print(msg)
+    def warning(self, msg):
+        print(msg)
+
+lgb.register_logger(_DedupLogger())
 
 # === Recovery Setup === #
 recovery_dir = Path("C:/lgbm_reg_rec") if platform.system() == "Windows" else Path.home() / ".lgbm_reg_rec"
@@ -45,8 +68,16 @@ def objective(trial):
     n_estimators = trial.suggest_int('n_estimators', 1000, 4000, step=500)
     lr = trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
     lr_decay = trial.suggest_float('lr_decay', 0.90, 0.99)
-    num_leaves = trial.suggest_int('num_leaves', 20, 100, step=20)
+
+    # max_depth is sampled first; num_leaves is then bounded above by 2^max_depth
+    # (LightGBM silently clamps num_leaves to this cap anyway for leaf-wise growth,
+    # so sampling above it wastes trials on combos that collapse to the same model).
+    # PRACTICAL_MAX_LEAVES keeps the ceiling sane at high max_depth values, where
+    # 2^max_depth would otherwise reach the hundreds of thousands.
+    PRACTICAL_MAX_LEAVES = 100
     max_depth = trial.suggest_int('max_depth', 5, 20, step=5)
+    num_leaves_upper = min(2 ** max_depth, PRACTICAL_MAX_LEAVES)
+    num_leaves = trial.suggest_int('num_leaves', 2, num_leaves_upper)
     objective_type = trial.suggest_categorical('objective', ['regression_l2', 'combo'])
     weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'linear', 'exponential', 'quantile', 'polynomial'])
 
