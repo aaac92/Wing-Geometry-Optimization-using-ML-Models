@@ -65,7 +65,7 @@ if not os.path.exists(training_file_dir):
     sys.exit()
 
 # === Optuna Objective Function === #
-N_TRIALS = 150
+N_TRIALS = 180
 def objective(trial):
     """
     Takes a trial object from Optuna, suggests hyperparameters for LightGBM, 
@@ -77,7 +77,7 @@ def objective(trial):
     # Dynamically build hyperparameter space
     n_estimators = trial.suggest_int('n_estimators', 1000, 4000, step=500)
     lr = trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
-    lr_decay = trial.suggest_float('lr_decay', 0.90, 0.99)
+    lr_decay = trial.suggest_float('lr_decay', 0.995, 0.9999)
 
     # max_depth is sampled first; num_leaves is then bounded above by 2^max_depth
     # (LightGBM silently clamps num_leaves to this cap anyway for leaf-wise growth,
@@ -88,7 +88,7 @@ def objective(trial):
     max_depth = trial.suggest_int('max_depth', 5, 20, step=5)
     num_leaves_upper = min(2 ** max_depth, PRACTICAL_MAX_LEAVES)
     num_leaves = trial.suggest_int('num_leaves', 2, num_leaves_upper)
-    objective_type = trial.suggest_categorical('objective', ['regression_l2', 'combo'])
+    objective_type = trial.suggest_categorical('objective', ['regression_l2', 'regression_l1', 'combo'])
     weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'linear', 'exponential', 'quantile', 'polynomial'])
 
     print(f"PARAMETERS:")
@@ -98,6 +98,11 @@ def objective(trial):
     print("="*50)
 
     # Instantiate and train the regressor
+    # categorical_cols: 'rec'/'flat'/'60DEG' are a one-hot encoded 3-way
+    # category. Passing the group lets LGBM_Regressor collapse them into a
+    # single integer-coded column and register it with LightGBM's native
+    # categorical_feature split, instead of reconstructing the group across
+    # 3 separate sparse binary columns.
     regressor = LGBM_Regressor(
         n_estimators=n_estimators,
         learning_rate=lr,
@@ -105,7 +110,8 @@ def objective(trial):
         num_leaves=num_leaves,
         max_depth=max_depth,
         objective=objective_type,
-        weight=weight
+        weight=weight,
+        categorical_cols=['rec', 'flat', '60DEG']
     )
 
     final_metrics = regressor.train(data_path=training_file_dir)
@@ -160,7 +166,8 @@ if not status.get('finalized', False):
         num_leaves=best_params['num_leaves'],
         max_depth=best_params['max_depth'],
         objective=best_params['objective'],
-        weight=best_params['weight']
+        weight=best_params['weight'],
+        categorical_cols=['rec', 'flat', '60DEG']
     )
     final_model.train(data_path=training_file_dir)
 

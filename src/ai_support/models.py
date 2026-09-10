@@ -566,7 +566,7 @@ class LGBM_Regressor:
     def __init__(self,
                  n_estimators=1000,
                  learning_rate=0.1,
-                 lr_decay=0.99,
+                 lr_decay=0.9998,
                  num_leaves=20,
                  max_depth=10,
                  stopping_rounds=100,
@@ -574,7 +574,8 @@ class LGBM_Regressor:
                  test_size=0.2,
                  random_state=42,
                  objective='regression_l2',
-                 weight='None'):
+                 weight='None',
+                 categorical_cols=None):
         
         # Hyperparameters for Grid Search
         self.n_estimators = n_estimators
@@ -591,6 +592,15 @@ class LGBM_Regressor:
         self.test_split = test_size # Mapping for _load_and_prepare_data consistency
         self.random_state = random_state
 
+        # Names of one-hot encoded columns (e.g. ['rec', 'flat', '60DEG'])
+        # that together represent a single categorical variable. When provided,
+        # _load_and_prepare_data collapses them into one integer-coded column so
+        # LightGBM can use a native categorical split instead of reconstructing
+        # the group across N separate sparse binary columns.
+        self.categorical_cols = categorical_cols
+        self.cat_feature_idx = None
+        self.categorical_col_indices = None  # positions of categorical_cols within the raw feature-column order
+
         # Class components
         self.model = None
         self.scaler = None
@@ -598,18 +608,60 @@ class LGBM_Regressor:
         
         print("LGBMRegressor initialized.")
 
+    def _encode_categorical(self, X, col_indices):
+        """
+        Collapses a one-hot encoded group of columns into a single
+        integer-coded category column (via argmax) appended at the end, and
+        drops the original one-hot columns. Shared by _load_and_prepare_data
+        (fit time) and predict() (inference time) so both apply the exact
+        same transformation to raw feature data.
+
+        PARAMETERS:
+        - X: ndarray of raw feature columns, in the original column order
+             the one-hot group's indices were computed against.
+        - col_indices: list of column positions in X that make up the
+             one-hot group.
+        """
+        X = np.asarray(X, dtype=np.float32)
+        if not col_indices:
+            return X
+        cat_values = X[:, col_indices].argmax(axis=1).astype(np.float32)
+        keep_mask = np.ones(X.shape[1], dtype=bool)
+        keep_mask[col_indices] = False
+        return np.column_stack([X[:, keep_mask], cat_values])
+
     def _load_and_prepare_data(self, data_path):
         """
         Loads data from a single CSV file with a header, assuming the
         last column is the target.
+
+        If self.categorical_cols is set, those one-hot encoded columns are
+        collapsed into a single integer-coded categorical column (via argmax)
+        so LightGBM can register it with categorical_feature and split on it
+        natively, instead of treating each level as an independent binary
+        feature. self.cat_feature_idx is set to that column's position, and
+        self.categorical_col_indices records the group's original raw-column
+        positions so predict() can apply the identical collapse to new,
+        unprocessed data later.
 
         PARAMETERS:
         - data_path: Full path to csv file that contains training data
         """
         df = pd.read_csv(data_path)
 
-        features = df.iloc[:, :-1].values.astype(np.float32)
         output = df.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
+        feature_df = df.iloc[:, :-1]
+        feature_columns = list(feature_df.columns)
+        features_raw = feature_df.values.astype(np.float32)
+
+        if self.categorical_cols:
+            self.categorical_col_indices = [feature_columns.index(c) for c in self.categorical_cols]
+            features = self._encode_categorical(features_raw, self.categorical_col_indices)
+            self.cat_feature_idx = features.shape[1] - 1
+        else:
+            self.categorical_col_indices = None
+            self.cat_feature_idx = None
+            features = features_raw
 
         # Data split for testing
         train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
@@ -729,9 +781,12 @@ class LGBM_Regressor:
             weights_train = None
 
         # Scale Features
+        # The categorical column (if any) is excluded from scaling
+        cont_idx = [i for i in range(X.shape[1]) if i != self.cat_feature_idx] \
+                   if self.cat_feature_idx is not None else list(range(X.shape[1]))
         self.scaler = StandardScaler()
-        X = self.scaler.fit_transform(X)
-        X_test = self.scaler.transform(X_test)
+        X[:, cont_idx] = self.scaler.fit_transform(X[:, cont_idx])
+        X_test[:, cont_idx] = self.scaler.transform(X_test[:, cont_idx])
 
         # Objective function mapping
         if self.objective == 'combo':
@@ -776,6 +831,7 @@ class LGBM_Regressor:
                 eval_X=X_val_fold,
                 eval_y=y_val_fold,
                 eval_metric=eval_metric,
+                categorical_feature=[self.cat_feature_idx] if self.cat_feature_idx is not None else 'auto',  # new
                 callbacks=[
                     lgb.early_stopping(self.stopping_rounds, verbose=False),
                     lgb.reset_parameter(learning_rate=lambda iter: self.learning_rate * (self.lr_decay ** iter))
@@ -833,9 +889,23 @@ class LGBM_Regressor:
         
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        
-        # Apply transformations to data
-        X = self.scaler.transform(X)
+
+        X = np.asarray(X, dtype=np.float32)
+
+        # X is expected in the same raw column order as the original training
+        # CSV's feature columns (i.e. still containing the one-hot columns,
+        # not yet collapsed) — collapse it the same way _load_and_prepare_data
+        # did at fit time before scaling/predicting.
+        if self.categorical_col_indices:
+            X = self._encode_categorical(X, self.categorical_col_indices)
+        else:
+            X = X.copy()
+
+        # Apply transformations to data, excluding the categorical column (if
+        # any) from scaling for consistency with train().
+        cont_idx = [i for i in range(X.shape[1]) if i != self.cat_feature_idx] \
+                   if self.cat_feature_idx is not None else list(range(X.shape[1]))
+        X[:, cont_idx] = self.scaler.transform(X[:, cont_idx])
 
         predictions = self.model.predict(X)
 
@@ -858,6 +928,16 @@ class LGBM_Regressor:
         joblib.dump(self.model, os.path.join(folder_path, f"{file_name_prefix}_model.joblib"))
         joblib.dump(self.scaler, os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib"))
 
+        # Persist categorical-column metadata; predict() needs cat_feature_idx
+        # to know which column to exclude from scaling.
+        meta_path = os.path.join(folder_path, f"{file_name_prefix}_meta.json")
+        with open(meta_path, 'w') as f:
+            json.dump({
+                'categorical_cols': self.categorical_cols,
+                'cat_feature_idx': self.cat_feature_idx,
+                'categorical_col_indices': self.categorical_col_indices
+            }, f)
+
         print(f"LGBM model and scaler saved in folder: {folder_path}")
 
     @classmethod
@@ -874,9 +954,19 @@ class LGBM_Regressor:
         
         model_path = os.path.join(folder_path, f"{file_name_prefix}_model.joblib")
         scaler_path = os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib")
+        meta_path = os.path.join(folder_path, f"{file_name_prefix}_meta.json")
         
         lgbm_regressor.model = joblib.load(model_path)
         lgbm_regressor.scaler = joblib.load(scaler_path)
+
+        # Restore categorical-column metadata (falls back to None/no-categorical
+        # if loading a model saved before this metadata existed).
+        if os.path.exists(meta_path):
+            with open(meta_path, 'r') as f:
+                meta = json.load(f)
+            lgbm_regressor.categorical_cols = meta.get('categorical_cols')
+            lgbm_regressor.cat_feature_idx = meta.get('cat_feature_idx')
+            lgbm_regressor.categorical_col_indices = meta.get('categorical_col_indices')
         
         print(f"LGBM model loaded successfully from folder: {folder_path}")
         return lgbm_regressor
