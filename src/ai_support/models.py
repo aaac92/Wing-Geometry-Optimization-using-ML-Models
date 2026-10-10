@@ -566,7 +566,7 @@ class LGBM_Regressor:
     def __init__(self,
                  n_estimators=1000,
                  learning_rate=0.1,
-                 lr_decay=0.9998,
+                 lr_decay=0.998,
                  num_leaves=20,
                  max_depth=10,
                  stopping_rounds=100,
@@ -592,7 +592,7 @@ class LGBM_Regressor:
         self.test_split = test_size # Mapping for _load_and_prepare_data consistency
         self.random_state = random_state
 
-        # Names of one-hot encoded columns (e.g. ['rec', 'flat', '60DEG'])
+        # NOTE: names of one-hot encoded columns (e.g. ['rec', 'flat', '60DEG'])
         # that together represent a single categorical variable. When provided,
         # _load_and_prepare_data collapses them into one integer-coded column so
         # LightGBM can use a native categorical split instead of reconstructing
@@ -781,7 +781,10 @@ class LGBM_Regressor:
             weights_train = None
 
         # Scale Features
-        # The categorical column (if any) is excluded from scaling
+        # NOTE: the categorical column (if any) is excluded from scaling — it
+        # carries integer category codes, not a continuous quantity, and
+        # StandardScaler would corrupt the codes LightGBM needs for the
+        # categorical split.
         cont_idx = [i for i in range(X.shape[1]) if i != self.cat_feature_idx] \
                    if self.cat_feature_idx is not None else list(range(X.shape[1]))
         self.scaler = StandardScaler()
