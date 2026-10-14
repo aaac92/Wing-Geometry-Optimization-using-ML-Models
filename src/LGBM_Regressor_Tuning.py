@@ -6,7 +6,7 @@ import random
 import platform
 import lightgbm as lgb
 from pathlib import Path
-from ai_support import LGBM_Regressor
+from ai_support import LGBM_Regressor, CSTFeatureEngineer
 from ux_support import recovery_json
 
 # === LightGBM Logger Deduplication === #
@@ -41,6 +41,21 @@ class _DedupLogger:
 
 lgb.register_logger(_DedupLogger())
 
+# === Feature Engineering Toggle === #
+# Selects the input columns the LGBM is trained on. The mechanism lives in
+# CSTFeatureEngineer (models module); it is computed in memory, nothing is written to disk.
+#   'raw'         -> original input columns only (baseline)
+#   'station'     -> raw + thickness/camber at 9 chordwise stations        (+18 columns)
+#   'sum_station' -> raw + (upper-lower, upper+lower) per CST index (+10)
+#                    + the station features                                (+28 columns)
+# Each non-raw mode uses its own Optuna DB and output folder, so runs in different
+# modes never mix trials or overwrite each other's results.
+FEATURE_MODE = 'raw'
+if FEATURE_MODE not in CSTFeatureEngineer.MODES:
+    sys.exit(f"[ERROR] Invalid FEATURE_MODE '{FEATURE_MODE}'. Choose one of: {CSTFeatureEngineer.MODES}")
+mode_suffix = "" if FEATURE_MODE == 'raw' else f"_{FEATURE_MODE}"
+print(f"Feature mode: {FEATURE_MODE}")
+
 # === Recovery Setup === #
 recovery_dir = Path("C:/lgbm_reg_rec") if platform.system() == "Windows" else Path.home() / ".lgbm_reg_rec"
 recovery_dir.mkdir(parents=True, exist_ok=True)
@@ -57,7 +72,7 @@ dataset_num = 17
 dataset_name = f"regressor_dataset_{dataset_num}"
 dataset_dir = datasets_dir / f"dataset_{dataset_num}"
 training_file_dir = dataset_dir / f"{dataset_name}.csv"
-model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / "lgbm_regressor"
+model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / f"lgbm_regressor{mode_suffix}"
 os.makedirs(model_save_dir, exist_ok=True)
 # Verify that dataset exists
 if not os.path.exists(training_file_dir):
@@ -65,7 +80,7 @@ if not os.path.exists(training_file_dir):
     sys.exit()
 
 # === Optuna Objective Function === #
-N_TRIALS = 210
+N_TRIALS = 150
 def objective(trial):
     """
     Takes a trial object from Optuna, suggests hyperparameters for LightGBM, 
@@ -75,9 +90,12 @@ def objective(trial):
     print(f"Starting Trial {trial.number + 1}/{N_TRIALS}")
 
     # Dynamically build hyperparameter space
-    n_estimators = trial.suggest_int('n_estimators', 1000, 4000, step=500)
+    # Ceiling raised from 4000. Early stopping (patience 100) ends converged trials early,
+    # so the ceiling mainly matters for low-learning-rate trials, which need many rounds.
+    n_estimators = trial.suggest_int('n_estimators', 1000, 10000, step=1000)
     lr = trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
-    lr_decay = trial.suggest_float('lr_decay', 0.995, 0.9999)
+    # lr_decay is intentionally NOT searched: LGBM_Regressor defaults to a
+    # constant learning rate (lr_decay=None).
 
     # max_depth is sampled first; num_leaves is then bounded above by 2^max_depth
     # (LightGBM silently clamps num_leaves to this cap anyway for leaf-wise growth,
@@ -88,35 +106,34 @@ def objective(trial):
     max_depth = trial.suggest_int('max_depth', 5, 20, step=5)
     num_leaves_upper = min(2 ** max_depth, PRACTICAL_MAX_LEAVES)
     num_leaves = trial.suggest_int('num_leaves', 2, num_leaves_upper)
+    # 'regression_l1' added: minimizes MAE directly, matching what the study
+    # itself optimizes. models.py's eval_metric mapping already routes it to
+    # eval_metric='mae' (same branch as regression_l2), no other change needed.
     objective_type = trial.suggest_categorical('objective', ['regression_l2', 'regression_l1', 'combo'])
     weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'linear', 'exponential', 'quantile', 'polynomial'])
 
     print(f"PARAMETERS:")
-    print(f"Estimators = {n_estimators}, LR = {lr:.4f}, LR Decay = {lr_decay:.4f}")
+    print(f"Estimators = {n_estimators}, LR = {lr:.4f}")
     print(f"Leaves = {num_leaves}, Max Depth = {max_depth}")
     print(f"Objective = {objective_type}, Weight = {weight}")
     print("="*50)
 
     # Instantiate and train the regressor
-    # categorical_cols: 'rec'/'flat'/'60DEG' are a one-hot encoded 3-way
-    # category. Passing the group lets LGBM_Regressor collapse them into a
-    # single integer-coded column and register it with LightGBM's native
-    # categorical_feature split, instead of reconstructing the group across
-    # 3 separate sparse binary columns.
     regressor = LGBM_Regressor(
         n_estimators=n_estimators,
         learning_rate=lr,
-        lr_decay=lr_decay,
         num_leaves=num_leaves,
         max_depth=max_depth,
         objective=objective_type,
         weight=weight,
-        categorical_cols=['rec', 'flat', '60DEG']
+        feature_mode=FEATURE_MODE
     )
 
     final_metrics = regressor.train(data_path=training_file_dir)
 
-    # Optimize for MAE
+    # Optimize for MAE. NOTE: this is the held-out TEST-set MAE of the last CV
+    # fold's model (same protocol as MLP_Regressor), NOT the CV-mean MAE that
+    # train() also prints as 'Average MAE'. Optuna ranks trials on this value.
     mae = final_metrics.get('MAE', float('inf'))
     
     trial.set_user_attr('R2-Score', final_metrics.get('R2_Score', float('-inf')))
@@ -124,7 +141,25 @@ def objective(trial):
     return mae
 
 # === Optuna Study Execution === #
-storage = f"sqlite:///{recovery_dir / 'optuna_study.db'}"
+# Optuna's built-in INFO log reports 0-indexed trial numbers ("Best is trial M")
+# while the console header above prints trial.number + 1, so the two disagreed by
+# one. The built-in log is silenced and replaced by a callback that uses the same
+# numbering (trial.number + 1) for both the finished trial and the best trial.
+# NOTE: the 'number' column in the saved *_optuna_search_results.csv is still
+# Optuna's 0-indexed number, i.e. console trial id = CSV number + 1.
+optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+def report_trial(study, trial):
+    """Prints the finished trial and the best trial so far, with consistent numbering."""
+    if trial.state != optuna.trial.TrialState.COMPLETE:
+        print(f"Trial {trial.number + 1} ended with state {trial.state.name}.")
+        return
+    best = study.best_trial
+    n_done = len(study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,)))
+    print(f"\nTrial {trial.number + 1} finished ({n_done}/{N_TRIALS} complete) | Test MAE (ranked): {trial.value:.4f}")
+    print(f"Best so far: Trial {best.number + 1} | Test MAE (ranked): {best.value:.4f}")
+
+storage = f"sqlite:///{recovery_dir / f'optuna_study{mode_suffix}.db'}"
 study = optuna.create_study(study_name=dataset_name, storage=storage, direction='minimize', load_if_exists=True)
 
 if not status.get('optuna_complete', False):
@@ -133,7 +168,7 @@ if not status.get('optuna_complete', False):
 
     if remaining_trials > 0:
         print(f"\nStarting Optuna Optimization for {remaining_trials} Trials...")
-        study.optimize(objective, n_trials=remaining_trials)
+        study.optimize(objective, n_trials=remaining_trials, callbacks=[report_trial])
 
     status['optuna_complete'] = True
     rec_json.save_recovery_status(status)
@@ -144,7 +179,7 @@ print("\n" + "#"*60)
 print("Optimization Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
-print(f"Best MAE: {study.best_value:.4f}")
+print(f"Best MAE: {study.best_value:.4f} (Trial {study.best_trial.number + 1})")
 print("Best parameters found:")
 best_params = study.best_params
 for key, value in best_params.items():
@@ -162,12 +197,11 @@ if not status.get('finalized', False):
     final_model = LGBM_Regressor(
         n_estimators=best_params['n_estimators'],
         learning_rate=best_params['learning_rate'],
-        lr_decay=best_params['lr_decay'],
         num_leaves=best_params['num_leaves'],
         max_depth=best_params['max_depth'],
         objective=best_params['objective'],
         weight=best_params['weight'],
-        categorical_cols=['rec', 'flat', '60DEG']
+        feature_mode=FEATURE_MODE
     )
     final_model.train(data_path=training_file_dir)
 
@@ -191,6 +225,6 @@ if not status.get('finalized', False):
 
 # === Recovery Cleanup === #
 rec_json.recover_cleanup()
-db_path = recovery_dir / 'optuna_study.db'
+db_path = recovery_dir / f'optuna_study{mode_suffix}.db'
 if db_path.exists():
     db_path.unlink()

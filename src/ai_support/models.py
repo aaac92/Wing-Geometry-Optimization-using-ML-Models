@@ -13,6 +13,113 @@ from sklearn.model_selection import train_test_split, KFold, StratifiedKFold
 from torch.utils.data import DataLoader, Subset, TensorDataset
 import joblib
 import json
+from math import comb
+
+class CSTFeatureEngineer:
+    """
+    Model-agnostic, stateless (row-wise) input expansion for CST-coefficient datasets.
+    Used by LGBM_Regressor and MLP_Regressor. Any other model class needs the same calls:
+    fit() + transform() in _load_and_prepare_data, transform() in predict() (skipped for
+    'raw'), and to_dict()/from_dict() in save_model/load_model.
+
+    The expansion is computed in memory (a few vectorised matrix products; about 65 MB of
+    float32 for 400k rows in the widest mode). Nothing is written to disk. It uses no
+    statistics of the data, so applying it before the train/test split leaks nothing.
+
+    MODES
+    - 'raw'          identity (original columns only).
+    - 'station'      raw + thickness and camber at n_stations chordwise stations
+                     (+2*n_stations columns).
+    - 'sum_station'  raw + (upper - lower) and (upper + lower) per CST index
+                     (+2*n_coef columns) + the station features.
+
+    STATION FEATURES
+    With upper/lower coefficient vectors U, L (n_coef = order + 1) and the CST basis
+    S_i(x) = C(x) * Bernstein_{i,order}(x), C(x) = sqrt(x) * (1 - x):
+        thickness(x) = sum_i (U_i - L_i) * S_i(x)
+        camber(x)    = sum_i ((U_i + L_i) / 2) * S_i(x)
+    Both are LINEAR in the coefficients. If the input columns are deltas applied to a
+    fixed base airfoil, these equal the true thickness/camber up to a constant offset,
+    which tree models ignore. Assumes standard CST (class function exponents 0.5 and 1.0).
+
+    Input columns are located by name prefix (default 'cst_l_<k>' / 'cst_u_<k>'), so the
+    raw column order of the CSV does not matter at fit time; transform() then expects
+    inputs in that same raw column order.
+    """
+    MODES = ('raw', 'station', 'sum_station')
+
+    def __init__(self, mode='raw', lower_prefix='cst_l_', upper_prefix='cst_u_', n_stations=9):
+        if mode not in self.MODES:
+            raise ValueError(f"Invalid feature mode '{mode}'. Choose one of: {self.MODES}")
+        self.mode = mode
+        self.lower_prefix = lower_prefix
+        self.upper_prefix = upper_prefix
+        self.n_stations = n_stations
+        self.lower_idx = None
+        self.upper_idx = None
+        self.n_input = None
+        self._basis = None  # (n_stations, n_coef) CST shape-function matrix
+
+    @staticmethod
+    def _find(columns, prefix):
+        """Column positions whose names are prefix + integer, ordered by that integer."""
+        found = [(int(str(c)[len(prefix):]), i) for i, c in enumerate(columns)
+                 if str(c).startswith(prefix) and str(c)[len(prefix):].isdigit()]
+        if not found:
+            raise ValueError(f"No columns named '{prefix}<k>' found in the input columns.")
+        return [i for _, i in sorted(found)]
+
+    def _build_basis(self):
+        order = len(self.lower_idx) - 1
+        x = np.linspace(0.02, 0.98, self.n_stations)
+        class_fn = np.sqrt(x) * (1.0 - x)
+        bernstein = np.column_stack([comb(order, i) * x**i * (1.0 - x)**(order - i) for i in range(order + 1)])
+        self._basis = bernstein * class_fn[:, None]
+
+    def fit(self, columns):
+        """Resolves the CST column positions from the raw feature-column names."""
+        columns = list(columns)
+        self.n_input = len(columns)
+        if self.mode != 'raw':
+            self.lower_idx = self._find(columns, self.lower_prefix)
+            self.upper_idx = self._find(columns, self.upper_prefix)
+            if len(self.lower_idx) != len(self.upper_idx):
+                raise ValueError("Different number of lower and upper CST columns.")
+            self._build_basis()
+        return self
+
+    def transform(self, X):
+        """Returns a float32 array: the raw columns followed by the mode's engineered columns."""
+        X = np.asarray(X)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if self.mode == 'raw':
+            return X.astype(np.float32)
+        if self._basis is None:
+            raise RuntimeError("CSTFeatureEngineer is not fitted. Call fit(columns) first.")
+        if X.shape[1] != self.n_input:
+            raise ValueError(f"Expected {self.n_input} raw feature columns, got {X.shape[1]}.")
+        X = X.astype(np.float64)
+        lower, upper = X[:, self.lower_idx], X[:, self.upper_idx]
+        blocks = [X]
+        if self.mode == 'sum_station':
+            blocks += [upper - lower, upper + lower]
+        blocks += [(upper - lower) @ self._basis.T, ((upper + lower) / 2.0) @ self._basis.T]
+        return np.column_stack(blocks).astype(np.float32)
+
+    def to_dict(self):
+        """JSON-serialisable configuration, so a saved model can rebuild the same inputs."""
+        return {'mode': self.mode, 'lower_prefix': self.lower_prefix, 'upper_prefix': self.upper_prefix,
+                'n_stations': self.n_stations, 'n_input': self.n_input,
+                'lower_idx': self.lower_idx, 'upper_idx': self.upper_idx}
+
+    @classmethod
+    def from_dict(cls, d):
+        obj = cls(d['mode'], d['lower_prefix'], d['upper_prefix'], d['n_stations'])
+        obj.n_input, obj.lower_idx, obj.upper_idx = d['n_input'], d['lower_idx'], d['upper_idx']
+        if obj.mode != 'raw':
+            obj._build_basis()
+        return obj
 
 class _PyTorchMLPRegressor(nn.Module):
     """
@@ -56,7 +163,8 @@ class MLP_Regressor:
                  test_split=0.2,
                  random_state=42,
                  weight='None',
-                 log_trans=False):
+                 log_trans=False,
+                 feature_mode='raw'):
         
         # Hyperparameters
         self.hidden_layer_sizes = hidden_layer_sizes
@@ -81,6 +189,10 @@ class MLP_Regressor:
         self.input_dim = None # Will be determined after data is loaded
         self.log_transform = log_trans
         self.y_min = None
+        # Input feature expansion: 'raw' | 'station' | 'sum_station' (see CSTFeatureEngineer).
+        # Fitted to the CSV's column names in _load_and_prepare_data; input_dim follows from it.
+        self.feature_mode = feature_mode
+        self.feature_engineer = CSTFeatureEngineer(mode=feature_mode)
         
         if self.device.type == "cuda":
             print(f"MLP Regressor initialized. Training will use device: {torch.cuda.get_device_name()}")
@@ -97,7 +209,9 @@ class MLP_Regressor:
         """
         df = pd.read_csv(data_path)
 
-        features = df.iloc[:, :-1].values.astype(np.float32)
+        feature_df = df.iloc[:, :-1]
+        self.feature_engineer.fit(feature_df.columns)
+        features = self.feature_engineer.transform(feature_df.values)
         output = df.iloc[:, -1].values.astype(np.float32)
 
         # Optional logarithmic output transformation and data split for testing
@@ -486,6 +600,10 @@ class MLP_Regressor:
         if X.ndim == 1:
             X = X.reshape(1, -1)
 
+        # Expand with the feature mode used in training ('raw' skips this step)
+        if self.feature_engineer.mode != 'raw':
+            X = self.feature_engineer.transform(X)
+
         # Apply same transformations as in training
         X = self.scaler.transform(X)
         X = torch.tensor(X, dtype=torch.float32).to(self.device)
@@ -517,7 +635,8 @@ class MLP_Regressor:
         torch.save(self.model.state_dict(), os.path.join(folder_path, f"{file_name_prefix}_model.pth"))
         joblib.dump(self.scaler, os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib"))
 
-        metadata = {'input_dim': self.input_dim, 'y_min': self.y_min}
+        metadata = {'input_dim': self.input_dim, 'y_min': self.y_min,
+                    'feature_engineer': self.feature_engineer.to_dict()}
         with open(os.path.join(folder_path, f"{file_name_prefix}_meta.json"), 'w') as f:
             json.dump(metadata, f)
 
@@ -539,6 +658,10 @@ class MLP_Regressor:
         regressor = cls(**kwargs)
         regressor.input_dim = metadata['input_dim']
         regressor.y_min = metadata.get('y_min', None)
+        # Models saved without 'feature_engineer' keep the default 'raw' mode
+        if 'feature_engineer' in metadata:
+            regressor.feature_engineer = CSTFeatureEngineer.from_dict(metadata['feature_engineer'])
+            regressor.feature_mode = regressor.feature_engineer.mode
 
         # Load the scaler
         regressor.scaler = joblib.load(os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib"))
@@ -566,7 +689,7 @@ class LGBM_Regressor:
     def __init__(self,
                  n_estimators=1000,
                  learning_rate=0.1,
-                 lr_decay=0.998,
+                 lr_decay=None,
                  num_leaves=20,
                  max_depth=10,
                  stopping_rounds=100,
@@ -575,11 +698,18 @@ class LGBM_Regressor:
                  random_state=42,
                  objective='regression_l2',
                  weight='None',
-                 categorical_cols=None):
+                 feature_mode='raw'):
         
         # Hyperparameters for Grid Search
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
+        # lr_decay is OPTIONAL and OFF by default (None = constant learning rate).
+        # If set to a float in (0, 1), learning_rate is multiplied by lr_decay**iter
+        # every boosting round via lgb.reset_parameter (iter restarts at 0 on every
+        # fit() call). Values well below 1 collapse the effective LR quickly
+        # (0.90 -> <1% of its initial value by ~44 rounds) and starve large
+        # n_estimators budgets; on dataset_17 a fixed-parameter test went from
+        # 1.79 to 2.28 test MAE with 0.90 vs. no decay.
         self.lr_decay = lr_decay
         self.num_leaves = num_leaves
         self.max_depth = max_depth
@@ -592,14 +722,11 @@ class LGBM_Regressor:
         self.test_split = test_size # Mapping for _load_and_prepare_data consistency
         self.random_state = random_state
 
-        # NOTE: names of one-hot encoded columns (e.g. ['rec', 'flat', '60DEG'])
-        # that together represent a single categorical variable. When provided,
-        # _load_and_prepare_data collapses them into one integer-coded column so
-        # LightGBM can use a native categorical split instead of reconstructing
-        # the group across N separate sparse binary columns.
-        self.categorical_cols = categorical_cols
-        self.cat_feature_idx = None
-        self.categorical_col_indices = None  # positions of categorical_cols within the raw feature-column order
+        # Input feature expansion: 'raw' | 'station' | 'sum_station' (see CSTFeatureEngineer).
+        # Constructing the engineer here validates the mode immediately; it is fitted to
+        # the CSV's column names in _load_and_prepare_data.
+        self.feature_mode = feature_mode
+        self.feature_engineer = CSTFeatureEngineer(mode=feature_mode)
 
         # Class components
         self.model = None
@@ -608,60 +735,26 @@ class LGBM_Regressor:
         
         print("LGBMRegressor initialized.")
 
-    def _encode_categorical(self, X, col_indices):
-        """
-        Collapses a one-hot encoded group of columns into a single
-        integer-coded category column (via argmax) appended at the end, and
-        drops the original one-hot columns. Shared by _load_and_prepare_data
-        (fit time) and predict() (inference time) so both apply the exact
-        same transformation to raw feature data.
-
-        PARAMETERS:
-        - X: ndarray of raw feature columns, in the original column order
-             the one-hot group's indices were computed against.
-        - col_indices: list of column positions in X that make up the
-             one-hot group.
-        """
-        X = np.asarray(X, dtype=np.float32)
-        if not col_indices:
-            return X
-        cat_values = X[:, col_indices].argmax(axis=1).astype(np.float32)
-        keep_mask = np.ones(X.shape[1], dtype=bool)
-        keep_mask[col_indices] = False
-        return np.column_stack([X[:, keep_mask], cat_values])
-
     def _load_and_prepare_data(self, data_path):
         """
         Loads data from a single CSV file with a header, assuming the
         last column is the target.
 
-        If self.categorical_cols is set, those one-hot encoded columns are
-        collapsed into a single integer-coded categorical column (via argmax)
-        so LightGBM can register it with categorical_feature and split on it
-        natively, instead of treating each level as an independent binary
-        feature. self.cat_feature_idx is set to that column's position, and
-        self.categorical_col_indices records the group's original raw-column
-        positions so predict() can apply the identical collapse to new,
-        unprocessed data later.
+        The raw feature columns are expanded by self.feature_engineer according to
+        self.feature_mode before the train/test split. The expansion is computed in
+        memory on every call and is row-wise/stateless, so it leaks nothing across
+        the split. In 'raw' mode this is identical to the original behaviour.
 
         PARAMETERS:
         - data_path: Full path to csv file that contains training data
         """
         df = pd.read_csv(data_path)
 
-        output = df.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
         feature_df = df.iloc[:, :-1]
-        feature_columns = list(feature_df.columns)
-        features_raw = feature_df.values.astype(np.float32)
+        output = df.iloc[:, -1].values.astype(np.float32) # LightGBM prefers a 1D array for y
 
-        if self.categorical_cols:
-            self.categorical_col_indices = [feature_columns.index(c) for c in self.categorical_cols]
-            features = self._encode_categorical(features_raw, self.categorical_col_indices)
-            self.cat_feature_idx = features.shape[1] - 1
-        else:
-            self.categorical_col_indices = None
-            self.cat_feature_idx = None
-            features = features_raw
+        self.feature_engineer.fit(feature_df.columns)
+        features = self.feature_engineer.transform(feature_df.values)
 
         # Data split for testing
         train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
@@ -781,15 +874,9 @@ class LGBM_Regressor:
             weights_train = None
 
         # Scale Features
-        # NOTE: the categorical column (if any) is excluded from scaling — it
-        # carries integer category codes, not a continuous quantity, and
-        # StandardScaler would corrupt the codes LightGBM needs for the
-        # categorical split.
-        cont_idx = [i for i in range(X.shape[1]) if i != self.cat_feature_idx] \
-                   if self.cat_feature_idx is not None else list(range(X.shape[1]))
         self.scaler = StandardScaler()
-        X[:, cont_idx] = self.scaler.fit_transform(X[:, cont_idx])
-        X_test[:, cont_idx] = self.scaler.transform(X_test[:, cont_idx])
+        X = self.scaler.fit_transform(X)
+        X_test = self.scaler.transform(X_test)
 
         # Objective function mapping
         if self.objective == 'combo':
@@ -828,17 +915,19 @@ class LGBM_Regressor:
                 n_jobs=-1
             )
             
+            # Callbacks are built per fold (early_stopping holds per-run state).
+            # The learning-rate decay callback is only attached when lr_decay is set.
+            callbacks = [lgb.early_stopping(self.stopping_rounds, verbose=False)]
+            if self.lr_decay is not None:
+                callbacks.append(lgb.reset_parameter(learning_rate=lambda iter: self.learning_rate * (self.lr_decay ** iter)))
+
             self.model.fit(
                 X_train_fold, y_train_fold,
                 sample_weight=weights_train_fold,
                 eval_X=X_val_fold,
                 eval_y=y_val_fold,
                 eval_metric=eval_metric,
-                categorical_feature=[self.cat_feature_idx] if self.cat_feature_idx is not None else 'auto',  # new
-                callbacks=[
-                    lgb.early_stopping(self.stopping_rounds, verbose=False),
-                    lgb.reset_parameter(learning_rate=lambda iter: self.learning_rate * (self.lr_decay ** iter))
-                ]
+                callbacks=callbacks
             )
 
             y_preds_fold = self.model.predict(X_val_fold)
@@ -893,22 +982,14 @@ class LGBM_Regressor:
         if X.ndim == 1:
             X = X.reshape(1, -1)
 
-        X = np.asarray(X, dtype=np.float32)
+        # X is expected in the raw CSV feature-column order; expand it with the same
+        # feature mode used at fit time. 'raw' skips the step so inputs reach the scaler
+        # untouched, exactly as before feature_mode existed.
+        if self.feature_engineer.mode != 'raw':
+            X = self.feature_engineer.transform(X)
 
-        # X is expected in the same raw column order as the original training
-        # CSV's feature columns (i.e. still containing the one-hot columns,
-        # not yet collapsed) — collapse it the same way _load_and_prepare_data
-        # did at fit time before scaling/predicting.
-        if self.categorical_col_indices:
-            X = self._encode_categorical(X, self.categorical_col_indices)
-        else:
-            X = X.copy()
-
-        # Apply transformations to data, excluding the categorical column (if
-        # any) from scaling for consistency with train().
-        cont_idx = [i for i in range(X.shape[1]) if i != self.cat_feature_idx] \
-                   if self.cat_feature_idx is not None else list(range(X.shape[1]))
-        X[:, cont_idx] = self.scaler.transform(X[:, cont_idx])
+        # Apply transformations to data
+        X = self.scaler.transform(X)
 
         predictions = self.model.predict(X)
 
@@ -931,15 +1012,11 @@ class LGBM_Regressor:
         joblib.dump(self.model, os.path.join(folder_path, f"{file_name_prefix}_model.joblib"))
         joblib.dump(self.scaler, os.path.join(folder_path, f"{file_name_prefix}_scaler.joblib"))
 
-        # Persist categorical-column metadata; predict() needs cat_feature_idx
-        # to know which column to exclude from scaling.
+        # Persist the feature-engineering configuration; predict() needs it to
+        # rebuild the same input columns the model was trained on.
         meta_path = os.path.join(folder_path, f"{file_name_prefix}_meta.json")
         with open(meta_path, 'w') as f:
-            json.dump({
-                'categorical_cols': self.categorical_cols,
-                'cat_feature_idx': self.cat_feature_idx,
-                'categorical_col_indices': self.categorical_col_indices
-            }, f)
+            json.dump({'feature_engineer': self.feature_engineer.to_dict()}, f)
 
         print(f"LGBM model and scaler saved in folder: {folder_path}")
 
@@ -962,14 +1039,14 @@ class LGBM_Regressor:
         lgbm_regressor.model = joblib.load(model_path)
         lgbm_regressor.scaler = joblib.load(scaler_path)
 
-        # Restore categorical-column metadata (falls back to None/no-categorical
-        # if loading a model saved before this metadata existed).
+        # Restore the feature-engineering configuration. Models saved without it
+        # are treated as 'raw' (no feature expansion).
         if os.path.exists(meta_path):
             with open(meta_path, 'r') as f:
                 meta = json.load(f)
-            lgbm_regressor.categorical_cols = meta.get('categorical_cols')
-            lgbm_regressor.cat_feature_idx = meta.get('cat_feature_idx')
-            lgbm_regressor.categorical_col_indices = meta.get('categorical_col_indices')
+            if 'feature_engineer' in meta:
+                lgbm_regressor.feature_engineer = CSTFeatureEngineer.from_dict(meta['feature_engineer'])
+                lgbm_regressor.feature_mode = lgbm_regressor.feature_engineer.mode
         
         print(f"LGBM model loaded successfully from folder: {folder_path}")
         return lgbm_regressor

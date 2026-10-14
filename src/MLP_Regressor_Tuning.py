@@ -6,7 +6,7 @@ import json
 import random
 import platform
 from pathlib import Path
-from ai_support import MLP_Regressor
+from ai_support import MLP_Regressor, CSTFeatureEngineer
 from ux_support import recovery_json
 
 # === Mandatory GPU Check === #
@@ -15,6 +15,22 @@ if not torch.cuda.is_available():
     sys.exit()
 else:
     print(f"GPU detected: {torch.cuda.get_device_name(0)}")
+
+# === Feature Engineering Toggle === #
+# Selects the input columns the MLP is trained on (the input layer size adapts automatically).
+# The mechanism lives in CSTFeatureEngineer (models module); it is computed in memory,
+# nothing is written to disk.
+#   'raw'         -> original input columns only (baseline)
+#   'station'     -> raw + thickness/camber at 9 chordwise stations        (+18 columns)
+#   'sum_station' -> raw + (upper-lower, upper+lower) per CST index (+10)
+#                    + the station features                                (+28 columns)
+# Each non-raw mode uses its own Optuna DB and output folder, so runs in different
+# modes never mix trials or overwrite each other's results.
+FEATURE_MODE = 'raw'
+if FEATURE_MODE not in CSTFeatureEngineer.MODES:
+    sys.exit(f"[ERROR] Invalid FEATURE_MODE '{FEATURE_MODE}'. Choose one of: {CSTFeatureEngineer.MODES}")
+mode_suffix = "" if FEATURE_MODE == 'raw' else f"_{FEATURE_MODE}"
+print(f"Feature mode: {FEATURE_MODE}")
 
 # === Recovery Setup === #
 recovery_dir = Path("C:/mlp_reg_rec") if platform.system() == "Windows" else Path.home() / ".mlp_reg_rec"
@@ -32,7 +48,7 @@ dataset_num = 17
 dataset_name = f"regressor_dataset_{dataset_num}"
 dataset_dir = datasets_dir / f"dataset_{dataset_num}"
 training_file_dir = dataset_dir / f"{dataset_name}.csv"
-model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / "mlp_regressor"
+model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / f"mlp_regressor{mode_suffix}"
 os.makedirs(model_save_dir, exist_ok=True)
 # Verify that dataset exists
 if not os.path.exists(training_file_dir):
@@ -80,7 +96,8 @@ def objective(trial):
         batch_size=batch_size,
         patience=patience,
         weight=weight,
-        log_trans=log_trans
+        log_trans=log_trans,
+        feature_mode=FEATURE_MODE
     )
 
     final_metrics = regressor.train(data_path=training_file_dir)
@@ -93,7 +110,7 @@ def objective(trial):
     return mae
 
 # === Optuna Study Execution === #
-storage = f"sqlite:///{recovery_dir / 'optuna_study.db'}"
+storage = f"sqlite:///{recovery_dir / f'optuna_study{mode_suffix}.db'}"
 study = optuna.create_study(study_name=dataset_name, storage=storage, direction='minimize', load_if_exists=True)
 
 if not status.get('optuna_complete', False):
@@ -140,7 +157,8 @@ if not status.get('finalized', False):
         batch_size=best_params['batch_size'],
         patience=best_params['patience'],
         weight=best_params['weight'],
-        log_trans=best_params['log_trans']
+        log_trans=best_params['log_trans'],
+        feature_mode=FEATURE_MODE
     )
     final_model.train(data_path=training_file_dir)
 
@@ -164,6 +182,6 @@ if not status.get('finalized', False):
 
 # === Recovery Cleanup === #
 rec_json.recover_cleanup()
-db_path = recovery_dir / 'optuna_study.db'
+db_path = recovery_dir / f'optuna_study{mode_suffix}.db'
 if db_path.exists():
     db_path.unlink()
