@@ -56,7 +56,7 @@ if not os.path.exists(training_file_dir):
     sys.exit()
 
 # === Optuna Objective Function === #
-N_TRIALS = 160
+N_TRIALS = 140
 def objective(trial):
     """
     Takes a trial object from Optuna, suggests hyperparameters, 
@@ -66,17 +66,17 @@ def objective(trial):
     print(f"Starting Trial {trial.number + 1}/{N_TRIALS}")
 
     # Dynamically build network architecture
-    n_layers = trial.suggest_int('n_layers', 2, 6)
+    n_layers = trial.suggest_int('n_layers', 4, 6)
     hidden_layer_sizes = [
-        trial.suggest_int(f'n_units_l{i}', 64, 512) for i in range(n_layers)
+        trial.suggest_int(f'n_units_l{i}', 128, 512) for i in range(n_layers)
     ]
     
-    dr = trial.suggest_float('dropout_rate', 0.01, 0.05)
-    lr = trial.suggest_float('learning_rate', 0.001, 0.05, log=True)
-    batch_size = trial.suggest_categorical('batch_size', [512, 1024, 2048, 4096])
+    dr = trial.suggest_float('dropout_rate', 0.01, 0.04)
+    lr = trial.suggest_float('learning_rate', 0.0005, 0.01, log=True)
+    batch_size = trial.suggest_categorical('batch_size', [1024, 2048])
     log_trans = trial.suggest_categorical('log_trans', [True, False])
-    patience = trial.suggest_int('patience', 8, 35)
-    weight = trial.suggest_categorical('weight', ['None', 'instance', 'frequency', 'combo', 'exponential', 'linear'])
+    patience = trial.suggest_int('patience', 16, 48)
+    weight = trial.suggest_categorical('weight', ['None', 'instance', 'exponential', 'linear'])
 
     print(f"PARAMETERS:")
     print(f"Layers = {hidden_layer_sizes}")
