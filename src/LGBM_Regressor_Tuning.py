@@ -50,7 +50,7 @@ lgb.register_logger(_DedupLogger())
 #                    + the station features                                (+28 columns)
 # Each non-raw mode uses its own Optuna DB and output folder, so runs in different
 # modes never mix trials or overwrite each other's results.
-FEATURE_MODE = 'raw'
+FEATURE_MODE = 'sum_station'
 if FEATURE_MODE not in CSTFeatureEngineer.MODES:
     sys.exit(f"[ERROR] Invalid FEATURE_MODE '{FEATURE_MODE}'. Choose one of: {CSTFeatureEngineer.MODES}")
 mode_suffix = "" if FEATURE_MODE == 'raw' else f"_{FEATURE_MODE}"

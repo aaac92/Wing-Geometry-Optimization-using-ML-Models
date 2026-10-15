@@ -26,7 +26,7 @@ else:
 #                    + the station features                                (+28 columns)
 # Each non-raw mode uses its own Optuna DB and output folder, so runs in different
 # modes never mix trials or overwrite each other's results.
-FEATURE_MODE = 'raw'
+FEATURE_MODE = 'sum_station'
 if FEATURE_MODE not in CSTFeatureEngineer.MODES:
     sys.exit(f"[ERROR] Invalid FEATURE_MODE '{FEATURE_MODE}'. Choose one of: {CSTFeatureEngineer.MODES}")
 mode_suffix = "" if FEATURE_MODE == 'raw' else f"_{FEATURE_MODE}"
@@ -56,7 +56,7 @@ if not os.path.exists(training_file_dir):
     sys.exit()
 
 # === Optuna Objective Function === #
-N_TRIALS = 120
+N_TRIALS = 160
 def objective(trial):
     """
     Takes a trial object from Optuna, suggests hyperparameters, 

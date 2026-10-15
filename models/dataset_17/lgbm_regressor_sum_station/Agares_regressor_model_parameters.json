@@ -1,0 +1,8 @@
+{
+    "n_estimators": 10000,
+    "learning_rate": 0.15790102536833783,
+    "max_depth": 10,
+    "num_leaves": 100,
+    "objective": "regression_l2",
+    "weight": "None"
+}
