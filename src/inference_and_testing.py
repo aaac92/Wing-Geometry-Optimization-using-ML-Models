@@ -8,7 +8,8 @@ Usage:
 
 Flow:
     1. For each of the 10 inference rounds (one fixed seed per round, shared by all models):
-       random CST candidates -> classifier validity filter -> pairing with every wing configuration
+       uniform random CST candidates + local-refinement candidates around the best dataset designs
+       -> classifier validity filter -> pairing with every wing configuration
        -> every selected regressor predicts sequentially -> best candidate per model is stored.
     2. Results of all models are pooled, repeated feature vectors are merged (the models that
        selected them are kept as metadata), and the unique candidates are exported.
@@ -25,6 +26,7 @@ import shutil
 import re
 import math
 import secrets
+import time
 import platform
 from collections import defaultdict
 from types import SimpleNamespace
@@ -54,7 +56,11 @@ NACA_KP_FILE = "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"  # AVL 3.32 sectio
 
 # --- Inference settings --- #
 NUM_INFERENCE_RUNS = 10
-NUM_SAMPLES = 50000
+NUM_SAMPLES = 1_000_000        # uniform (global) CST samples per inference round
+NUM_LOCAL_SAMPLES = 500_000    # local-refinement samples per round, drawn around the best dataset designs (0 = off)
+LOCAL_TOP_K = 20               # number of distinct top-E dataset designs used as local search centers
+LOCAL_SIGMA_FRACTION = 0.10    # local noise std dev, as a fraction of each coefficient's range width
+PREDICT_CHUNK = 250_000        # rows per model call; keeps GPU/CPU memory bounded for large candidate sets
 VALIDITY_THRESHOLD = 0.99
 SEED_POOL_SIZE = 10000  # per-round seeds are drawn (without repetition) from [0, SEED_POOL_SIZE)
 MAX_MASTER_SEED = 0xFFFFFFFF  # upper limit of the master seed (8 hex digits); raise it here if ever needed
@@ -277,16 +283,42 @@ def build_config_registry(wing_mode: str, config_cols: list) -> dict:
 # === Candidate generation === #
 # =============================================================================================== #
 
-def generate_cst_candidates(num_samples, n_cst, ranges_upper, ranges_lower, rng):
-    """Generates random CST-only candidate inputs (lower block, then upper block) from the given RNG."""
-    feature_ranges = (
+def build_feature_ranges(n_cst, ranges_upper, ranges_lower):
+    """Per-coefficient (low, high, step) ranges, lower block first, then upper block."""
+    return (
         [ranges_lower["LE"]] + [ranges_lower["inter"]] * (n_cst - 2) + [ranges_lower["TE"]] +
         [ranges_upper["LE"]] + [ranges_upper["inter"]] * (n_cst - 2) + [ranges_upper["TE"]]
     )
+
+
+def generate_cst_candidates(num_samples, n_cst, ranges_upper, ranges_lower, rng):
+    """Uniform random CST-only candidates (lower block, then upper block) from the given RNG.
+    Sampling is continuous: the 'step' of each range is not used (it only describes the dataset grid)."""
+    feature_ranges = build_feature_ranges(n_cst, ranges_upper, ranges_lower)
     candidates = np.zeros((num_samples, n_cst + n_cst), dtype=np.float32)
     for i, (low, high, _step) in enumerate(feature_ranges):
         candidates[:, i] = rng.uniform(low, high, size=num_samples)
     return candidates
+
+
+def generate_local_candidates(parents, num_samples, n_cst, ranges_upper, ranges_lower, sigma_fraction, rng):
+    """
+    Local refinement: Gaussian perturbations around randomly chosen parent designs (e.g. the best dataset
+    designs). The noise std dev is sigma_fraction of each coefficient's range width and the result is clipped
+    to the search window, so candidates near a window edge stay on that edge instead of leaving the window.
+    """
+    feature_ranges = build_feature_ranges(n_cst, ranges_upper, ranges_lower)
+    lows = np.array([min(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
+    highs = np.array([max(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
+    centers = parents[rng.integers(0, len(parents), size=num_samples)]
+    noise = rng.normal(0.0, 1.0, size=centers.shape).astype(np.float32) * (highs - lows) * sigma_fraction
+    return np.clip(centers + noise, lows, highs).astype(np.float32)
+
+
+def predict_chunked(predict_fn, X, chunk_size=PREDICT_CHUNK):
+    """Runs predict_fn on X in row chunks and returns one flat array (bounds GPU/CPU memory use)."""
+    parts = [np.asarray(predict_fn(X[i:i + chunk_size])).reshape(-1) for i in range(0, len(X), chunk_size)]
+    return np.concatenate(parts)
 
 
 def expand_with_configs(cst_candidates, feature_columns, cst_l_cols, cst_u_cols, config_cols):
@@ -324,19 +356,40 @@ def expand_with_configs(cst_candidates, feature_columns, cst_l_cols, cst_u_cols,
     return full_candidates, config_labels
 
 
-def print_dataset_best(csv_path: Path, cst_l_cols, cst_u_cols, config_cols):
-    """Information line only: best E found in the training dataset. It is neither ranked nor simulated."""
+def load_dataset_summary(csv_path: Path, cst_l_cols, cst_u_cols, config_cols, top_k: int):
+    """
+    Reads the training dataset once. Returns (best, parents):
+      best    -- dict with the highest-E row (E, wing_config, cst_lower, cst_upper), or None if unavailable
+      parents -- array (<= top_k, 2 * n_cst) with the distinct CST vectors of the highest-E rows
+                 (lower block, then upper block): centers of the local refinement. None if unavailable.
+    The dataset best is information only: it is neither ranked nor simulated.
+    """
     try:
         df = pd.read_csv(csv_path)
     except FileNotFoundError:
-        print(f"\n[INFO] Dataset best: dataset not found at '{csv_path}'.")
-        return
-    best_row = df.loc[df.iloc[:, -1].idxmax()]
+        return None, None
+    ordered = df.sort_values(df.columns[-1], ascending=False)
+    best_row = ordered.iloc[0]
     active = [c for c in config_cols if best_row[c] == 1]
     config = active[0] if active else ("single configuration" if not config_cols else "unknown")
-    print(f"\n[INFO] Dataset best -> E = {float(best_row.iloc[-1]):.4f} | config = {config}")
-    print(f"       CST lower: {[round(float(best_row[c]), 6) for c in cst_l_cols]}")
-    print(f"       CST upper: {[round(float(best_row[c]), 6) for c in cst_u_cols]}")
+    best = {
+        "E": float(best_row.iloc[-1]),
+        "wing_config": config,
+        "cst_lower": [round(float(best_row[c]), 6) for c in cst_l_cols],
+        "cst_upper": [round(float(best_row[c]), 6) for c in cst_u_cols],
+    }
+    parents = ordered[cst_l_cols + cst_u_cols].drop_duplicates().head(top_k).to_numpy(dtype=np.float32)
+    return best, parents
+
+
+def print_dataset_best(best):
+    """Information line: best E found in the training dataset."""
+    if best is None:
+        print("\n[INFO] Dataset best: training dataset not found.")
+        return
+    print(f"\n[INFO] Dataset best -> E = {best['E']:.4f} | config = {best['wing_config']}")
+    print(f"       CST lower: {best['cst_lower']}")
+    print(f"       CST upper: {best['cst_upper']}")
 
 
 # =============================================================================================== #
@@ -413,7 +466,7 @@ def load_regressor(name: str, folder: Path, mtype: str):
         # ============================ PLACEHOLDER: SKNN ============================
         # Replace the next two lines with the real loader once the SKNN module is updated, e.g.:
         #     return SKNN_Regressor.load_model(folder, name)
-        # and import SKNN_Regressor from ai_support. Then main() no longer needs to skip it.
+        # and import SKNN_Regressor from ai_support. Then the model loading loop no longer needs to skip it.
         print(f"[{name}] {SKNN_UNAVAILABLE_MESSAGE}")
         return None
         # ===========================================================================
@@ -458,7 +511,7 @@ def dedupe_candidates(ranked_by_model: dict) -> list:
                 }
             unique[key]['sources'].append({
                 'model': item['model'], 'rank': item['rank'], 'round': item['round'],
-                'round_seed': item['seed'], 'predicted_E': item['E'],
+                'round_seed': item['seed'], 'origin': item['origin'], 'predicted_E': item['E'],
             })
     return list(unique.values())
 
@@ -498,7 +551,7 @@ def compute_simulated_E(cl, cd):
     return e
 
 
-def save_results_to_txt(rows: list, output_folder: Path, prefix: str, dataset_num: int):
+def save_results_to_txt(rows: list, output_folder: Path, prefix: str, dataset_num: int, dataset_best=None):
     """Saves formatted text report handling NaN values properly."""
     filepath = output_folder / f"{prefix}_final_report.txt"
     sorted_rows = sorted(rows, key=lambda x: -np.inf if math.isnan(x['simulated_E']) else x['simulated_E'], reverse=True)
@@ -507,7 +560,15 @@ def save_results_to_txt(rows: list, output_folder: Path, prefix: str, dataset_nu
         f.write("=" * width + "\n")
         f.write(f"Final Aerodynamic Efficiency (E) Report for Dataset {dataset_num}\n")
         f.write("=" * width + "\n")
-        f.write(f"{'Rank':<5} {'Model':<16} {'Model Rank':<11} {'Candidate':<15} {'Wing Config':<12} "
+        if dataset_best is not None:
+            f.write(f"Dataset best (reference only, not simulated): E = {dataset_best['E']:.4f} | "
+                    f"config = {dataset_best['wing_config']}\n")
+            f.write(f"  CST lower: {dataset_best['cst_lower']}\n")
+            f.write(f"  CST upper: {dataset_best['cst_upper']}\n")
+        else:
+            f.write("Dataset best: not available (training dataset not found)\n")
+        f.write("-" * width + "\n")
+        f.write(f"{'Rank':<5} {'Model':<16} {'Model Rank':<11} {'Candidate':<15} {'Wing Config':<12} {'Origin':<7} "
                 f"{'Simulated E':<13} {'Predicted E':<13} {'Relative Error (%)':<20}\n")
         f.write("-" * width + "\n")
         for i, item in enumerate(sorted_rows):
@@ -515,7 +576,7 @@ def save_results_to_txt(rows: list, output_folder: Path, prefix: str, dataset_nu
             pred = f"{item['predicted_E']:.4f}"
             err = f"{item['relative_error']:.2f}" if not math.isnan(item['relative_error']) else "NaN"
             f.write(f"{i + 1:<5} {item['model']:<16} {item['model_rank']:<11} {item['candidate_id']:<15} "
-                    f"{item['wing_config']:<12} {sim:<13} {pred:<13} {err:<20}\n")
+                    f"{item['wing_config']:<12} {item['origin']:<7} {sim:<13} {pred:<13} {err:<20}\n")
         f.write("=" * width + "\n")
     print(f"Successfully saved text report to '{filepath.name}'")
 
@@ -529,7 +590,7 @@ def write_json(path: Path, data):
 # === Main pipeline === #
 # =============================================================================================== #
 
-def main():
+if __name__ == "__main__":
     args = parse_args()
     check_wing_mode_available(args.wing_mode)
 
@@ -605,6 +666,10 @@ def main():
     run_dir = make_run_dir(paths.results_root, master_seed)
     print(f"Results folder: {run_dir}")
 
+    # === Dataset summary: best row (information) and local-refinement centers === #
+    dataset_best, local_parents = load_dataset_summary(paths.training_file, cst_l_cols, cst_u_cols, config_cols, LOCAL_TOP_K)
+    use_local = local_parents is not None and NUM_LOCAL_SAMPLES > 0
+
     # === Metadata (written now, completed at the end of the run) === #
     metadata = {
         "run_status": "running",
@@ -618,7 +683,10 @@ def main():
         "models": [{"name": n, "type": resolved[n][1], "folder": str(resolved[n][0]),
                     "feature_mode": getattr(regressors[n], 'feature_mode', None)} for n in regressors],
         "skipped_models": skipped_models,
-        "inference": {"num_runs": NUM_INFERENCE_RUNS, "num_samples": NUM_SAMPLES, "validity_threshold": VALIDITY_THRESHOLD},
+        "inference": {"num_runs": NUM_INFERENCE_RUNS, "num_samples": NUM_SAMPLES, "validity_threshold": VALIDITY_THRESHOLD,
+                      "num_local_samples": NUM_LOCAL_SAMPLES if use_local else 0,
+                      "local_centers": len(local_parents) if use_local else 0,
+                      "local_sigma_fraction": LOCAL_SIGMA_FRACTION, "predict_chunk": PREDICT_CHUNK},
         "ranges_upper": RANGES_UPPER,
         "ranges_lower": RANGES_LOWER,
         "simulation": {"ASEQ": ASEQ, "Re": RE, "Mach": MACH, "naca_key_points_file": NACA_KP_FILE},
@@ -626,7 +694,12 @@ def main():
     metadata_path = run_dir / f"{dataset_name_prefix}_run_metadata.json"
     write_json(metadata_path, metadata)
 
-    print_dataset_best(paths.training_file, cst_l_cols, cst_u_cols, config_cols)
+    print_dataset_best(dataset_best)
+    if use_local:
+        print(f"Local refinement: {NUM_LOCAL_SAMPLES} samples per round around {len(local_parents)} top dataset designs "
+              f"(sigma = {LOCAL_SIGMA_FRACTION} x range width).")
+    else:
+        print("Local refinement disabled (no dataset available or NUM_LOCAL_SAMPLES = 0).")
 
     # === Inference & Ranking (all models, sequentially) === #
     raw_best = {name: [] for name in regressors}
@@ -634,26 +707,36 @@ def main():
         print(f"\n--- Inference Run {r}/{NUM_INFERENCE_RUNS} (seed {seed:x}) ---")
         rng = np.random.default_rng(seed)
         cst_candidates = generate_cst_candidates(NUM_SAMPLES, n_cst, RANGES_UPPER, RANGES_LOWER, rng)
+        n_global = len(cst_candidates)  # rows at or beyond this index come from the local refinement
+        if use_local:
+            local_candidates = generate_local_candidates(local_parents, NUM_LOCAL_SAMPLES, n_cst, RANGES_UPPER,
+                                                         RANGES_LOWER, LOCAL_SIGMA_FRACTION, rng)
+            cst_candidates = np.concatenate([cst_candidates, local_candidates])
 
         # Classifier works on CST combinations; invalid ones are discarded.
-        validity_probs = classifier.predict(cst_candidates).flatten()
+        validity_probs = predict_chunked(classifier.predict, cst_candidates)
         valid_indices = np.where(validity_probs > VALIDITY_THRESHOLD)[0]
         if len(valid_indices) == 0:
             print("No valid candidates found in this run. Skipping.")
             continue
-        print(f"{len(valid_indices)} valid CST combinations.")
+        print(f"{len(valid_indices)} valid CST combinations out of {len(cst_candidates)} "
+              f"({int((valid_indices >= n_global).sum())} from local refinement).")
         full_candidates, config_labels = expand_with_configs(
             cst_candidates[valid_indices], feature_columns, cst_l_cols, cst_u_cols, config_cols)
+        num_configs = max(len(config_cols), 1)  # row i of full_candidates belongs to valid sample i // num_configs
 
         for name, model in regressors.items():
-            preds = np.asarray(model.predict(full_candidates), dtype=np.float64).flatten()
+            t0 = time.perf_counter()
+            preds = predict_chunked(model.predict, full_candidates).astype(np.float64)
             preds[~np.isfinite(preds)] = np.nan
             if np.isnan(preds).all():
                 print(f"[WARNING] '{name}' returned only NaN/inf predictions in run {r}. Skipping its result.")
                 continue
             best_idx = int(np.nanargmax(preds))
+            origin = 'local' if valid_indices[best_idx // num_configs] >= n_global else 'global'
+            print(f"  {name}: best predicted E = {preds[best_idx]:.4f} [{origin}] ({time.perf_counter() - t0:.1f}s)")
             raw_best[name].append({
-                'model': name, 'round': r, 'seed': f"{seed:x}", 'E': float(preds[best_idx]),
+                'model': name, 'round': r, 'seed': f"{seed:x}", 'E': float(preds[best_idx]), 'origin': origin,
                 'features': full_candidates[best_idx].copy(), 'config_col': str(config_labels[best_idx]),
             })
 
@@ -672,7 +755,7 @@ def main():
         print("\nWARNING: No candidates to validate. Nothing to simulate.")
         metadata.update({"run_status": "completed_no_candidates", "finished": datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
         write_json(metadata_path, metadata)
-        return
+        sys.exit(0)
 
     predictions_export_path = run_dir / f"{dataset_name_prefix}_predictions_only.json"
     write_json(predictions_export_path, {
@@ -785,6 +868,7 @@ def main():
                 "model_rank": src['rank'],
                 "round": src['round'],
                 "wing_config": config_registry[c['config_col']][1],
+                "origin": src['origin'],
                 "simulated_CL": cl,
                 "simulated_CD": cd,
                 "simulated_E": simulated_E,
@@ -794,11 +878,12 @@ def main():
 
     json_report_path = run_dir / f"{dataset_name_prefix}_final_report.json"
     # Convert NaN to None for strict JSON compliance
-    write_json(json_report_path, [
-        {k: (None if isinstance(v, float) and math.isnan(v) else v) for k, v in row.items()} for row in rows
-    ])
+    write_json(json_report_path, {
+        "dataset_best": dataset_best,
+        "results": [{k: (None if isinstance(v, float) and math.isnan(v) else v) for k, v in row.items()} for row in rows],
+    })
     print(f"\n=> JSON final report saved to {json_report_path.name}")
-    save_results_to_txt(rows, run_dir, dataset_name_prefix, dataset_num)
+    save_results_to_txt(rows, run_dir, dataset_name_prefix, dataset_num, dataset_best)
 
     end_time = datetime.now()
     metadata.update({
@@ -812,7 +897,3 @@ def main():
 
     print(f"\nProcess completed successfully at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Total execution time: {end_time - start_time}")
-
-
-if __name__ == "__main__":
-    main()
