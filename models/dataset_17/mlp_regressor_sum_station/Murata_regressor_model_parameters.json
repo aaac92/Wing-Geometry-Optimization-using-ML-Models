@@ -1,0 +1,14 @@
+{
+    "n_layers": 5,
+    "n_units_l0": 364,
+    "n_units_l1": 424,
+    "n_units_l2": 242,
+    "n_units_l3": 474,
+    "n_units_l4": 395,
+    "dropout_rate": 0.03200576131885279,
+    "learning_rate": 0.0007025469587163437,
+    "batch_size": 2048,
+    "log_trans": true,
+    "patience": 44,
+    "weight": "linear"
+}
