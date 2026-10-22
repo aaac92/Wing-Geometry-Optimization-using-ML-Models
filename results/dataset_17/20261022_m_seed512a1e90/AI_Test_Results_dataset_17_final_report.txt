@@ -1,0 +1,36 @@
+================================================================================================================================
+Final Aerodynamic Efficiency (E) Report for Dataset 17
+================================================================================================================================
+Rank  Model            Model Rank  Candidate       Wing Config  Simulated E   Predicted E   Relative Error (%)  
+--------------------------------------------------------------------------------------------------------------------------------
+1     Odysseus         8           candidate_018   rec          52.3215       50.2378       3.98                
+2     Murata           3           candidate_023   rec          50.0747       50.9335       1.72                
+3     Odysseus         10          candidate_020   rec          49.9736       49.7691       0.41                
+4     Murata           5           candidate_025   rec          48.9806       49.6667       1.40                
+5     Agares           6           candidate_006   rec          47.1521       30.9309       34.40               
+6     Murata           9           candidate_029   rec          44.1563       46.0195       4.22                
+7     Agares           7           candidate_007   rec          25.6826       30.0840       17.14               
+8     Murata           1           candidate_021   rec          23.9761       51.9554       116.70              
+9     Agares           3           candidate_003   rec          23.9252       32.7205       36.76               
+10    Odysseus         3           candidate_013   rec          23.8046       53.6174       125.24              
+11    Agares           1           candidate_001   rec          23.7169       37.0083       56.04               
+12    Murata           2           candidate_022   rec          22.8714       51.2614       124.13              
+13    Murata           7           candidate_027   rec          22.7504       48.7227       114.16              
+14    Odysseus         6           candidate_016   rec          22.5228       52.2005       131.77              
+15    Agares           2           candidate_002   rec          21.8824       32.9539       50.60               
+16    Odysseus         4           candidate_014   rec          21.8568       53.5845       145.16              
+17    Odysseus         2           candidate_012   rec          21.7810       53.8554       147.26              
+18    Odysseus         1           candidate_011   rec          21.4323       55.6768       159.78              
+19    Odysseus         7           candidate_017   rec          21.0480       50.7157       140.95              
+20    Agares           8           candidate_008   flat         20.7537       29.8626       43.89               
+21    Odysseus         9           candidate_019   rec          20.5752       50.0050       143.04              
+22    Murata           10          candidate_030   rec          20.2148       45.7140       126.14              
+23    Agares           4           candidate_004   rec          20.1727       32.5520       61.37               
+24    Agares           5           candidate_005   rec          19.8901       32.4789       63.29               
+25    Murata           4           candidate_024   rec          19.2195       50.7119       163.86              
+26    Agares           10          candidate_010   rec          18.8307       28.7667       52.77               
+27    Murata           6           candidate_026   rec          18.5428       49.5474       167.21              
+28    Agares           9           candidate_009   rec          18.3800       29.4804       60.39               
+29    Murata           8           candidate_028   rec          18.1233       48.4304       167.23              
+30    Odysseus         5           candidate_015   rec          NaN           53.2637       NaN                 
+================================================================================================================================
