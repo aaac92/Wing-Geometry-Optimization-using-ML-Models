@@ -1,0 +1,112 @@
+{
+    "run_status": "completed",
+    "started": "2026-10-22 13:04:08",
+    "dataset": 17,
+    "wing_mode": "Hossain_config",
+    "wing_configurations": [
+        "rec",
+        "flat",
+        "60DEG"
+    ],
+    "master_seed": {
+        "hex": "46e56d10",
+        "decimal": 1189440784
+    },
+    "round_seeds_hex": [
+        "621",
+        "faa",
+        "1c8e",
+        "5f7",
+        "fde",
+        "b61",
+        "15e1",
+        "259b",
+        "1565",
+        "113f"
+    ],
+    "classifier": {
+        "name": "Calipso",
+        "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/classifier"
+    },
+    "models": [
+        {
+            "name": "Agares",
+            "type": "lgbm",
+            "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/lgbm_regressor_sum_station",
+            "feature_mode": "sum_station"
+        },
+        {
+            "name": "Odysseus",
+            "type": "mlp",
+            "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/mlp_regressor",
+            "feature_mode": "raw"
+        },
+        {
+            "name": "Murata",
+            "type": "mlp",
+            "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/mlp_regressor_sum_station",
+            "feature_mode": "sum_station"
+        }
+    ],
+    "skipped_models": [],
+    "inference": {
+        "num_runs": 10,
+        "num_samples": 1000000,
+        "validity_threshold": 0.99,
+        "num_local_samples": 500000,
+        "local_centers": 20,
+        "local_sigma_fraction": 0.1,
+        "predict_chunk": 250000
+    },
+    "ranges_upper": {
+        "LE": [
+            0,
+            0.125,
+            0.0625
+        ],
+        "inter": [
+            0,
+            0.125,
+            0.041666666666666664
+        ],
+        "TE": [
+            0,
+            0.125,
+            0.125
+        ]
+    },
+    "ranges_lower": {
+        "LE": [
+            -0.125,
+            0,
+            0.0625
+        ],
+        "inter": [
+            0,
+            0.125,
+            0.041666666666666664
+        ],
+        "TE": [
+            0,
+            0.125,
+            0.125
+        ]
+    },
+    "simulation": {
+        "ASEQ": [
+            -20,
+            20,
+            0.5
+        ],
+        "Re": 250000.0,
+        "Mach": 0.09281,
+        "naca_key_points_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"
+    },
+    "finished": "2026-10-22 15:22:07",
+    "total_execution_time": "2:17:58.939391",
+    "results": {
+        "model_results": 30,
+        "unique_candidates": 30,
+        "simulated_candidates": 30
+    }
+}

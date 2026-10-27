@@ -1,0 +1,40 @@
+================================================================================================================================
+Final Aerodynamic Efficiency (E) Report for Dataset 17
+================================================================================================================================
+Dataset best (reference only, not simulated): E = 57.8681 | config = rec
+  CST lower: [0.0, 0.125, 0.0417, 0.0833, 0.125]
+  CST upper: [0.0, 0.0417, 0.0417, 0.0, 0.125]
+--------------------------------------------------------------------------------------------------------------------------------
+Rank  Model            Model Rank  Candidate       Wing Config  Origin  Simulated E   Predicted E   Relative Error (%)  
+--------------------------------------------------------------------------------------------------------------------------------
+1     Odysseus         8           candidate_018   rec          local   56.6842       62.1585       9.66                
+2     Agares           1           candidate_001   rec          local   56.4626       57.6417       2.09                
+3     Agares           9           candidate_009   rec          local   56.4591       56.0008       0.81                
+4     Odysseus         5           candidate_015   rec          local   56.3122       62.3374       10.70               
+5     Odysseus         3           candidate_013   rec          local   56.3020       62.3780       10.79               
+6     Agares           2           candidate_002   rec          local   56.2936       56.8671       1.02                
+7     Odysseus         6           candidate_016   rec          local   56.2184       62.3289       10.87               
+8     Murata           3           candidate_023   rec          local   54.8660       72.6336       32.38               
+9     Murata           10          candidate_030   rec          local   54.0396       70.3877       30.25               
+10    Murata           7           candidate_027   rec          local   53.1969       71.7084       34.80               
+11    Odysseus         4           candidate_014   rec          local   25.0960       62.3526       148.46              
+12    Odysseus         1           candidate_011   rec          local   24.9300       62.4128       150.35              
+13    Odysseus         2           candidate_012   rec          local   24.8237       62.3826       151.30              
+14    Odysseus         7           candidate_017   rec          local   24.7210       62.2084       151.64              
+15    Odysseus         9           candidate_019   rec          local   24.6502       61.9914       151.48              
+16    Odysseus         10          candidate_020   rec          local   24.6385       61.9793       151.55              
+17    Agares           3           candidate_003   rec          local   23.8753       56.8528       138.12              
+18    Agares           5           candidate_005   rec          local   23.8178       56.7611       138.31              
+19    Agares           4           candidate_004   rec          local   23.7537       56.7823       139.05              
+20    Agares           6           candidate_006   rec          local   23.6701       56.3859       138.22              
+21    Murata           5           candidate_025   rec          local   23.5896       72.0302       205.35              
+22    Murata           1           candidate_021   rec          local   23.5626       75.1629       218.99              
+23    Agares           10          candidate_010   rec          local   23.5564       55.9983       137.72              
+24    Agares           8           candidate_008   rec          local   23.5228       56.0772       138.40              
+25    Agares           7           candidate_007   rec          local   23.4902       56.3160       139.74              
+26    Murata           9           candidate_029   rec          local   23.4758       71.1303       202.99              
+27    Murata           6           candidate_026   rec          local   23.2764       71.9509       209.12              
+28    Murata           2           candidate_022   rec          local   23.2595       73.6265       216.54              
+29    Murata           4           candidate_024   rec          local   23.1892       72.2921       211.75              
+30    Murata           8           candidate_028   rec          local   22.2495       71.5531       221.59              
+================================================================================================================================
