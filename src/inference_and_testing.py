@@ -4,17 +4,23 @@ Inference + validation pipeline for the trained airfoil/wing AI models.
 Usage:
     python inference_and_testing.py --classifier <name> --models <name1> [<name2> ...]
                                     [--dataset 17] [--wing-mode Hossain_config|single_configuration]
-                                    [--seed HEX [--decimal]]
+                                    [--seed HEX [--decimal]] [--max-hours 6]
 
 Flow:
-    1. For each of the 10 inference rounds (one fixed seed per round, shared by all models):
-       uniform random CST candidates + local-refinement candidates around the best dataset designs
-       -> classifier validity filter -> pairing with every wing configuration
-       -> every selected regressor predicts sequentially -> best candidate per model is stored.
-    2. Results of all models are pooled, repeated feature vectors are merged (the models that
-       selected them are kept as metadata), and the unique candidates are exported.
-    3. Every unique candidate is simulated sequentially (XFOIL -> key points -> .avl geometry -> AVL).
-    4. Simulated E is compared against each model's predicted E and reports are written.
+    1. Candidate pool. For each seeded inference round: uniform CST samples, local samples around the best
+       dataset designs and edge-probe samples just past the window edges where the best designs sit
+       -> classifier validity filter -> pairing with every wing configuration -> EVERY regressor scores
+       EVERY row. Only an elite subset of each round (best rows per model and by consensus) is kept.
+    2. Region tagging. Each elite row gets its distance (in dataset grid steps) to the nearest dataset design
+       of the same configuration, that design's E, and a label: on-grid / between / outside (the window).
+    3. Shortlist. Diverse top-K per model, diverse top-K by consensus (lowest prediction across models),
+       a few edge-probe designs, the other wing configurations of the best consensus shapes, and the top
+       dataset designs as a reproducibility reference.
+    4. Main simulation of the shortlist (XFOIL -> key points -> .avl geometry -> AVL).
+    5. Robustness: small perturbations of the best simulated designs are simulated as well, sized to fit
+       the remaining time budget (--max-hours).
+    6. Reports: scorecard per selection group and per model, configuration check, candidate table,
+       robustness table and parity plot.
 
 No multiprocessing is used anywhere in this script.
 """
@@ -33,9 +39,12 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from tqdm import tqdm
 import torch
+from scipy.spatial import cKDTree
+from scipy.stats import spearmanr
+from cst_modeling.foil import check_validity
 
 # Import custom support modules (Ensure these are accessible in your project root)
 from simulation_support import Xfoil_Polar_Creator as XPR
@@ -58,12 +67,36 @@ NACA_KP_FILE = "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"  # AVL 3.32 sectio
 NUM_INFERENCE_RUNS = 10
 NUM_SAMPLES = 1_000_000        # uniform (global) CST samples per inference round
 NUM_LOCAL_SAMPLES = 500_000    # local-refinement samples per round, drawn around the best dataset designs (0 = off)
+NUM_EDGE_SAMPLES = 200_000     # edge-probe samples per round (0 = off); only rows outside the window are kept
 LOCAL_TOP_K = 20               # number of distinct top-E dataset designs used as local search centers
 LOCAL_SIGMA_FRACTION = 0.10    # local noise std dev, as a fraction of each coefficient's range width
 PREDICT_CHUNK = 250_000        # rows per model call; keeps GPU/CPU memory bounded for large candidate sets
 VALIDITY_THRESHOLD = 0.99
 SEED_POOL_SIZE = 10000  # per-round seeds are drawn (without repetition) from [0, SEED_POOL_SIZE)
 MAX_MASTER_SEED = 0xFFFFFFFF  # upper limit of the master seed (8 hex digits); raise it here if ever needed
+ELITE_PER_CRITERION = 2000     # rows kept per round for each model's ranking and for the consensus ranking
+
+# --- Shortlist --- #
+TOP_K_PER_MODEL = 12           # diverse picks per model
+TOP_K_CONSENSUS = 12           # diverse picks by consensus (lowest prediction across models)
+TOP_K_EDGE = 8                 # diverse edge-probe picks (outside the window), ranked by consensus
+CONFIG_CHECK_SHAPES = 3        # best consensus shapes, also simulated in the configurations they were not picked with
+REFERENCE_TOP = 3              # top dataset designs re-simulated as they are (reproducibility check)
+DIVERSITY_MIN_STEPS = 0.5      # kept designs differ by at least this many grid steps in some CST coefficient
+EDGE_MIN_SHARE = 0.5           # a window edge is probed if at least this share of the top dataset designs sit on it
+HIT_FRACTION = 0.9             # a "hit" simulates at >= HIT_FRACTION x dataset best E
+
+# --- Robustness --- #
+ROBUST_DESIGNS = 15            # best simulated designs (distinct shapes) that get perturbed
+ROBUST_PERTURBATIONS = 12      # perturbations per design (reduced automatically to fit the time budget)
+ROBUST_MIN_PERTURBATIONS = 3   # below this many perturbations per design, fewer designs are perturbed instead
+ROBUST_SIGMA_STEPS = 0.05      # perturbation std dev, in grid steps (run 20261022_m_seed46e56d10 showed E flips at this scale)
+ROBUST_HOLD_FRACTION = 0.9     # a perturbation "holds" if it simulates at >= this fraction of its parent's E
+
+# --- Time budget --- #
+DEFAULT_MAX_HOURS = 6.0
+MAX_INFERENCE_FRACTION = 0.55  # no new inference round starts if it would end past this fraction of the budget
+SAFETY_MARGIN_MIN = 20         # minutes kept free at the end (archiving, reports, slow XFOIL cases)
 
 # --- Candidate search window (CST deltas) --- #
 # Defaults replicate the dataset 17 generation ranges (Hossain_DB_Gen_linux.py). This is an
@@ -95,6 +128,12 @@ HOSSAIN_CONFIG_REGISTRY = [
 
 # Regressor type per model folder prefix (folders: mlp_regressor, mlp_regressor_station, ...)
 REGRESSOR_FOLDER_TYPES = {'mlp_regressor': 'mlp', 'lgbm_regressor': 'lgbm', 'sknn_regressor': 'sknn'}
+
+# Selection groups (a candidate can belong to several)
+GROUP_CONSENSUS = "consensus"
+GROUP_EDGE = "edge"
+GROUP_CONFIG = "config_check"
+GROUP_REFERENCE = "reference"
 
 # --- User-facing messages for unavailable / incompatible functionality --- #
 SKNN_UNAVAILABLE_MESSAGE = (
@@ -151,15 +190,20 @@ def parse_args():
     parser.add_argument('--models', nargs='+', required=True,
                         help="Names of the regressors to run, e.g. --models Murata Buer. All run sequentially.")
     parser.add_argument('--seed', type=str, default=None,
-                        help=f"Optional master seed, hexadecimal by default (0 to {MAX_MASTER_SEED:x}). The 10 per-round "
+                        help=f"Optional master seed, hexadecimal by default (0 to {MAX_MASTER_SEED:x}). The round "
                              f"seeds derive from it; reuse it to get identical candidate clouds across invocations.")
     parser.add_argument('--decimal', action='store_true',
                         help="Interpret --seed as a decimal number instead of hexadecimal.")
+    parser.add_argument('--max-hours', type=float, default=DEFAULT_MAX_HOURS,
+                        help=f"Time budget of the whole run in hours (default: {DEFAULT_MAX_HOURS}). Inference rounds "
+                             f"and the robustness stage are trimmed to fit it; the main simulation always runs.")
     args = parser.parse_args()
     if len(set(args.models)) != len(args.models):
         parser.error("Duplicate names in --models.")
     if args.decimal and args.seed is None:
         parser.error("--decimal only makes sense together with --seed.")
+    if args.max_hours <= 0:
+        parser.error("--max-hours must be positive.")
     if args.seed is not None:
         try:
             args.seed = parse_master_seed(args.seed, args.decimal)
@@ -194,7 +238,7 @@ def build_paths(dataset_num: int) -> SimpleNamespace:
 
 
 def get_workspace() -> Path:
-    """Short, fixed temp path (XFOIL/AVL do not tolerate long paths). Wiped at start and end of the run."""
+    """Short, fixed temp path (XFOIL/AVL do not tolerate long paths). Wiped at start and end of each simulation stage."""
     root = Path("C:/inference_temp") if platform.system() == "Windows" else Path.home() / ".inference_temp"
     if root.exists():
         shutil.rmtree(root, ignore_errors=True)
@@ -291,6 +335,14 @@ def build_feature_ranges(n_cst, ranges_upper, ranges_lower):
     )
 
 
+def window_bounds(n_cst, ranges_upper, ranges_lower):
+    """(lows, highs) of the search window per CST coefficient (lower block, then upper block)."""
+    feature_ranges = build_feature_ranges(n_cst, ranges_upper, ranges_lower)
+    lows = np.array([min(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
+    highs = np.array([max(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
+    return lows, highs
+
+
 def generate_cst_candidates(num_samples, n_cst, ranges_upper, ranges_lower, rng):
     """Uniform random CST-only candidates (lower block, then upper block) from the given RNG.
     Sampling is continuous: the 'step' of each range is not used (it only describes the dataset grid)."""
@@ -301,24 +353,58 @@ def generate_cst_candidates(num_samples, n_cst, ranges_upper, ranges_lower, rng)
     return candidates
 
 
-def generate_local_candidates(parents, num_samples, n_cst, ranges_upper, ranges_lower, sigma_fraction, rng):
+def generate_local_candidates(parents, num_samples, lows, highs, sigma_fraction, rng, clip_lows=None, clip_highs=None):
     """
     Local refinement: Gaussian perturbations around randomly chosen parent designs (e.g. the best dataset
-    designs). The noise std dev is sigma_fraction of each coefficient's range width and the result is clipped
-    to the search window, so candidates near a window edge stay on that edge instead of leaving the window.
+    designs). The noise std dev is sigma_fraction of each coefficient's window width. The result is clipped
+    to the search window (or to clip_lows/clip_highs when given), so candidates near an edge stay on it.
     """
-    feature_ranges = build_feature_ranges(n_cst, ranges_upper, ranges_lower)
-    lows = np.array([min(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
-    highs = np.array([max(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
+    clip_lows = lows if clip_lows is None else clip_lows
+    clip_highs = highs if clip_highs is None else clip_highs
     centers = parents[rng.integers(0, len(parents), size=num_samples)]
     noise = rng.normal(0.0, 1.0, size=centers.shape).astype(np.float32) * (highs - lows) * sigma_fraction
-    return np.clip(centers + noise, lows, highs).astype(np.float32)
+    return np.clip(centers + noise, clip_lows, clip_highs).astype(np.float32)
+
+
+def detect_edge_directions(parents, lows, highs, steps):
+    """
+    Window edges worth probing: a coefficient's edge is probed when at least EDGE_MIN_SHARE of the top dataset
+    designs sit on it. The window is extended one grid step past each such edge.
+    Returns (directions, ext_lows, ext_highs); directions is a list of (coefficient index, 'low'/'high', new bound).
+    """
+    directions = []
+    ext_lows, ext_highs = lows.copy(), highs.copy()
+    for i in range(len(lows)):
+        if np.isclose(parents[:, i], highs[i], atol=1e-6).mean() >= EDGE_MIN_SHARE:
+            ext_highs[i] = highs[i] + steps[i]
+            directions.append((i, 'high', float(ext_highs[i])))
+        if np.isclose(parents[:, i], lows[i], atol=1e-6).mean() >= EDGE_MIN_SHARE:
+            ext_lows[i] = lows[i] - steps[i]
+            directions.append((i, 'low', float(ext_lows[i])))
+    return directions, ext_lows, ext_highs
+
+
+def outside_window(cst_block, lows, highs):
+    """True for every row with at least one CST coefficient outside the search window."""
+    return ((cst_block < lows - 1e-7) | (cst_block > highs + 1e-7)).any(axis=1)
 
 
 def predict_chunked(predict_fn, X, chunk_size=PREDICT_CHUNK):
     """Runs predict_fn on X in row chunks and returns one flat array (bounds GPU/CPU memory use)."""
     parts = [np.asarray(predict_fn(X[i:i + chunk_size])).reshape(-1) for i in range(0, len(X), chunk_size)]
     return np.concatenate(parts)
+
+
+def predict_all(regressors: dict, X) -> np.ndarray:
+    """(rows, models) matrix of predictions, one column per regressor in CLI order. Non-finite values become NaN."""
+    preds = np.column_stack([predict_chunked(m.predict, X).astype(np.float64) for m in regressors.values()])
+    preds[~np.isfinite(preds)] = np.nan
+    return preds
+
+
+def consensus_score(preds: np.ndarray) -> np.ndarray:
+    """Most pessimistic prediction across models (NaN if any model returned NaN): high only if all models agree."""
+    return np.min(preds, axis=1)
 
 
 def expand_with_configs(cst_candidates, feature_columns, cst_l_cols, cst_u_cols, config_cols):
@@ -356,30 +442,82 @@ def expand_with_configs(cst_candidates, feature_columns, cst_l_cols, cst_u_cols,
     return full_candidates, config_labels
 
 
-def load_dataset_summary(csv_path: Path, cst_l_cols, cst_u_cols, config_cols, top_k: int):
+def with_config(features, config_cols, feature_columns, config_col):
+    """Copy of a full feature row with its one-hot block switched to config_col."""
+    row = features.copy()
+    for c in config_cols:
+        row[feature_columns.index(c)] = 1.0 if c == config_col else 0.0
+    return row
+
+
+def load_dataset_info(csv_path: Path, cst_l_cols, cst_u_cols, config_cols, top_k: int):
     """
-    Reads the training dataset once. Returns (best, parents):
-      best    -- dict with the highest-E row (E, wing_config, cst_lower, cst_upper), or None if unavailable
-      parents -- array (<= top_k, 2 * n_cst) with the distinct CST vectors of the highest-E rows
-                 (lower block, then upper block): centers of the local refinement. None if unavailable.
-    The dataset best is information only: it is neither ranked nor simulated.
+    Reads the training dataset once. Returns None if it is unavailable, otherwise a namespace with:
+      best         -- dict with the highest-E row (E, wing_config, cst_lower, cst_upper). Information + reference.
+      e_max        -- highest E in the dataset
+      parents      -- array (<= top_k, 2 * n_cst): distinct CST vectors of the highest-E rows (local search centers)
+      reference    -- list of (cst vector, config key, E) for the REFERENCE_TOP highest-E rows
+      steps        -- dataset grid step of every CST coefficient (lower block, then upper block)
+      trees        -- {config key: (cKDTree over CST / steps, E array)} for nearest-design lookups
+      config_order -- config keys sorted by mean E over the shapes simulated in every configuration
     """
     try:
         df = pd.read_csv(csv_path)
     except FileNotFoundError:
-        return None, None
-    ordered = df.sort_values(df.columns[-1], ascending=False)
+        return None
+    target = df.columns[-1]
+    cst_cols = cst_l_cols + cst_u_cols
+    if config_cols:
+        df['_config'] = np.array(config_cols)[df[config_cols].to_numpy().argmax(axis=1)]
+    else:
+        df['_config'] = SINGLE_CONFIG_KEY
+    ordered = df.sort_values(target, ascending=False)
     best_row = ordered.iloc[0]
-    active = [c for c in config_cols if best_row[c] == 1]
-    config = active[0] if active else ("single configuration" if not config_cols else "unknown")
+    best_config = best_row['_config']
     best = {
-        "E": float(best_row.iloc[-1]),
-        "wing_config": config,
+        "E": float(best_row[target]),
+        "wing_config": best_config if config_cols else "single configuration",
         "cst_lower": [round(float(best_row[c]), 6) for c in cst_l_cols],
         "cst_upper": [round(float(best_row[c]), 6) for c in cst_u_cols],
     }
-    parents = ordered[cst_l_cols + cst_u_cols].drop_duplicates().head(top_k).to_numpy(dtype=np.float32)
-    return best, parents
+    parents = ordered[cst_cols].drop_duplicates().head(top_k).to_numpy(dtype=np.float32)
+    reference = [(r[cst_cols].to_numpy(dtype=np.float32), r['_config'], float(r[target]))
+                 for _, r in ordered.head(REFERENCE_TOP).iterrows()]
+
+    steps = []
+    for col in cst_cols:
+        u = np.unique(np.round(df[col].to_numpy(), 6))
+        steps.append(float(np.min(np.diff(u))) if len(u) > 1 else 1.0)
+    steps = np.array(steps, dtype=np.float64)
+
+    trees = {}
+    for key, part in df.groupby('_config'):
+        trees[key] = (cKDTree(part[cst_cols].to_numpy(dtype=np.float64) / steps), part[target].to_numpy(dtype=np.float64))
+
+    if config_cols:
+        pivot = df.pivot_table(index=cst_cols, columns='_config', values=target).dropna()
+        config_order = list(pivot.mean().sort_values(ascending=False).index)
+    else:
+        config_order = [SINGLE_CONFIG_KEY]
+    return SimpleNamespace(best=best, e_max=float(ordered[target].iloc[0]), parents=parents, reference=reference,
+                           steps=steps, trees=trees, config_order=config_order)
+
+
+def tag_regions(cst_block, config_labels, info, lows, highs):
+    """
+    Distance (Chebyshev, in grid steps) to the nearest dataset design of the same configuration, that design's E,
+    and the region label: 'outside' (past the window), 'on-grid' (a dataset design) or 'between' (interpolation).
+    """
+    n = len(cst_block)
+    dist, near_e = np.full(n, np.nan), np.full(n, np.nan)
+    scaled = cst_block.astype(np.float64) / info.steps
+    for key, (tree, e_values) in info.trees.items():
+        mask = config_labels == key
+        if mask.any():
+            d, j = tree.query(scaled[mask], p=np.inf)
+            dist[mask], near_e[mask] = d, e_values[j]
+    region = np.where(outside_window(cst_block, lows, highs), 'outside', np.where(dist < 1e-3, 'on-grid', 'between'))
+    return dist, near_e, region
 
 
 def print_dataset_best(best):
@@ -489,35 +627,59 @@ def load_classifier(name: str, folder: Path):
 
 
 # =============================================================================================== #
-# === Candidate pooling === #
+# === Shortlist === #
 # =============================================================================================== #
 
-def dedupe_candidates(ranked_by_model: dict) -> list:
+def top_indices(score, k, mask=None):
+    """Indices of the k highest finite scores (optionally restricted to mask), unordered."""
+    s = np.where(np.isfinite(score), score, -np.inf)
+    if mask is not None:
+        s = np.where(mask, s, -np.inf)
+    k = min(k, int(np.isfinite(s).sum()))
+    if k == 0:
+        return np.array([], dtype=int)
+    return np.argpartition(-s, k - 1)[:k]
+
+
+def diverse_top(score, cst_scaled, k, mask=None, min_steps=DIVERSITY_MIN_STEPS):
     """
-    Merges identical feature vectors (configuration included) across models and rounds.
-    Each unique candidate keeps a 'sources' list with every (model, rank, round, seed, predicted E)
-    that selected it. Order of first appearance is deterministic (CLI model order, then rank).
+    Walks the rows from the highest score down and keeps a row only if its CST vector differs from every kept
+    row by at least min_steps grid steps in some coefficient. Stops at k rows. Returns indices in rank order.
     """
-    unique = {}
-    for items in ranked_by_model.values():
-        for item in items:
-            key = item['features'].tobytes()
-            if key not in unique:
-                unique[key] = {
-                    'candidate_id': f"candidate_{len(unique) + 1:03d}",
-                    'features': item['features'],
-                    'config_col': item['config_col'],
-                    'sources': [],
-                }
-            unique[key]['sources'].append({
-                'model': item['model'], 'rank': item['rank'], 'round': item['round'],
-                'round_seed': item['seed'], 'origin': item['origin'], 'predicted_E': item['E'],
-            })
-    return list(unique.values())
+    s = np.where(np.isfinite(score), score, -np.inf)
+    if mask is not None:
+        s = np.where(mask, s, -np.inf)
+    kept = []
+    for i in np.argsort(-s):
+        if len(kept) >= k or not np.isfinite(s[i]):
+            break
+        if kept and np.abs(cst_scaled[kept] - cst_scaled[i]).max(axis=1).min() < min_steps:
+            continue
+        kept.append(int(i))
+    return kept
+
+
+def add_candidate(unique: dict, features, config_col, preds, origin, group, rank, score, extra=None):
+    """
+    Adds a shortlisted row, merging identical feature vectors (configuration included). Each unique candidate
+    keeps a 'sources' list with every (group, rank, score) that selected it.
+    """
+    key = np.asarray(features, dtype=np.float32).tobytes()
+    if key not in unique:
+        unique[key] = {
+            'candidate_id': f"candidate_{len(unique) + 1:03d}",
+            'features': np.asarray(features, dtype=np.float32),
+            'config_col': str(config_col),
+            'preds': np.asarray(preds, dtype=np.float64),
+            'origin': origin,
+            'sources': [],
+            **(extra or {}),
+        }
+    unique[key]['sources'].append({'group': group, 'rank': rank, 'score': None if score is None else float(score)})
 
 
 # =============================================================================================== #
-# === Simulation result parsing and reporting === #
+# === Simulation === #
 # =============================================================================================== #
 
 def extract_force_data(file_path: Path):
@@ -551,39 +713,313 @@ def compute_simulated_E(cl, cd):
     return e
 
 
-def save_results_to_txt(rows: list, output_folder: Path, prefix: str, dataset_num: int, dataset_best=None):
-    """Saves formatted text report handling NaN values properly."""
-    filepath = output_folder / f"{prefix}_final_report.txt"
-    sorted_rows = sorted(rows, key=lambda x: -np.inf if math.isnan(x['simulated_E']) else x['simulated_E'], reverse=True)
-    width = 128
-    with open(filepath, 'w') as f:
-        f.write("=" * width + "\n")
-        f.write(f"Final Aerodynamic Efficiency (E) Report for Dataset {dataset_num}\n")
-        f.write("=" * width + "\n")
-        if dataset_best is not None:
-            f.write(f"Dataset best (reference only, not simulated): E = {dataset_best['E']:.4f} | "
-                    f"config = {dataset_best['wing_config']}\n")
-            f.write(f"  CST lower: {dataset_best['cst_lower']}\n")
-            f.write(f"  CST upper: {dataset_best['cst_upper']}\n")
-        else:
-            f.write("Dataset best: not available (training dataset not found)\n")
-        f.write("-" * width + "\n")
-        f.write(f"{'Rank':<5} {'Model':<16} {'Model Rank':<11} {'Candidate':<15} {'Wing Config':<12} {'Origin':<7} "
-                f"{'Simulated E':<13} {'Predicted E':<13} {'Relative Error (%)':<20}\n")
-        f.write("-" * width + "\n")
-        for i, item in enumerate(sorted_rows):
-            sim = f"{item['simulated_E']:.4f}" if not math.isnan(item['simulated_E']) else "NaN"
-            pred = f"{item['predicted_E']:.4f}"
-            err = f"{item['relative_error']:.2f}" if not math.isnan(item['relative_error']) else "NaN"
-            f.write(f"{i + 1:<5} {item['model']:<16} {item['model_rank']:<11} {item['candidate_id']:<15} "
-                    f"{item['wing_config']:<12} {item['origin']:<7} {sim:<13} {pred:<13} {err:<20}\n")
-        f.write("=" * width + "\n")
-    print(f"Successfully saved text report to '{filepath.name}'")
+def simulate_candidates(candidates: list, stage: str, ctx) -> dict:
+    """
+    Runs the full simulation chain (airfoil .dat -> XFOIL -> key points -> .avl geometry -> AVL) sequentially for
+    every candidate, archives the raw files of the stage and returns {candidate_id: result dict}.
+    Result statuses: 'ok', 'invalid_geometry' (airfoil surfaces cross; not simulated), 'no_result' (a step failed).
+    """
+    results = {c['candidate_id']: {'status': 'no_result', 'CL': np.nan, 'CD': np.nan, 'E': np.nan} for c in candidates}
+    if not candidates:
+        return results
+    print(f"\n# === Simulation stage '{stage}': {len(candidates)} candidate(s) === #")
+    angles = [ASEQ[0] + j * ASEQ[2] for j in range(int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1)]
+    temp_root = get_workspace()
+    prefix = f"{ctx.prefix}_{stage}"
+    try:
+        airfoils_temp = temp_root / "airfoils"
+        polars_temp = temp_root / "polars"
+        geo_temp = temp_root / "geometry"
+        forces_temp = temp_root / "forces"
+        support_temp = temp_root / "support"
+        for d in [airfoils_temp, polars_temp, geo_temp, forces_temp, support_temp]:
+            d.mkdir(parents=True, exist_ok=True)
+
+        # Generate Airfoils (geometrically invalid shapes are not simulated)
+        print("\n--- Generating Airfoil Geometry ---")
+        valid = []
+        for c in tqdm(candidates, desc="Creating .dat files"):
+            x_mod, yu_mod, yl_mod = ctx.airfoil_creator.generate(cst_coeffs=c['features'][ctx.cst_col_idx])
+            if not check_validity(x_mod, yu_mod, yl_mod, verbose=False):
+                results[c['candidate_id']]['status'] = 'invalid_geometry'
+                continue
+            ctx.airfoil_creator._create_dat_file(output_dir=airfoils_temp, n_cst=ctx.n_cst, x=x_mod, yl=yl_mod, yu=yu_mod,
+                                                 file_name=c['candidate_id'])
+            valid.append(c)
+        if not valid:
+            print("No geometrically valid airfoils in this stage.")
+            return results
+
+        # Run XFOIL (same conditions as the dataset generation)
+        print("\n--- Generating Polars (XFOIL) ---")
+        airfoil_paths = get_all_files_from(airfoils_temp, extension='dat')
+        xfoil_case = XPR(xfoil_exe_path=str(ctx.paths.xfoil_bin), main_dir=temp_root, airfoil_dir=airfoils_temp,
+                         polar_dir=polars_temp, verbose=False)
+        for path in tqdm(airfoil_paths, desc="Running XFOIL"):
+            polar_path = polars_temp / f"polar_{Path(path).stem}.txt"
+            # Does not require try/except due to internal handler
+            xfoil_case.run_simulation(airfoil_file_path=path, polar_file_path=str(polar_path),
+                                      alfa_sequence=angles, visc=RE, mach=MACH)
+
+        # Create Wing Geometries, each candidate uses the creator matching its own configuration
+        print("\n--- Generating Wing Geometry (.avl files) ---")
+        polar_paths = get_all_files_from(polars_temp, extension='txt')
+        key_points = Key_Point_Extraction(polar_file_paths=polar_paths, verbose=True)
+        key_points_data = key_points.process_files()
+        key_points.save_error_log(os.path.join(geo_temp, 'KP_error_log.txt'))
+
+        airfoil_paths_by_config = defaultdict(list)
+        for c in valid:
+            airfoil_paths_by_config[c['config_col']].append(str(airfoils_temp / f"{c['candidate_id']}.dat"))
+
+        for config_col, subset_paths in airfoil_paths_by_config.items():
+            creator_class, identifier = ctx.config_registry[config_col]
+            print(f"  -> {len(subset_paths)} airfoil(s) under '{identifier}' configuration")
+            geo_creator = creator_class(
+                key_points_data=key_points_data,
+                airfoil_abs_paths=subset_paths,
+                naca_key_points_data=str(ctx.paths.naca_kp_file),
+                output_dir=str(geo_temp),
+                verbose=False,
+                pb=True
+            )
+            geo_creator.create_geo_files()
+            geo_creator.save_error_log(os.path.join(geo_temp, f'geo_{identifier}_error_log.txt'))
+
+        # Calculate Final Forces (AVL), sequentially
+        print("\n--- Calculating Final Coefficients (AVL) ---")
+        geo_paths = get_all_files_from(geo_temp, extension='avl')
+        shutil.copy(ctx.paths.case_file, support_temp)
+        case_file_temp = support_temp / ctx.paths.case_file.name
+        for path in tqdm(geo_paths, desc="Running AVL sequentially"):
+            avl_case = AVL_Run_Case(geo_files=[path], case_file=str(case_file_temp), avl_exe_path=str(ctx.paths.avl_bin),
+                                    output_dir=forces_temp, debug=False)
+            # Does not require try/except due to internal handler
+            avl_case.run()
+
+        print("\n--- Archiving Raw Data Files ---")
+        ctx.archiver.compress_folder(airfoils_temp, ctx.run_dir, f"{prefix}_airfoils")
+        ctx.archiver.compress_folder(polars_temp, ctx.run_dir, f"{prefix}_polars")
+        ctx.archiver.compress_folder(geo_temp, ctx.run_dir, f"{prefix}_geo")
+        ctx.archiver.compress_folder(forces_temp, ctx.run_dir, f"{prefix}_forces")
+
+        # Parse simulation results
+        for fpath in tqdm(get_all_files_from(forces_temp, extension='txt'), desc="Reading force files"):
+            airfoil_name, cl, cd = extract_force_data(Path(fpath))
+            if airfoil_name is None or airfoil_name not in results:
+                continue  # Skip unparseable files entirely
+            e = compute_simulated_E(cl, cd)
+            results[airfoil_name] = {'status': 'ok' if not math.isnan(e) else 'no_result', 'CL': cl, 'CD': cd, 'E': e}
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+    return results
+
+
+# =============================================================================================== #
+# === Reporting === #
+# =============================================================================================== #
+
+def safe_spearman(a, b):
+    """Rank agreement between two sequences, or None when it is undefined (fewer than 3 points or constant)."""
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    if len(a) < 3 or np.ptp(a) == 0 or np.ptp(b) == 0:
+        return None
+    return float(spearmanr(a, b)[0])
+
+
+def group_score(candidate, group, model_names):
+    """The value a group ranked by: the model's own prediction for a model group, the consensus otherwise."""
+    if group.startswith("model:"):
+        return float(candidate['preds'][model_names.index(group[len("model:"):])])
+    return float(candidate['consensus'])
+
+
+def build_scorecard(candidates, groups, model_names, e_best, e_max):
+    """One row per selection group: how its simulated picks performed against the dataset best."""
+    rows = []
+    for group in groups:
+        picks = [c for c in candidates if any(s['group'] == group for s in c['sources'])]
+        if not picks:
+            continue
+        sims = [c for c in picks if c['status'] == 'ok']
+        scores = np.array([group_score(c, group, model_names) for c in sims])
+        sim_e = np.array([c['simulated_E'] for c in sims])
+        rows.append({
+            'group': group,
+            'picks': len(picks),
+            'simulated': len(sims),
+            'failed': sum(c['status'] == 'no_result' for c in picks),
+            'invalid_geometry': sum(c['status'] == 'invalid_geometry' for c in picks),
+            'best_simulated_E': float(sim_e.max()) if len(sims) else None,
+            'regret': float(e_best - sim_e.max()) if len(sims) else None,
+            'median_simulated_E': float(np.median(sim_e)) if len(sims) else None,
+            'hits': int((sim_e >= HIT_FRACTION * e_best).sum()),
+            'mean_signed_error': float(np.mean(scores - sim_e)) if len(sims) else None,
+            'rank_agreement': safe_spearman(scores, sim_e),
+            'scores_above_dataset_max': int(sum(group_score(c, group, model_names) > e_max for c in picks)),
+        })
+    return rows
+
+
+def build_model_table(candidates, model_names, e_max):
+    """Every model judged on every simulated main-stage candidate (not only its own picks): a fair comparison."""
+    sims = [c for c in candidates if c['status'] == 'ok']
+    sim_e = np.array([c['simulated_E'] for c in sims])
+    rows = []
+    for m, name in enumerate(model_names):
+        pred = np.array([c['preds'][m] for c in sims])
+        ok = np.isfinite(pred)
+        rows.append({
+            'model': name,
+            'candidates': int(ok.sum()),
+            'mean_signed_error': float(np.mean(pred[ok] - sim_e[ok])) if ok.any() else None,
+            'mean_abs_error': float(np.mean(np.abs(pred[ok] - sim_e[ok]))) if ok.any() else None,
+            'rank_agreement': safe_spearman(pred[ok], sim_e[ok]),
+            'predictions_above_dataset_max': int((pred[ok] > e_max).sum()),
+        })
+    return rows
+
+
+def fmt(v, digits=2, width=None):
+    """Number formatting that tolerates None/NaN."""
+    text = "-" if v is None or (isinstance(v, float) and math.isnan(v)) else (f"{v:.{digits}f}" if isinstance(v, float) else str(v))
+    return text if width is None else f"{text:<{width}}"
+
+
+def short_sources(sources):
+    labels = []
+    for s in sources:
+        g = s['group'][len("model:"):] if s['group'].startswith("model:") else s['group']
+        labels.append(f"{g}#{s['rank']}")
+    return ", ".join(labels)
+
+
+def save_text_report(path: Path, ctx, report: dict):
+    """Human-readable report: header, scorecards, configuration check, candidates and robustness."""
+    model_names = ctx.model_names
+    best = report['dataset_best']
+    width = 150
+    lines = ["=" * width, f"Aerodynamic Efficiency (E) Validation Report for Dataset {ctx.dataset_num}", "=" * width]
+    if best is not None:
+        lines += [f"Dataset best: E = {best['E']:.4f} | config = {best['wing_config']}",
+                  f"  CST lower: {best['cst_lower']}", f"  CST upper: {best['cst_upper']}",
+                  f"Hit = simulated E >= {HIT_FRACTION:.0%} of the dataset best ({HIT_FRACTION * best['E']:.2f}). "
+                  f"Signed error = prediction - simulation (positive = the model was too optimistic)."]
+    lines += [f"Inference rounds completed: {report['rounds_completed']} | Total time: {report['total_time']}", ""]
+
+    lines += ["--- Scorecard per selection group (each group judged with the score it ranked by) " + "-" * 60]
+    lines.append(f"{'Group':<18} {'Picks':>5} {'Sim':>4} {'Fail':>4} {'Inval':>5} {'Best E':>8} {'Regret':>7} "
+                 f"{'Median E':>9} {'Hits':>4} {'Signed err':>10} {'Rank agr.':>9} {'Score>max':>9}")
+    for r in report['scorecard']:
+        g = r['group'][len("model:"):] if r['group'].startswith("model:") else r['group']
+        lines.append(f"{g:<18} {r['picks']:>5} {r['simulated']:>4} {r['failed']:>4} {r['invalid_geometry']:>5} "
+                     f"{fmt(r['best_simulated_E']):>8} {fmt(r['regret']):>7} {fmt(r['median_simulated_E']):>9} "
+                     f"{r['hits']:>4} {fmt(r['mean_signed_error']):>10} {fmt(r['rank_agreement']):>9} "
+                     f"{r['scores_above_dataset_max']:>9}")
+    lines.append("")
+
+    lines += ["--- Every model on every simulated main-stage candidate " + "-" * 94]
+    lines.append(f"{'Model':<18} {'N':>4} {'Signed err':>10} {'Abs err':>8} {'Rank agr.':>9} {'Pred>max':>8}")
+    for r in report['model_table']:
+        lines.append(f"{r['model']:<18} {r['candidates']:>4} {fmt(r['mean_signed_error']):>10} "
+                     f"{fmt(r['mean_abs_error']):>8} {fmt(r['rank_agreement']):>9} {r['predictions_above_dataset_max']:>8}")
+    lines.append("")
+
+    cfg_names = [ctx.config_registry[c][1] for c in ctx.config_order]
+    lines += [f"--- Configuration check (dataset order: {' > '.join(cfg_names)}) " + "-" * 80]
+    for r in report['config_check']['model_winners']:
+        preds = "  ".join(f"{k}={fmt(v)}" for k, v in r['predictions'].items())
+        lines.append(f"{r['model']:<18} winner {r['candidate_id']} ({r['picked_config']}): {preds}  "
+                     f"-> {'matches' if r['order_matches_dataset'] else 'DIFFERS FROM'} dataset order")
+    verdicts = {True: "matches dataset order", False: "DIFFERS FROM dataset order", None: "incomplete (a simulation failed)"}
+    for r in report['config_check']['simulated_shapes']:
+        sims = "  ".join(f"{k}={fmt(v)}" for k, v in r['simulated_E'].items())
+        lines.append(f"Consensus shape #{r['shape']} simulated: {sims}  -> {verdicts[r['order_matches_dataset']]}")
+    lines.append("")
+
+    lines += ["--- Candidates (sorted by simulated E) " + "-" * 112]
+    model_hdr = " ".join(f"{n[:8]:>8}" for n in model_names)
+    lines.append(f"{'Candidate':<14} {'Cfg':<6} {'Region':<15} {model_hdr} {'Spread':>6} {'Sim E':>7} {'Err(cons)':>9} "
+                 f"{'Near E':>7}  {'Flags':<10} Picked by")
+    for c in sorted(report['candidates'], key=lambda c: -np.inf if c['simulated_E'] is None else c['simulated_E'], reverse=True):
+        region = f"{c['region']} {fmt(c['grid_distance'])}"
+        preds = " ".join(f"{fmt(p):>8}" for p in c['predictions'].values())
+        flags = []
+        if c['above_dataset_max']:
+            flags.append("pred>max")
+        if c['status'] != 'ok':
+            flags.append(c['status'])
+        lines.append(f"{c['candidate_id']:<14} {c['wing_config']:<6} {region:<15} {preds} {fmt(c['spread']):>6} "
+                     f"{fmt(c['simulated_E']):>7} {fmt(c['consensus_error']):>9} {fmt(c['nearest_dataset_E']):>7}  "
+                     f"{','.join(flags):<10} {short_sources(c['sources'])}")
+    lines.append("")
+
+    rob = report['robustness']
+    lines += ["--- Robustness (small perturbations of the best simulated designs) " + "-" * 83]
+    if rob['status'] != 'completed':
+        lines.append(f"Not run: {rob['status']}")
+    else:
+        lines.append(f"Perturbation std dev: {ROBUST_SIGMA_STEPS} grid steps. A perturbation holds if it simulates at "
+                     f">= {ROBUST_HOLD_FRACTION:.0%} of its parent's E.")
+        lines.append(f"{'Parent':<14} {'Parent E':>8} {'Pert.':>5} {'Sim':>4} {'Hold rate':>9} {'Mean E':>7} {'Min E':>7} {'Max E':>7}")
+        for r in rob['parents']:
+            lines.append(f"{r['parent']:<14} {fmt(r['parent_E']):>8} {r['perturbations']:>5} {r['simulated']:>4} "
+                         f"{fmt(r['hold_rate']):>9} {fmt(r['mean_E']):>7} {fmt(r['min_E']):>7} {fmt(r['max_E']):>7}")
+    lines.append("=" * width)
+    path.write_text("\n".join(lines) + "\n", encoding='utf-8')
+    print(f"Successfully saved text report to '{path.name}'")
+
+
+def save_parity_plot(path: Path, candidates, model_names, e_best):
+    """Predicted vs simulated E for every model on every simulated main-stage candidate."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not available; parity plot skipped.")
+        return
+    sims = [c for c in candidates if c['status'] == 'ok']
+    if not sims:
+        return
+    fig, ax = plt.subplots(figsize=(7, 6))
+    sim_e = np.array([c['simulated_E'] for c in sims])
+    for m, name in enumerate(model_names):
+        ax.scatter([c['preds'][m] for c in sims], sim_e, s=22, alpha=0.75, label=name)
+    lo = min(np.nanmin(sim_e), np.nanmin([c['preds'] for c in sims])) - 2
+    hi = max(np.nanmax(sim_e), np.nanmax([c['preds'] for c in sims]), e_best) + 2
+    ax.plot([lo, hi], [lo, hi], ls='--', c='gray', lw=1, label='perfect prediction')
+    ax.axhline(e_best, c='green', lw=1, label=f'dataset best ({e_best:.2f})')
+    ax.set_xlabel("Predicted E")
+    ax.set_ylabel("Simulated E")
+    ax.set_title("Predicted vs simulated E (main stage)")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"Saved parity plot to '{path.name}'")
+
+
+def to_json(value):
+    """Recursively converts numpy types and NaN to plain JSON values."""
+    if isinstance(value, dict):
+        return {str(k): to_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_json(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return to_json(value.tolist())
+    if isinstance(value, (np.floating, float)):
+        return None if math.isnan(float(value)) else float(value)
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    return value
 
 
 def write_json(path: Path, data):
     with open(path, 'w') as f:
-        json.dump(data, f, indent=4)
+        json.dump(to_json(data), f, indent=4)
 
 
 # =============================================================================================== #
@@ -604,11 +1040,14 @@ if __name__ == "__main__":
     paths = build_paths(dataset_num)
     dataset_name_prefix = f"AI_Test_Results_dataset_{dataset_num}"
     start_time = datetime.now()
-    print(f"Pipeline started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    deadline = start_time + timedelta(hours=args.max_hours)
+    inference_deadline = start_time + timedelta(hours=args.max_hours * MAX_INFERENCE_FRACTION)
+    print(f"Pipeline started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')} | time budget {args.max_hours} h "
+          f"(must finish by {deadline.strftime('%Y-%m-%d %H:%M')})\n")
 
     # === Seeds: one per inference round, identical for every model === #
     # NumPy's Generator (np.random.default_rng) accepts any non-negative integer, so the accepted range
-    # is simply MAX_MASTER_SEED. The 10 round seeds are a deterministic function of the master seed.
+    # is simply MAX_MASTER_SEED. The round seeds are a deterministic function of the master seed.
     if args.seed is not None:
         master_seed = args.seed
         print(f"Master seed supplied as {'decimal' if args.decimal else 'hexadecimal'}: "
@@ -660,20 +1099,29 @@ if __name__ == "__main__":
     if not regressors:
         print("\nNo usable regressors remain. There is nothing left to calculate. Congratulations.")
         sys.exit(1)
+    model_names = list(regressors)
+
+    # === Dataset information: best row, local-search centers, grid steps, nearest-design lookup === #
+    info = load_dataset_info(paths.training_file, cst_l_cols, cst_u_cols, config_cols, LOCAL_TOP_K)
+    if info is None:
+        raise FileNotFoundError(f"Training dataset not found: {paths.training_file}. It is needed for the local search, "
+                                f"region tagging and the reference designs.")
+    lows, highs = window_bounds(n_cst, RANGES_UPPER, RANGES_LOWER)
+    cst_names = cst_l_cols + cst_u_cols
+    edge_directions, ext_lows, ext_highs = detect_edge_directions(info.parents, lows, highs, info.steps)
+    use_local = NUM_LOCAL_SAMPLES > 0
+    use_edge = NUM_EDGE_SAMPLES > 0 and bool(edge_directions)
 
     # === Run folder === #
     paths.results_root.mkdir(parents=True, exist_ok=True)
     run_dir = make_run_dir(paths.results_root, master_seed)
     print(f"Results folder: {run_dir}")
 
-    # === Dataset summary: best row (information) and local-refinement centers === #
-    dataset_best, local_parents = load_dataset_summary(paths.training_file, cst_l_cols, cst_u_cols, config_cols, LOCAL_TOP_K)
-    use_local = local_parents is not None and NUM_LOCAL_SAMPLES > 0
-
     # === Metadata (written now, completed at the end of the run) === #
     metadata = {
         "run_status": "running",
         "started": start_time.strftime('%Y-%m-%d %H:%M:%S'),
+        "time_budget_hours": args.max_hours,
         "dataset": dataset_num,
         "wing_mode": args.wing_mode,
         "wing_configurations": [v[1] for v in config_registry.values()],
@@ -684,214 +1132,317 @@ if __name__ == "__main__":
                     "feature_mode": getattr(regressors[n], 'feature_mode', None)} for n in regressors],
         "skipped_models": skipped_models,
         "inference": {"num_runs": NUM_INFERENCE_RUNS, "num_samples": NUM_SAMPLES, "validity_threshold": VALIDITY_THRESHOLD,
-                      "num_local_samples": NUM_LOCAL_SAMPLES if use_local else 0,
-                      "local_centers": len(local_parents) if use_local else 0,
-                      "local_sigma_fraction": LOCAL_SIGMA_FRACTION, "predict_chunk": PREDICT_CHUNK},
+                      "num_local_samples": NUM_LOCAL_SAMPLES, "local_centers": len(info.parents),
+                      "local_sigma_fraction": LOCAL_SIGMA_FRACTION, "num_edge_samples": NUM_EDGE_SAMPLES if use_edge else 0,
+                      "elite_per_criterion": ELITE_PER_CRITERION, "predict_chunk": PREDICT_CHUNK},
+        "shortlist": {"top_k_per_model": TOP_K_PER_MODEL, "top_k_consensus": TOP_K_CONSENSUS, "top_k_edge": TOP_K_EDGE,
+                      "config_check_shapes": CONFIG_CHECK_SHAPES, "reference_top": REFERENCE_TOP,
+                      "diversity_min_steps": DIVERSITY_MIN_STEPS, "consensus": "minimum prediction across models"},
+        "robustness": {"designs": ROBUST_DESIGNS, "perturbations": ROBUST_PERTURBATIONS,
+                       "sigma_grid_steps": ROBUST_SIGMA_STEPS, "hold_fraction": ROBUST_HOLD_FRACTION},
+        "grid_steps": dict(zip(cst_names, info.steps.tolist())),
+        "edge_probe": [{"coefficient": cst_names[i], "side": side, "extended_to": bound} for i, side, bound in edge_directions],
         "ranges_upper": RANGES_UPPER,
         "ranges_lower": RANGES_LOWER,
         "simulation": {"ASEQ": ASEQ, "Re": RE, "Mach": MACH, "naca_key_points_file": NACA_KP_FILE},
+        "stage_times": {},
     }
     metadata_path = run_dir / f"{dataset_name_prefix}_run_metadata.json"
     write_json(metadata_path, metadata)
 
-    print_dataset_best(dataset_best)
-    if use_local:
-        print(f"Local refinement: {NUM_LOCAL_SAMPLES} samples per round around {len(local_parents)} top dataset designs "
-              f"(sigma = {LOCAL_SIGMA_FRACTION} x range width).")
+    print_dataset_best(info.best)
+    print(f"Local refinement: {NUM_LOCAL_SAMPLES if use_local else 0} samples per round around {len(info.parents)} "
+          f"top dataset designs (sigma = {LOCAL_SIGMA_FRACTION} x range width).")
+    if use_edge:
+        print(f"Edge probe: {NUM_EDGE_SAMPLES} samples per round past "
+              f"{[f'{cst_names[i]} {side} -> {bound:.4f}' for i, side, bound in edge_directions]}")
     else:
-        print("Local refinement disabled (no dataset available or NUM_LOCAL_SAMPLES = 0).")
+        print("Edge probe disabled (NUM_EDGE_SAMPLES = 0 or no edge shared by the top dataset designs).")
 
-    # === Inference & Ranking (all models, sequentially) === #
-    raw_best = {name: [] for name in regressors}
+    # === Stage 1: candidate pool. Every model scores every row; an elite subset of each round is kept === #
+    pool = defaultdict(list)
+    rounds_completed, t_inference = 0, time.perf_counter()
     for r, seed in enumerate(round_seeds, start=1):
+        if r > 1:
+            last_round = (time.perf_counter() - t_inference) / rounds_completed
+            if datetime.now() + timedelta(seconds=last_round) > inference_deadline:
+                print(f"\n[TIME] Stopping inference after {rounds_completed} round(s): another round would pass "
+                      f"{MAX_INFERENCE_FRACTION:.0%} of the time budget.")
+                break
         print(f"\n--- Inference Run {r}/{NUM_INFERENCE_RUNS} (seed {seed:x}) ---")
         rng = np.random.default_rng(seed)
-        cst_candidates = generate_cst_candidates(NUM_SAMPLES, n_cst, RANGES_UPPER, RANGES_LOWER, rng)
-        n_global = len(cst_candidates)  # rows at or beyond this index come from the local refinement
+        blocks = [(generate_cst_candidates(NUM_SAMPLES, n_cst, RANGES_UPPER, RANGES_LOWER, rng), 'global')]
         if use_local:
-            local_candidates = generate_local_candidates(local_parents, NUM_LOCAL_SAMPLES, n_cst, RANGES_UPPER,
-                                                         RANGES_LOWER, LOCAL_SIGMA_FRACTION, rng)
-            cst_candidates = np.concatenate([cst_candidates, local_candidates])
+            blocks.append((generate_local_candidates(info.parents, NUM_LOCAL_SAMPLES, lows, highs, LOCAL_SIGMA_FRACTION, rng), 'local'))
+        if use_edge:
+            edge = generate_local_candidates(info.parents, NUM_EDGE_SAMPLES, lows, highs, LOCAL_SIGMA_FRACTION, rng,
+                                             clip_lows=ext_lows, clip_highs=ext_highs)
+            blocks.append((edge[outside_window(edge, lows, highs)], 'edge'))
+        cst_candidates = np.concatenate([b for b, _ in blocks])
+        origins = np.concatenate([np.full(len(b), o) for b, o in blocks])
 
         # Classifier works on CST combinations; invalid ones are discarded.
         validity_probs = predict_chunked(classifier.predict, cst_candidates)
         valid_indices = np.where(validity_probs > VALIDITY_THRESHOLD)[0]
         if len(valid_indices) == 0:
             print("No valid candidates found in this run. Skipping.")
+            rounds_completed += 1
             continue
+        valid_origins = origins[valid_indices]
         print(f"{len(valid_indices)} valid CST combinations out of {len(cst_candidates)} "
-              f"({int((valid_indices >= n_global).sum())} from local refinement).")
+              f"({', '.join(f'{o}: {int((valid_origins == o).sum())}' for _, o in blocks)}).")
         full_candidates, config_labels = expand_with_configs(
             cst_candidates[valid_indices], feature_columns, cst_l_cols, cst_u_cols, config_cols)
         num_configs = max(len(config_cols), 1)  # row i of full_candidates belongs to valid sample i // num_configs
+        row_origins = np.repeat(valid_origins, num_configs)
 
-        for name, model in regressors.items():
-            t0 = time.perf_counter()
-            preds = predict_chunked(model.predict, full_candidates).astype(np.float64)
-            preds[~np.isfinite(preds)] = np.nan
-            if np.isnan(preds).all():
-                print(f"[WARNING] '{name}' returned only NaN/inf predictions in run {r}. Skipping its result.")
+        t0 = time.perf_counter()
+        preds = predict_all(regressors, full_candidates)
+        consensus = consensus_score(preds)
+        in_window = row_origins != 'edge'
+        for m, name in enumerate(model_names):
+            column = np.where(in_window, preds[:, m], np.nan)
+            if np.isnan(column).all():
+                print(f"[WARNING] '{name}' returned only NaN/inf predictions in run {r}.")
                 continue
-            best_idx = int(np.nanargmax(preds))
-            origin = 'local' if valid_indices[best_idx // num_configs] >= n_global else 'global'
-            print(f"  {name}: best predicted E = {preds[best_idx]:.4f} [{origin}] ({time.perf_counter() - t0:.1f}s)")
-            raw_best[name].append({
-                'model': name, 'round': r, 'seed': f"{seed:x}", 'E': float(preds[best_idx]), 'origin': origin,
-                'features': full_candidates[best_idx].copy(), 'config_col': str(config_labels[best_idx]),
-            })
+            i = int(np.nanargmax(column))
+            print(f"  {name}: best predicted E = {preds[i, m]:.4f} [{row_origins[i]}]")
+        print(f"  Scored {len(full_candidates)} rows with {len(model_names)} model(s) in {time.perf_counter() - t0:.1f}s")
 
-    # Rank each model's best-of-run results
-    for name, items in raw_best.items():
-        items.sort(key=lambda x: x['E'], reverse=True)
-        for rank, item in enumerate(items, start=1):
-            item['rank'] = rank
+        elite = set()
+        for m in range(len(model_names)):
+            elite.update(top_indices(preds[:, m], ELITE_PER_CRITERION, in_window).tolist())
+        elite.update(top_indices(consensus, ELITE_PER_CRITERION, in_window).tolist())
+        elite.update(top_indices(consensus, ELITE_PER_CRITERION, ~in_window).tolist())
+        elite = np.array(sorted(elite), dtype=int)
+        pool['features'].append(full_candidates[elite])
+        pool['config'].append(config_labels[elite])
+        pool['preds'].append(preds[elite])
+        pool['origin'].append(row_origins[elite])
+        pool['round'].append(np.full(len(elite), r))
+        rounds_completed += 1
 
-    # === Pool, compare and remove repeated feature vectors === #
-    candidates = dedupe_candidates(raw_best)
-    total_entries = sum(len(v) for v in raw_best.values())
-    print(f"\nPooled {total_entries} model results -> {len(candidates)} unique candidates "
-          f"({total_entries - len(candidates)} repeated feature vectors merged).")
-    if not candidates:
+    metadata['stage_times']['inference'] = str(timedelta(seconds=round(time.perf_counter() - t_inference)))
+    metadata['rounds_completed'] = rounds_completed
+    if not pool['features']:
         print("\nWARNING: No candidates to validate. Nothing to simulate.")
         metadata.update({"run_status": "completed_no_candidates", "finished": datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
         write_json(metadata_path, metadata)
         sys.exit(0)
+    pool = {k: np.concatenate(v) for k, v in pool.items()}
+    pool_cst = pool['features'][:, cst_col_idx]
+    pool_scaled = pool_cst.astype(np.float64) / info.steps
+    pool_consensus = consensus_score(pool['preds'])
+    _, _, pool_region = tag_regions(pool_cst, pool['config'], info, lows, highs)
+    pool_inside = pool_region != 'outside'
+    print(f"\nElite pool: {len(pool_cst)} rows ({int(pool_inside.sum())} inside the window, "
+          f"{int((~pool_inside).sum())} edge probe).")
+
+    # === Stage 2: shortlist === #
+    unique = {}
+
+    def add_pool_row(i, group, rank, score):
+        add_candidate(unique, pool['features'][i], pool['config'][i], pool['preds'][i], str(pool['origin'][i]),
+                      group, rank, score, {'round': int(pool['round'][i])})
+
+    for m, name in enumerate(model_names):
+        for rank, i in enumerate(diverse_top(pool['preds'][:, m], pool_scaled, TOP_K_PER_MODEL, pool_inside), start=1):
+            add_pool_row(i, f"model:{name}", rank, pool['preds'][i, m])
+    consensus_picks = diverse_top(pool_consensus, pool_scaled, TOP_K_CONSENSUS, pool_inside)
+    for rank, i in enumerate(consensus_picks, start=1):
+        add_pool_row(i, GROUP_CONSENSUS, rank, pool_consensus[i])
+    for rank, i in enumerate(diverse_top(pool_consensus, pool_scaled, TOP_K_EDGE, ~pool_inside), start=1):
+        add_pool_row(i, GROUP_EDGE, rank, pool_consensus[i])
+
+    # Configuration check: the best consensus shapes in every configuration
+    # Rows that are not in the pool yet; each entry is (features, config key, group, rank, origin, extra fields)
+    extra = []
+    for shape_rank, i in enumerate(consensus_picks[:CONFIG_CHECK_SHAPES], start=1):
+        for col in config_cols:
+            extra.append((with_config(pool['features'][i], config_cols, feature_columns, col), col, GROUP_CONFIG,
+                          shape_rank, str(pool['origin'][i]), {'round': int(pool['round'][i])}))
+    # Reproducibility reference: the top dataset designs exactly as they are in the dataset
+    for ref_rank, (cst, config_key, e_dataset) in enumerate(info.reference, start=1):
+        row = np.zeros(len(feature_columns), dtype=np.float32)
+        row[cst_col_idx] = cst
+        if config_cols:
+            row = with_config(row, config_cols, feature_columns, config_key)
+        extra.append((row, config_key, GROUP_REFERENCE, ref_rank, 'dataset', {'dataset_E': e_dataset}))
+    if extra:
+        extra_preds = predict_all(regressors, np.array([e[0] for e in extra], dtype=np.float32))
+        for (row, cfg, group, rank, origin, fields), p in zip(extra, extra_preds):
+            score = None if group == GROUP_REFERENCE else consensus_score(p[None])[0]
+            add_candidate(unique, row, cfg, p, origin, group, rank, score, fields)
+
+    candidates = list(unique.values())
+    cand_cst = np.array([c['features'][cst_col_idx] for c in candidates])
+    cand_dist, cand_near_e, cand_region = tag_regions(cand_cst, np.array([c['config_col'] for c in candidates]), info, lows, highs)
+    for c, d, ne, reg in zip(candidates, cand_dist, cand_near_e, cand_region):
+        c.update({'consensus': float(consensus_score(c['preds'][None])[0]), 'grid_distance': float(d),
+                  'nearest_dataset_E': float(ne), 'region': str(reg)})
+    total_sources = sum(len(c['sources']) for c in candidates)
+    print(f"Shortlist: {total_sources} picks -> {len(candidates)} unique candidates "
+          f"({total_sources - len(candidates)} repeated feature vectors merged).")
 
     predictions_export_path = run_dir / f"{dataset_name_prefix}_predictions_only.json"
     write_json(predictions_export_path, {
         c['candidate_id']: {
             "cst_coeffs": c['features'][cst_col_idx].tolist(),
             "wing_config": config_registry[c['config_col']][1],
+            "predictions": dict(zip(model_names, c['preds'].tolist())),
+            "consensus": c['consensus'],
+            "region": c['region'], "grid_distance": c['grid_distance'], "nearest_dataset_E": c['nearest_dataset_E'],
+            "origin": c['origin'],
             "sources": c['sources'],
         } for c in candidates
     })
     print(f"=> Initial predictions saved to {predictions_export_path.name}")
 
-    # === Geometry Instantiation & Aerodynamic Simulation (sequential) === #
-    print("\n# === Beginning Data Validation === #")
-    ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1)]
-    rar_Alma = compression_Alma()
-    temp_root = get_workspace()
-    sim_results = {}
-
-    try:
-        airfoils_temp = temp_root / "airfoils"
-        polars_temp = temp_root / "polars"
-        geo_temp = temp_root / "geometry"
-        forces_temp = temp_root / "forces"
-        support_temp = temp_root / "support"
-        for d in [airfoils_temp, polars_temp, geo_temp, forces_temp, support_temp]:
-            d.mkdir(parents=True, exist_ok=True)
-
-        # Generate Airfoils
-        print("\n--- Generating Airfoil Geometry ---")
-        airfoil_creator = Airfoil_Generator(base_airfoil_csv=paths.base_airfoil, n_cst=n_cst, verbose=False)
-        for c in tqdm(candidates, desc="Creating .dat files"):
-            x_mod, yu_mod, yl_mod = airfoil_creator.generate(cst_coeffs=c['features'][cst_col_idx])
-            airfoil_creator._create_dat_file(output_dir=airfoils_temp, n_cst=n_cst, x=x_mod, yl=yl_mod, yu=yu_mod,
-                                             file_name=c['candidate_id'])
-
-        # Run XFOIL (same conditions as the dataset generation)
-        print("\n--- Generating Polars (XFOIL) ---")
-        airfoil_paths = get_all_files_from(airfoils_temp, extension='dat')
-        xfoil_case = XPR(xfoil_exe_path=str(paths.xfoil_bin), main_dir=temp_root, airfoil_dir=airfoils_temp,
-                         polar_dir=polars_temp, verbose=False)
-        for path in tqdm(airfoil_paths, desc="Running XFOIL"):
-            polar_path = polars_temp / f"polar_{Path(path).stem}.txt"
-            # Does not require try/except due to internal handler
-            xfoil_case.run_simulation(airfoil_file_path=path, polar_file_path=str(polar_path),
-                                      alfa_sequence=ANGLES, visc=RE, mach=MACH)
-
-        # Create Wing Geometries, each candidate uses the creator matching its own configuration
-        print("\n--- Generating Wing Geometry (.avl files) ---")
-        polar_paths = get_all_files_from(polars_temp, extension='txt')
-        key_points = Key_Point_Extraction(polar_file_paths=polar_paths, verbose=True)
-        key_points_data = key_points.process_files()
-        key_points.save_error_log(os.path.join(geo_temp, 'KP_error_log.txt'))
-
-        airfoil_paths_by_config = defaultdict(list)
-        for c in candidates:
-            airfoil_paths_by_config[c['config_col']].append(str(airfoils_temp / f"{c['candidate_id']}.dat"))
-
-        for config_col, subset_paths in airfoil_paths_by_config.items():
-            creator_class, identifier = config_registry[config_col]
-            print(f"  -> {len(subset_paths)} airfoil(s) under '{identifier}' configuration")
-            geo_creator = creator_class(
-                key_points_data=key_points_data,
-                airfoil_abs_paths=subset_paths,
-                naca_key_points_data=str(paths.naca_kp_file),
-                output_dir=str(geo_temp),
-                verbose=False,
-                pb=True
-            )
-            geo_creator.create_geo_files()
-            geo_creator.save_error_log(os.path.join(geo_temp, f'geo_{identifier}_error_log.txt'))
-
-        # Calculate Final Forces (AVL), sequentially
-        print("\n--- Calculating Final Coefficients (AVL) ---")
-        geo_paths = get_all_files_from(geo_temp, extension='avl')
-        shutil.copy(paths.case_file, support_temp)
-        case_file_temp = support_temp / paths.case_file.name
-        for path in tqdm(geo_paths, desc="Running AVL sequentially"):
-            avl_case = AVL_Run_Case(geo_files=[path], case_file=str(case_file_temp), avl_exe_path=str(paths.avl_bin),
-                                    output_dir=forces_temp, debug=False)
-            # Does not require try/except due to internal handler
-            avl_case.run()
-
-        print("\n--- Archiving Raw Data Files ---")
-        rar_Alma.compress_folder(airfoils_temp, run_dir, f"{dataset_name_prefix}_airfoils")
-        rar_Alma.compress_folder(polars_temp, run_dir, f"{dataset_name_prefix}_polars")
-        rar_Alma.compress_folder(geo_temp, run_dir, f"{dataset_name_prefix}_geo")
-        rar_Alma.compress_folder(forces_temp, run_dir, f"{dataset_name_prefix}_forces")
-
-        # Parse simulation results
-        print("\n--- Processing Final Aerodynamic Efficiency Validation ---")
-        for fpath in tqdm(get_all_files_from(forces_temp, extension='txt'), desc="Reading force files"):
-            airfoil_name, cl, cd = extract_force_data(Path(fpath))
-            if airfoil_name is None:
-                continue  # Skip unparseable files entirely
-            sim_results[airfoil_name] = (cl, cd)
-    finally:
-        shutil.rmtree(temp_root, ignore_errors=True)
-
-    # === Final Validation & Reporting: one row per (model, rank) entry, sharing the candidate's simulation === #
-    rows = []
+    # === Stage 3: main simulation === #
+    ctx = SimpleNamespace(paths=paths, n_cst=n_cst, cst_col_idx=cst_col_idx, config_registry=config_registry,
+                          run_dir=run_dir, prefix=dataset_name_prefix, archiver=compression_Alma(),
+                          airfoil_creator=Airfoil_Generator(base_airfoil_csv=paths.base_airfoil, n_cst=n_cst, verbose=False),
+                          dataset_num=dataset_num, model_names=model_names, config_order=info.config_order)
+    t_main = time.perf_counter()
+    main_results = simulate_candidates(candidates, "main", ctx)
+    main_seconds = time.perf_counter() - t_main
+    metadata['stage_times']['main_simulation'] = str(timedelta(seconds=round(main_seconds)))
     for c in candidates:
-        cl, cd = sim_results.get(c['candidate_id'], (np.nan, np.nan))
-        simulated_E = compute_simulated_E(cl, cd)
-        for src in c['sources']:
-            predicted_E = src['predicted_E']
-            relative_error = abs((simulated_E - predicted_E) / simulated_E) * 100 if not math.isnan(simulated_E) else np.nan
-            rows.append({
-                "candidate_id": c['candidate_id'],
-                "model": src['model'],
-                "model_rank": src['rank'],
-                "round": src['round'],
-                "wing_config": config_registry[c['config_col']][1],
-                "origin": src['origin'],
-                "simulated_CL": cl,
-                "simulated_CD": cd,
-                "simulated_E": simulated_E,
-                "predicted_E": predicted_E,
-                "relative_error": relative_error,
-            })
+        res = main_results[c['candidate_id']]
+        c.update({'status': res['status'], 'simulated_CL': res['CL'], 'simulated_CD': res['CD'], 'simulated_E': res['E']})
+    write_json(metadata_path, metadata)
 
-    json_report_path = run_dir / f"{dataset_name_prefix}_final_report.json"
-    # Convert NaN to None for strict JSON compliance
-    write_json(json_report_path, {
-        "dataset_best": dataset_best,
-        "results": [{k: (None if isinstance(v, float) and math.isnan(v) else v) for k, v in row.items()} for row in rows],
-    })
-    print(f"\n=> JSON final report saved to {json_report_path.name}")
-    save_results_to_txt(rows, run_dir, dataset_name_prefix, dataset_num, dataset_best)
+    # === Stage 4: robustness, sized to the remaining time === #
+    robustness = {'status': 'not run', 'parents': []}
+    seconds_per_sim = main_seconds / max(len(candidates), 1)
+    remaining = (deadline - datetime.now()).total_seconds() - SAFETY_MARGIN_MIN * 60
+    affordable = max(0, int(remaining // seconds_per_sim)) if seconds_per_sim > 0 else 0
+    ranked = sorted((c for c in candidates if c['status'] == 'ok'), key=lambda c: c['simulated_E'], reverse=True)
+    reference_best = next((c for c in candidates if any(s['group'] == GROUP_REFERENCE and s['rank'] == 1 for s in c['sources'])
+                           and c['status'] == 'ok'), None)
+    parents, seen = [], set()
+    for c in ([reference_best] if reference_best else []) + ranked:
+        key = c['features'][cst_col_idx].tobytes()
+        if key not in seen:
+            seen.add(key)
+            parents.append(c)
+    n_designs = min(ROBUST_DESIGNS, len(parents))
+    per_design = min(ROBUST_PERTURBATIONS, affordable // n_designs) if n_designs else 0
+    if n_designs and per_design < ROBUST_MIN_PERTURBATIONS:
+        n_designs = min(n_designs, affordable // ROBUST_MIN_PERTURBATIONS)
+        per_design = ROBUST_MIN_PERTURBATIONS if n_designs else 0
+    print(f"\n[TIME] Main simulation: {len(candidates)} candidates in {timedelta(seconds=round(main_seconds))} "
+          f"(~{seconds_per_sim:.0f}s each). Time left for robustness: about {affordable} simulations.")
+    if not parents:
+        robustness['status'] = 'no successfully simulated designs to perturb'
+    elif n_designs == 0:
+        robustness['status'] = 'skipped: not enough time left in the budget'
+    else:
+        print(f"Robustness: {n_designs} design(s) x {per_design} perturbation(s), "
+              f"std dev {ROBUST_SIGMA_STEPS} grid steps.")
+        rng = np.random.default_rng([master_seed, 1])
+        rob_candidates = []
+        for p_idx, parent in enumerate(parents[:n_designs], start=1):
+            noise = rng.normal(0.0, ROBUST_SIGMA_STEPS, size=(per_design, len(cst_col_idx))) * info.steps
+            for j in range(per_design):
+                row = parent['features'].copy()
+                row[cst_col_idx] = (parent['features'][cst_col_idx] + noise[j]).astype(np.float32)
+                rob_candidates.append({'candidate_id': f"robust_{p_idx:02d}_{j + 1:02d}", 'features': row,
+                                       'config_col': parent['config_col'], 'parent': parent['candidate_id']})
+        rob_preds = predict_all(regressors, np.array([c['features'] for c in rob_candidates]))
+        t_rob = time.perf_counter()
+        rob_results = simulate_candidates(rob_candidates, "robustness", ctx)
+        metadata['stage_times']['robustness_simulation'] = str(timedelta(seconds=round(time.perf_counter() - t_rob)))
+        by_parent = defaultdict(list)
+        for c, p in zip(rob_candidates, rob_preds):
+            res = rob_results[c['candidate_id']]
+            by_parent[c['parent']].append({'candidate_id': c['candidate_id'], 'status': res['status'], 'simulated_E': res['E'],
+                                           'cst_coeffs': c['features'][cst_col_idx], 'predictions': dict(zip(model_names, p))})
+        for parent in parents[:n_designs]:
+            kids = by_parent[parent['candidate_id']]
+            e = np.array([k['simulated_E'] for k in kids if k['status'] == 'ok'])
+            robustness['parents'].append({
+                'parent': parent['candidate_id'], 'parent_E': parent['simulated_E'],
+                'parent_groups': short_sources(parent['sources']),
+                'perturbations': len(kids), 'simulated': len(e),
+                'hold_rate': float((e >= ROBUST_HOLD_FRACTION * parent['simulated_E']).mean()) if len(e) else None,
+                'mean_E': float(e.mean()) if len(e) else None, 'min_E': float(e.min()) if len(e) else None,
+                'max_E': float(e.max()) if len(e) else None, 'members': kids,
+            })
+        robustness['status'] = 'completed'
+
+    # === Stage 5: reports === #
+    print("\n--- Writing Reports ---")
+    e_best = info.best['E']
+    groups = [f"model:{n}" for n in model_names] + [GROUP_CONSENSUS, GROUP_EDGE, GROUP_CONFIG, GROUP_REFERENCE]
+    scorecard = build_scorecard(candidates, groups, model_names, e_best, info.e_max)
+    model_table = build_model_table(candidates, model_names, info.e_max)
+
+    order = [config_registry[c][1] for c in info.config_order]
+    model_winners = []
+    for m, name in enumerate(model_names):
+        winner = next((c for c in candidates for s in c['sources'] if s['group'] == f"model:{name}" and s['rank'] == 1), None)
+        if winner is None or not config_cols:
+            continue
+        rows = np.array([with_config(winner['features'], config_cols, feature_columns, col) for col in info.config_order])
+        p = predict_all({name: regressors[name]}, rows)[:, 0]
+        model_winners.append({'model': name, 'candidate_id': winner['candidate_id'],
+                              'picked_config': config_registry[winner['config_col']][1],
+                              'predictions': dict(zip(order, p)),
+                              'order_matches_dataset': bool(np.all(np.diff(p) < 0))})
+    simulated_shapes = []
+    for shape_rank in range(1, CONFIG_CHECK_SHAPES + 1):
+        members = [c for c in candidates if any(s['group'] == GROUP_CONFIG and s['rank'] == shape_rank for s in c['sources'])]
+        if not members:
+            continue
+        by_cfg = {config_registry[c['config_col']][1]: c['simulated_E'] for c in members}
+        e = [by_cfg.get(o, np.nan) for o in order]
+        complete = all(math.isfinite(x) for x in e)
+        simulated_shapes.append({'shape': shape_rank, 'candidates': [c['candidate_id'] for c in members],
+                                 'simulated_E': {o: by_cfg.get(o, np.nan) for o in order},
+                                 'order_matches_dataset': bool(np.all(np.diff(e) < 0)) if complete else None})
+
+    report_candidates = [{
+        'candidate_id': c['candidate_id'],
+        'wing_config': config_registry[c['config_col']][1],
+        'cst_coeffs': c['features'][cst_col_idx],
+        'origin': c['origin'],
+        'region': c['region'], 'grid_distance': c['grid_distance'], 'nearest_dataset_E': c['nearest_dataset_E'],
+        'dataset_E': c.get('dataset_E'),
+        'predictions': dict(zip(model_names, c['preds'])),
+        'consensus': c['consensus'],
+        'spread': float(np.ptp(c['preds'])) if np.isfinite(c['preds']).all() else np.nan,
+        'above_dataset_max': bool(np.nanmax(c['preds']) > info.e_max),
+        'status': c['status'],
+        'simulated_CL': c['simulated_CL'], 'simulated_CD': c['simulated_CD'], 'simulated_E': c['simulated_E'],
+        'consensus_error': c['consensus'] - c['simulated_E'] if c['status'] == 'ok' else np.nan,
+        'sources': c['sources'],
+    } for c in candidates]
 
     end_time = datetime.now()
+    report = to_json({
+        'dataset_best': info.best,
+        'rounds_completed': rounds_completed,
+        'total_time': str(end_time - start_time).split('.')[0],
+        'scorecard': scorecard,
+        'model_table': model_table,
+        'config_check': {'dataset_order': order, 'model_winners': model_winners, 'simulated_shapes': simulated_shapes},
+        'candidates': report_candidates,
+        'robustness': robustness,
+    })
+    json_report_path = run_dir / f"{dataset_name_prefix}_final_report.json"
+    write_json(json_report_path, report)
+    print(f"=> JSON final report saved to {json_report_path.name}")
+    save_text_report(run_dir / f"{dataset_name_prefix}_final_report.txt", ctx, report)
+    save_parity_plot(run_dir / f"{dataset_name_prefix}_parity.png", candidates, model_names, e_best)
+
     metadata.update({
         "run_status": "completed",
         "finished": end_time.strftime('%Y-%m-%d %H:%M:%S'),
         "total_execution_time": str(end_time - start_time),
-        "results": {"model_results": total_entries, "unique_candidates": len(candidates),
-                    "simulated_candidates": len(sim_results)},
+        "results": {"pool_rows": len(pool_cst), "unique_candidates": len(candidates),
+                    "simulated_candidates": sum(c['status'] == 'ok' for c in candidates),
+                    "robustness_simulations": sum(len(p['members']) for p in robustness['parents'])},
     })
     write_json(metadata_path, metadata)
 
