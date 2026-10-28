@@ -1,0 +1,2840 @@
+{
+  "settings": {
+    "n_cst": 5,
+    "aseq": [
+      -20.0,
+      20.0,
+      0.5
+    ],
+    "reynolds": 250000.0,
+    "mach": 0.09281,
+    "base_airfoil": "naca0012_unit.csv",
+    "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt",
+    "case_file": "Hossain_sqwing_case.run",
+    "sweep_mode": "zero_out",
+    "kp_seed": 42,
+    "xfoil_iter": 200
+  },
+  "signature_id": "af175cebd49d",
+  "summary": {
+    "settings": {
+      "n_cst": 5,
+      "aseq": [
+        -20.0,
+        20.0,
+        0.5
+      ],
+      "reynolds": 250000.0,
+      "mach": 0.09281,
+      "base_airfoil": "naca0012_unit.csv",
+      "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt",
+      "case_file": "Hossain_sqwing_case.run",
+      "sweep_mode": "zero_out",
+      "kp_seed": 42,
+      "xfoil_iter": 200
+    },
+    "signature_id": "af175cebd49d",
+    "n_runs": 5,
+    "threshold": 15.0,
+    "min_neighbours": 3,
+    "agreement_tolerance": 0.05,
+    "snapped_values": 1207882,
+    "max_snap_distance": 3.33333333333366e-05,
+    "flags": {
+      "rows": 398480,
+      "rows_flagged": 12524,
+      "flagged_above_neighbours": 12495,
+      "flagged_below_neighbours": 29,
+      "airfoils": 132835,
+      "airfoils_flagged": 5170,
+      "mean_neighbours": 13.209209997992371
+    },
+    "groups": {
+      "flagged": {
+        "airfoils": 20,
+        "repeatable": 0.95,
+        "rows": 60,
+        "rows_reproduced": 0.0,
+        "rows_corrected": 57,
+        "rows_unresolved": 0,
+        "rows_failed": 3
+      },
+      "top": {
+        "airfoils": 5,
+        "repeatable": 0.8,
+        "rows": 15,
+        "rows_reproduced": 0.0,
+        "rows_corrected": 12,
+        "rows_unresolved": 0,
+        "rows_failed": 3
+      },
+      "control": {
+        "airfoils": 10,
+        "repeatable": 1.0,
+        "rows": 30,
+        "rows_reproduced": 0.9,
+        "rows_corrected": 3,
+        "rows_unresolved": 0,
+        "rows_failed": 0
+      }
+    },
+    "variation_sources": {
+      "repeatable": 29,
+      "simulation_failures": 1
+    },
+    "polar_identical_share": 1.0,
+    "kp_refit_variable_share": 0.0,
+    "mode_study": [
+      {
+        "mode": "pool",
+        "airfoils": 30,
+        "repeatable": 29,
+        "share": 0.9666666666666667
+      }
+    ],
+    "other_signatures": {
+      "a2caa9a7d211": {
+        "signature": {
+          "n_cst": 5,
+          "aseq": [
+            -20.0,
+            20.0,
+            0.5
+          ],
+          "reynolds": 250000.0,
+          "mach": 0.09281,
+          "base_airfoil": "naca0012_unit.csv",
+          "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt",
+          "case_file": "Hossain_sqwing_case.run",
+          "sweep_mode": "sequential",
+          "kp_seed": null,
+          "xfoil_iter": 200
+        },
+        "airfoils": 30
+      }
+    }
+  },
+  "airfoils": {
+    "0.0000000000,0.1250000000,0.0416666667,0.0416666667,0.1250000000,0.0000000000,0.0416666667,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "a344dfd6d",
+      "groups": [
+        "flagged",
+        "top"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        79,
+        79,
+        79,
+        79,
+        79
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "42509": {
+          "outcome": "corrected",
+          "value": 23.114157527417746,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            23.114157527417746,
+            23.114157527417746,
+            23.114157527417746,
+            23.114157527417746,
+            23.114157527417746
+          ]
+        },
+        "175341": {
+          "outcome": "corrected",
+          "value": 21.753186558516802,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.753186558516802,
+            21.753186558516802,
+            21.753186558516802,
+            21.753186558516802,
+            21.753186558516802
+          ]
+        },
+        "308176": {
+          "outcome": "corrected",
+          "value": 20.958890030832475,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.958890030832475,
+            20.958890030832475,
+            20.958890030832475,
+            20.958890030832475,
+            20.958890030832475
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0000000000,0.1250000000,0.1250000000,0.0000000000,0.0416666667,0.0000000000,0.0000000000,0.1250000000": {
+      "id": "a0b1c39fd",
+      "groups": [
+        "flagged",
+        "top"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        79,
+        79,
+        79,
+        79,
+        79
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "25961": {
+          "outcome": "corrected",
+          "value": 23.951402805611224,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            23.951402805611224,
+            23.951402805611224,
+            23.951402805611224,
+            23.951402805611224,
+            23.951402805611224
+          ]
+        },
+        "158782": {
+          "outcome": "corrected",
+          "value": 22.395833333333332,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.395833333333332,
+            22.395833333333332,
+            22.395833333333332,
+            22.395833333333332,
+            22.395833333333332
+          ]
+        },
+        "291615": {
+          "outcome": "corrected",
+          "value": 21.581108829568787,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.581108829568787,
+            21.581108829568787,
+            21.581108829568787,
+            21.581108829568787,
+            21.581108829568787
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0833333333,0.0833333333,0.0416666667,0.1250000000,0.0625000000,0.0000000000,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "a15a5096d",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        76,
+        76,
+        76,
+        76,
+        76
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "32850": {
+          "outcome": "corrected",
+          "value": 23.123837493881545,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            23.123837493881545,
+            23.123837493881545,
+            23.123837493881545,
+            23.123837493881545,
+            23.123837493881545
+          ]
+        },
+        "165675": {
+          "outcome": "corrected",
+          "value": 21.708286038592508,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.708286038592508,
+            21.708286038592508,
+            21.708286038592508,
+            21.708286038592508,
+            21.708286038592508
+          ]
+        },
+        "298510": {
+          "outcome": "corrected",
+          "value": 20.89939637826962,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.89939637826962,
+            20.89939637826962,
+            20.89939637826962,
+            20.89939637826962,
+            20.89939637826962
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0833333333,0.1250000000,0.0000000000,0.0416666667,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "a389da742",
+      "groups": [
+        "flagged",
+        "top"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        59,
+        59,
+        59,
+        59,
+        59
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": null,
+      "kp_refit_spread": null,
+      "repeatable": false,
+      "variation_source": "simulation_failures",
+      "decisions": {
+        "43324": {
+          "outcome": "failed",
+          "value": 57.86808009422851,
+          "agreement": 0.0,
+          "n_valid": 0,
+          "clusters": 0,
+          "runs_E": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        "176154": {
+          "outcome": "failed",
+          "value": 49.98492462311558,
+          "agreement": 0.0,
+          "n_valid": 0,
+          "clusters": 0,
+          "runs_E": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        "308990": {
+          "outcome": "failed",
+          "value": 47.93791574279379,
+          "agreement": 0.0,
+          "n_valid": 0,
+          "clusters": 0,
+          "runs_E": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      "statuses": [
+        "key_points_failed",
+        "key_points_failed",
+        "key_points_failed",
+        "key_points_failed",
+        "key_points_failed"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0416666667,0.1250000000,0.0000000000,0.0000000000,0.0833333333,0.0000000000,0.1250000000": {
+      "id": "ab3017dd9",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        79,
+        79,
+        79,
+        79,
+        79
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "42487": {
+          "outcome": "corrected",
+          "value": 22.044790193305044,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.044790193305044,
+            22.044790193305044,
+            22.044790193305044,
+            22.044790193305044,
+            22.044790193305044
+          ]
+        },
+        "175320": {
+          "outcome": "corrected",
+          "value": 20.757675438596493,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.757675438596493,
+            20.757675438596493,
+            20.757675438596493,
+            20.757675438596493,
+            20.757675438596493
+          ]
+        },
+        "308156": {
+          "outcome": "corrected",
+          "value": 19.987366375121475,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            19.987366375121475,
+            19.987366375121475,
+            19.987366375121475,
+            19.987366375121475,
+            19.987366375121475
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0833333333,0.1250000000,0.0000000000,0.0416666667,0.0000000000,0.0000000000,0.1250000000": {
+      "id": "a5bce8e8b",
+      "groups": [
+        "flagged",
+        "top"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        77,
+        77,
+        77,
+        77,
+        77
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "43314": {
+          "outcome": "corrected",
+          "value": 22.994631527574427,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.994631527574427,
+            22.994631527574427,
+            22.994631527574427,
+            22.994631527574427,
+            22.994631527574427
+          ]
+        },
+        "176147": {
+          "outcome": "corrected",
+          "value": 21.55141242937853,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.55141242937853,
+            21.55141242937853,
+            21.55141242937853,
+            21.55141242937853,
+            21.55141242937853
+          ]
+        },
+        "308981": {
+          "outcome": "corrected",
+          "value": 20.76052104208417,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.76052104208417,
+            20.76052104208417,
+            20.76052104208417,
+            20.76052104208417,
+            20.76052104208417
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0000000000,0.1250000000,0.0000000000,0.0000000000,0.0833333333,0.0000000000,0.1250000000": {
+      "id": "ab57f65d7",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        77,
+        77,
+        77,
+        77,
+        77
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "41660": {
+          "outcome": "corrected",
+          "value": 20.486511627906978,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.486511627906978,
+            20.486511627906978,
+            20.486511627906978,
+            20.486511627906978,
+            20.486511627906978
+          ]
+        },
+        "174489": {
+          "outcome": "corrected",
+          "value": 19.44383860414395,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            19.44383860414395,
+            19.44383860414395,
+            19.44383860414395,
+            19.44383860414395,
+            19.44383860414395
+          ]
+        },
+        "307324": {
+          "outcome": "corrected",
+          "value": 18.709178743961353,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            18.709178743961353,
+            18.709178743961353,
+            18.709178743961353,
+            18.709178743961353,
+            18.709178743961353
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0416666667,0.0833333333,0.0416666667,0.1250000000,0.0000000000,0.0416666667,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "ac28cbc43",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        76,
+        76,
+        76,
+        76,
+        76
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "19585": {
+          "outcome": "corrected",
+          "value": 22.736895161290324,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.736895161290324,
+            22.736895161290324,
+            22.736895161290324,
+            22.736895161290324,
+            22.736895161290324
+          ]
+        },
+        "152405": {
+          "outcome": "corrected",
+          "value": 21.35672514619883,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.35672514619883,
+            21.35672514619883,
+            21.35672514619883,
+            21.35672514619883,
+            21.35672514619883
+          ]
+        },
+        "285232": {
+          "outcome": "corrected",
+          "value": 20.571576763485478,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.571576763485478,
+            20.571576763485478,
+            20.571576763485478,
+            20.571576763485478,
+            20.571576763485478
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0833333333,0.1250000000,0.0000000000,0.0000000000,0.0000000000,0.0000000000,0.1250000000": {
+      "id": "a54e00c54",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        81,
+        81,
+        81,
+        81,
+        81
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "43284": {
+          "outcome": "corrected",
+          "value": 20.67212369258754,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.67212369258754,
+            20.67212369258754,
+            20.67212369258754,
+            20.67212369258754,
+            20.67212369258754
+          ]
+        },
+        "176116": {
+          "outcome": "corrected",
+          "value": 19.42661034846885,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            19.42661034846885,
+            19.42661034846885,
+            19.42661034846885,
+            19.42661034846885,
+            19.42661034846885
+          ]
+        },
+        "308951": {
+          "outcome": "corrected",
+          "value": 18.724461105904403,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            18.724461105904403,
+            18.724461105904403,
+            18.724461105904403,
+            18.724461105904403,
+            18.724461105904403
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0833333333,0.0833333333,0.0833333333,0.1250000000,0.0000000000,0.0416666667,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "a344178ad",
+      "groups": [
+        "flagged",
+        "top"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        77,
+        77,
+        77,
+        77,
+        77
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "33580": {
+          "outcome": "corrected",
+          "value": 24.341691248770893,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            24.341691248770893,
+            24.341691248770893,
+            24.341691248770893,
+            24.341691248770893,
+            24.341691248770893
+          ]
+        },
+        "166403": {
+          "outcome": "corrected",
+          "value": 22.70668176670442,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.70668176670442,
+            22.70668176670442,
+            22.70668176670442,
+            22.70668176670442,
+            22.70668176670442
+          ]
+        },
+        "299240": {
+          "outcome": "corrected",
+          "value": 21.878514056224898,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.878514056224898,
+            21.878514056224898,
+            21.878514056224898,
+            21.878514056224898,
+            21.878514056224898
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0000000000,0.1250000000,0.0625000000,0.0000000000,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "a43118340",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        79,
+        79,
+        79,
+        79,
+        79
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "41791": {
+          "outcome": "corrected",
+          "value": 21.363988383349465,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.363988383349465,
+            21.363988383349465,
+            21.363988383349465,
+            21.363988383349465,
+            21.363988383349465
+          ]
+        },
+        "174620": {
+          "outcome": "corrected",
+          "value": 20.207013574660632,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.207013574660632,
+            20.207013574660632,
+            20.207013574660632,
+            20.207013574660632,
+            20.207013574660632
+          ]
+        },
+        "307458": {
+          "outcome": "corrected",
+          "value": 19.454363089267805,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            19.454363089267805,
+            19.454363089267805,
+            19.454363089267805,
+            19.454363089267805,
+            19.454363089267805
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0000000000,0.0833333333,0.1250000000,0.0000000000,0.0416666667,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "a8c66778c",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        78,
+        78,
+        78,
+        78,
+        78
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "40044": {
+          "outcome": "corrected",
+          "value": 23.52097902097902,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            23.52097902097902,
+            23.52097902097902,
+            23.52097902097902,
+            23.52097902097902,
+            23.52097902097902
+          ]
+        },
+        "172874": {
+          "outcome": "corrected",
+          "value": 22.088064889918886,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.088064889918886,
+            22.088064889918886,
+            22.088064889918886,
+            22.088064889918886,
+            22.088064889918886
+          ]
+        },
+        "305707": {
+          "outcome": "corrected",
+          "value": 21.259753593429156,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.259753593429156,
+            21.259753593429156,
+            21.259753593429156,
+            21.259753593429156,
+            21.259753593429156
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0000000000,0.0833333333,0.1250000000,0.0000000000,0.0000000000,0.0833333333,0.0000000000,0.1250000000": {
+      "id": "aadce6f1c",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        81,
+        81,
+        81,
+        81,
+        81
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "40025": {
+          "outcome": "corrected",
+          "value": 22.283098591549297,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.283098591549297,
+            22.283098591549297,
+            22.283098591549297,
+            22.283098591549297,
+            22.283098591549297
+          ]
+        },
+        "172852": {
+          "outcome": "corrected",
+          "value": 20.90859630032644,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.90859630032644,
+            20.90859630032644,
+            20.90859630032644,
+            20.90859630032644,
+            20.90859630032644
+          ]
+        },
+        "305689": {
+          "outcome": "corrected",
+          "value": 20.14864864864865,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.14864864864865,
+            20.14864864864865,
+            20.14864864864865,
+            20.14864864864865,
+            20.14864864864865
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0833333333,0.0000000000,0.1250000000,0.0625000000,0.0000000000,0.0833333333,0.0000000000,0.1250000000": {
+      "id": "a3063f2c3",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        79,
+        79,
+        79,
+        79,
+        79
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "45021": {
+          "outcome": "corrected",
+          "value": 22.93050928129462,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.93050928129462,
+            22.93050928129462,
+            22.93050928129462,
+            22.93050928129462,
+            22.93050928129462
+          ]
+        },
+        "177854": {
+          "outcome": "corrected",
+          "value": 21.558011049723756,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.558011049723756,
+            21.558011049723756,
+            21.558011049723756,
+            21.558011049723756,
+            21.558011049723756
+          ]
+        },
+        "310689": {
+          "outcome": "corrected",
+          "value": 20.764936336924585,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.764936336924585,
+            20.764936336924585,
+            20.764936336924585,
+            20.764936336924585,
+            20.764936336924585
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0416666667,0.1250000000,0.0000000000,0.0416666667,0.0833333333,0.0000000000,0.1250000000": {
+      "id": "abefad6ca",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        80,
+        80,
+        80,
+        80,
+        80
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "42517": {
+          "outcome": "corrected",
+          "value": 23.470417070805045,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            23.470417070805045,
+            23.470417070805045,
+            23.470417070805045,
+            23.470417070805045,
+            23.470417070805045
+          ]
+        },
+        "175350": {
+          "outcome": "corrected",
+          "value": 22.146892655367232,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.146892655367232,
+            22.146892655367232,
+            22.146892655367232,
+            22.146892655367232,
+            22.146892655367232
+          ]
+        },
+        "308183": {
+          "outcome": "corrected",
+          "value": 21.301,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.301,
+            21.301,
+            21.301,
+            21.301,
+            21.301
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0416666667,0.1250000000,0.0000000000,0.0000000000,0.1250000000,0.0000000000,0.1250000000": {
+      "id": "a37f46466",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        80,
+        80,
+        80,
+        80,
+        80
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "42494": {
+          "outcome": "corrected",
+          "value": 22.727865796831313,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.727865796831313,
+            22.727865796831313,
+            22.727865796831313,
+            22.727865796831313,
+            22.727865796831313
+          ]
+        },
+        "175327": {
+          "outcome": "corrected",
+          "value": 21.44842562432139,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.44842562432139,
+            21.44842562432139,
+            21.44842562432139,
+            21.44842562432139,
+            21.44842562432139
+          ]
+        },
+        "308163": {
+          "outcome": "corrected",
+          "value": 20.64423076923077,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.64423076923077,
+            20.64423076923077,
+            20.64423076923077,
+            20.64423076923077,
+            20.64423076923077
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0000000000,0.0416666667,0.1250000000,0.0625000000,0.0000000000,0.0416666667,0.0000000000,0.1250000000": {
+      "id": "a47c10f42",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        79,
+        79,
+        79,
+        79,
+        79
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "39319": {
+          "outcome": "corrected",
+          "value": 21.976972072513473,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.976972072513473,
+            21.976972072513473,
+            21.976972072513473,
+            21.976972072513473,
+            21.976972072513473
+          ]
+        },
+        "172148": {
+          "outcome": "corrected",
+          "value": 20.744,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.744,
+            20.744,
+            20.744,
+            20.744,
+            20.744
+          ]
+        },
+        "304983": {
+          "outcome": "corrected",
+          "value": 19.947368421052634,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            19.947368421052634,
+            19.947368421052634,
+            19.947368421052634,
+            19.947368421052634,
+            19.947368421052634
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.1250000000,0.1250000000,0.0000000000,0.0000000000,0.0000000000,0.0000000000,0.1250000000": {
+      "id": "ae7fef71d",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        81,
+        81,
+        81,
+        81,
+        81
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "44113": {
+          "outcome": "corrected",
+          "value": 22.203686635944702,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.203686635944702,
+            22.203686635944702,
+            22.203686635944702,
+            22.203686635944702,
+            22.203686635944702
+          ]
+        },
+        "176946": {
+          "outcome": "corrected",
+          "value": 20.79317697228145,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.79317697228145,
+            20.79317697228145,
+            20.79317697228145,
+            20.79317697228145,
+            20.79317697228145
+          ]
+        },
+        "309781": {
+          "outcome": "corrected",
+          "value": 20.026465028355386,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.026465028355386,
+            20.026465028355386,
+            20.026465028355386,
+            20.026465028355386,
+            20.026465028355386
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0833333333,0.0833333333,0.0416666667,0.1250000000,0.0625000000,0.0000000000,0.0000000000,0.0416666667,0.1250000000": {
+      "id": "af1866bd2",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        80,
+        80,
+        80,
+        80,
+        80
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "32844": {
+          "outcome": "corrected",
+          "value": 21.815741583257505,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.815741583257505,
+            21.815741583257505,
+            21.815741583257505,
+            21.815741583257505,
+            21.815741583257505
+          ]
+        },
+        "165669": {
+          "outcome": "corrected",
+          "value": 20.53862433862434,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.53862433862434,
+            20.53862433862434,
+            20.53862433862434,
+            20.53862433862434,
+            20.53862433862434
+          ]
+        },
+        "298503": {
+          "outcome": "corrected",
+          "value": 19.77767354596623,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            19.77767354596623,
+            19.77767354596623,
+            19.77767354596623,
+            19.77767354596623,
+            19.77767354596623
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0833333333,0.0416666667,0.1250000000,0.0000000000,0.0416666667,0.0833333333,0.0000000000,0.1250000000": {
+      "id": "a2c3d79c3",
+      "groups": [
+        "flagged"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        79,
+        79,
+        79,
+        79,
+        79
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "45704": {
+          "outcome": "corrected",
+          "value": 23.94491927825261,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            23.94491927825261,
+            23.94491927825261,
+            23.94491927825261,
+            23.94491927825261,
+            23.94491927825261
+          ]
+        },
+        "178541": {
+          "outcome": "corrected",
+          "value": 22.448351648351647,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.448351648351647,
+            22.448351648351647,
+            22.448351648351647,
+            22.448351648351647,
+            22.448351648351647
+          ]
+        },
+        "311370": {
+          "outcome": "corrected",
+          "value": 21.62609542356378,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            21.62609542356378,
+            21.62609542356378,
+            21.62609542356378,
+            21.62609542356378,
+            21.62609542356378
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "-0.0625000000,0.0833333333,0.0416666667,0.1250000000,0.1250000000,0.0000000000,0.0416666667,0.0000000000,0.1250000000,0.0000000000": {
+      "id": "a307d414f",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        81,
+        81,
+        81,
+        81,
+        81
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "113100": {
+          "outcome": "confirmed",
+          "value": 17.87304594978683,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            17.87304594978683,
+            17.87304594978683,
+            17.87304594978683,
+            17.87304594978683,
+            17.87304594978683
+          ]
+        },
+        "245933": {
+          "outcome": "confirmed",
+          "value": 16.958980044345896,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            16.958980044345896,
+            16.958980044345896,
+            16.958980044345896,
+            16.958980044345896,
+            16.958980044345896
+          ]
+        },
+        "378768": {
+          "outcome": "confirmed",
+          "value": 16.345132743362832,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            16.345132743362832,
+            16.345132743362832,
+            16.345132743362832,
+            16.345132743362832,
+            16.345132743362832
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "-0.0625000000,0.0833333333,0.0000000000,0.0416666667,0.1250000000,0.0000000000,0.1250000000,0.0416666667,0.1250000000,0.1250000000": {
+      "id": "aeb6f69c1",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        81,
+        81,
+        81,
+        81,
+        81
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "108193": {
+          "outcome": "confirmed",
+          "value": 22.263473053892213,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.263473053892213,
+            22.263473053892213,
+            22.263473053892213,
+            22.263473053892213,
+            22.263473053892213
+          ]
+        },
+        "241023": {
+          "outcome": "confirmed",
+          "value": 20.91468253968254,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.91468253968254,
+            20.91468253968254,
+            20.91468253968254,
+            20.91468253968254,
+            20.91468253968254
+          ]
+        },
+        "373857": {
+          "outcome": "confirmed",
+          "value": 20.160070360598066,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.160070360598066,
+            20.160070360598066,
+            20.160070360598066,
+            20.160070360598066,
+            20.160070360598066
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "-0.0625000000,0.0000000000,0.0416666667,0.0416666667,0.1250000000,0.1250000000,0.0833333333,0.0000000000,0.0416666667,0.1250000000": {
+      "id": "afcc68698",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        73,
+        73,
+        73,
+        73,
+        73
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "85134": {
+          "outcome": "confirmed",
+          "value": 15.925797503467406,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            15.925797503467406,
+            15.925797503467406,
+            15.925797503467406,
+            15.925797503467406,
+            15.925797503467406
+          ]
+        },
+        "217966": {
+          "outcome": "confirmed",
+          "value": 15.372208436724565,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            15.372208436724565,
+            15.372208436724565,
+            15.372208436724565,
+            15.372208436724565,
+            15.372208436724565
+          ]
+        },
+        "350802": {
+          "outcome": "confirmed",
+          "value": 14.783150183150182,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            14.783150183150182,
+            14.783150183150182,
+            14.783150183150182,
+            14.783150183150182,
+            14.783150183150182
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "-0.1250000000,0.0833333333,0.0833333333,0.1250000000,0.1250000000,0.1250000000,0.1250000000,0.0416666667,0.0833333333,0.1250000000": {
+      "id": "a773ff31c",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        78,
+        78,
+        78,
+        78,
+        78
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "68843": {
+          "outcome": "confirmed",
+          "value": 17.47994269340974,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            17.47994269340974,
+            17.47994269340974,
+            17.47994269340974,
+            17.47994269340974,
+            17.47994269340974
+          ]
+        },
+        "201675": {
+          "outcome": "confirmed",
+          "value": 16.772727272727273,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            16.772727272727273,
+            16.772727272727273,
+            16.772727272727273,
+            16.772727272727273,
+            16.772727272727273
+          ]
+        },
+        "334510": {
+          "outcome": "confirmed",
+          "value": 16.145170965806837,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            16.145170965806837,
+            16.145170965806837,
+            16.145170965806837,
+            16.145170965806837,
+            16.145170965806837
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0833333333,0.1250000000,0.0416666667,0.1250000000,0.1250000000,0.0416666667,0.1250000000,0.0833333333,0.0000000000": {
+      "id": "a4147b6c9",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        77,
+        77,
+        77,
+        77,
+        77
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "36292": {
+          "outcome": "corrected",
+          "value": 18.916803278688523,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            18.916803278688523,
+            18.916803278688523,
+            18.916803278688523,
+            18.916803278688523,
+            18.916803278688523
+          ]
+        },
+        "169121": {
+          "outcome": "corrected",
+          "value": 17.908221797323133,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            17.908221797323133,
+            17.908221797323133,
+            17.908221797323133,
+            17.908221797323133,
+            17.908221797323133
+          ]
+        },
+        "301955": {
+          "outcome": "corrected",
+          "value": 17.30390492359932,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            17.30390492359932,
+            17.30390492359932,
+            17.30390492359932,
+            17.30390492359932,
+            17.30390492359932
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0000000000,0.0833333333,0.0000000000,0.1250000000,0.0625000000,0.0833333333,0.1250000000,0.0833333333,0.1250000000": {
+      "id": "aac1c38f3",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        81,
+        81,
+        81,
+        81,
+        81
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "5486": {
+          "outcome": "confirmed",
+          "value": 22.062857142857144,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            22.062857142857144,
+            22.062857142857144,
+            22.062857142857144,
+            22.062857142857144,
+            22.062857142857144
+          ]
+        },
+        "138302": {
+          "outcome": "confirmed",
+          "value": 20.77514231499051,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.77514231499051,
+            20.77514231499051,
+            20.77514231499051,
+            20.77514231499051,
+            20.77514231499051
+          ]
+        },
+        "271134": {
+          "outcome": "confirmed",
+          "value": 20.010924369747897,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            20.010924369747897,
+            20.010924369747897,
+            20.010924369747897,
+            20.010924369747897,
+            20.010924369747897
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0000000000,0.0416666667,0.0000000000,0.1250000000,0.0625000000,0.1250000000,0.0833333333,0.0833333333,0.0000000000": {
+      "id": "a5a709b96",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        81,
+        81,
+        81,
+        81,
+        81
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "2199": {
+          "outcome": "confirmed",
+          "value": 15.116559139784947,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            15.116559139784947,
+            15.116559139784947,
+            15.116559139784947,
+            15.116559139784947,
+            15.116559139784947
+          ]
+        },
+        "135012": {
+          "outcome": "confirmed",
+          "value": 14.602459016393444,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            14.602459016393444,
+            14.602459016393444,
+            14.602459016393444,
+            14.602459016393444,
+            14.602459016393444
+          ]
+        },
+        "267843": {
+          "outcome": "confirmed",
+          "value": 14.061762034514079,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            14.061762034514079,
+            14.061762034514079,
+            14.061762034514079,
+            14.061762034514079,
+            14.061762034514079
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.1250000000,0.0416666667,0.0000000000,0.1250000000,0.0625000000,0.0000000000,0.0833333333,0.0833333333,0.0000000000": {
+      "id": "acc6a7efe",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        80,
+        80,
+        80,
+        80,
+        80
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "41802": {
+          "outcome": "confirmed",
+          "value": 14.019944156362188,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            14.019944156362188,
+            14.019944156362188,
+            14.019944156362188,
+            14.019944156362188,
+            14.019944156362188
+          ]
+        },
+        "174631": {
+          "outcome": "confirmed",
+          "value": 13.42090395480226,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            13.42090395480226,
+            13.42090395480226,
+            13.42090395480226,
+            13.42090395480226,
+            13.42090395480226
+          ]
+        },
+        "307466": {
+          "outcome": "confirmed",
+          "value": 12.956485355648535,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            12.956485355648535,
+            12.956485355648535,
+            12.956485355648535,
+            12.956485355648535,
+            12.956485355648535
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0416666667,0.1250000000,0.0833333333,0.0000000000,0.0625000000,0.1250000000,0.0000000000,0.0833333333,0.1250000000": {
+      "id": "a7348908d",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        80,
+        80,
+        80,
+        80,
+        80
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "23349": {
+          "outcome": "confirmed",
+          "value": 17.097452486858067,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            17.097452486858067,
+            17.097452486858067,
+            17.097452486858067,
+            17.097452486858067,
+            17.097452486858067
+          ]
+        },
+        "156164": {
+          "outcome": "confirmed",
+          "value": 16.398661567877628,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            16.398661567877628,
+            16.398661567877628,
+            16.398661567877628,
+            16.398661567877628,
+            16.398661567877628
+          ]
+        },
+        "288996": {
+          "outcome": "confirmed",
+          "value": 15.793395427603725,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            15.793395427603725,
+            15.793395427603725,
+            15.793395427603725,
+            15.793395427603725,
+            15.793395427603725
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    },
+    "0.0000000000,0.0000000000,0.1250000000,0.0833333333,0.0000000000,0.1250000000,0.0000000000,0.0833333333,0.0000000000,0.1250000000": {
+      "id": "ad0d6c48f",
+      "groups": [
+        "control"
+      ],
+      "polar_identical": true,
+      "polar_runs": 5,
+      "polar_points": [
+        76,
+        76,
+        76,
+        76,
+        76
+      ],
+      "polar_max_delta": {
+        "CL": 0.0,
+        "CD": 0.0
+      },
+      "kp_run_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "kp_refit_spread": {
+        "CLneg": 0.0,
+        "CDneg": 0.0,
+        "CLcdmin": 0.0,
+        "CDmin": 0.0,
+        "CLpos": 0.0,
+        "CDpos": 0.0
+      },
+      "repeatable": true,
+      "variation_source": "repeatable",
+      "decisions": {
+        "10097": {
+          "outcome": "confirmed",
+          "value": 15.743733794295592,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            15.743733794295592,
+            15.743733794295592,
+            15.743733794295592,
+            15.743733794295592,
+            15.743733794295592
+          ]
+        },
+        "142917": {
+          "outcome": "confirmed",
+          "value": 15.087844739530134,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            15.087844739530134,
+            15.087844739530134,
+            15.087844739530134,
+            15.087844739530134,
+            15.087844739530134
+          ]
+        },
+        "275748": {
+          "outcome": "confirmed",
+          "value": 14.546690843155032,
+          "agreement": 1.0,
+          "n_valid": 5,
+          "clusters": 1,
+          "runs_E": [
+            14.546690843155032,
+            14.546690843155032,
+            14.546690843155032,
+            14.546690843155032,
+            14.546690843155032
+          ]
+        }
+      },
+      "statuses": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "modes": [
+        "pool"
+      ]
+    }
+  }
+}
