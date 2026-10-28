@@ -2064,8 +2064,14 @@ class Dataset_Rectifier:
             json.dump(self.store, f)
         os.replace(tmp, self.store_path)
 
-    def runs_for(self, key: str) -> List[dict]:
-        return self.store["evaluations"][self.settings.signature_id()].get(key, {}).get("runs", [])
+    @property
+    def mode(self) -> str:
+        return "single" if self.single_process else "pool"
+
+    # Execution mode is not part of the signature: rectify pools runs from both modes, diagnose filters by mode
+    def runs_for(self, key: str, mode: Optional[str] = None) -> List[dict]:
+        runs = self.store["evaluations"][self.settings.signature_id()].get(key, {}).get("runs", [])
+        return runs if mode is None else [r for r in runs if r.get("mode", "pool") == mode]
 
     def other_signatures(self) -> Dict[str, Tuple[dict, int]]:
         """Stored pipeline signatures other than the current one, with their number of evaluated airfoils."""
@@ -2085,13 +2091,13 @@ class Dataset_Rectifier:
         if not requests:
             return
         sid = self.settings.signature_id()
-        mode = "single" if self.single_process else "pool"
+        mode = self.mode
         workers = 1 if self.single_process else min(self.workers, len(requests))
         settings = asdict(self.settings)
         tasks = []
         for key, n in requests.items():
             airfoil = self.airfoils[key]
-            has_refits = any(r.get("kp_refits") for r in self.runs_for(key))
+            has_refits = any(r.get("kp_refits") for r in self.runs_for(key, mode))
             tasks.append({"key": key, "airfoil_id": airfoil["id"], "cst": airfoil["cst"], "configs": list(self.config_cols),
                           "n_runs": n, "kp_refits": 0 if has_refits else kp_refits, "store_polar": store_polar,
                           "settings": settings, "temp_root": str(self.temp_root), "mode": mode, "workers": workers})
@@ -2294,12 +2300,13 @@ class Dataset_Rectifier:
         for key in rng.choice(unflagged, size=min(n_controls, len(unflagged)), replace=False).tolist() if unflagged else []:
             groups.setdefault(key, set()).add("control")
 
-        requests = {k: self.n_runs - len(self.runs_for(k)) for k in groups}
+        requests = {k: self.n_runs - len(self.runs_for(k, self.mode)) for k in groups}
         reused = sum(1 for k in groups if requests[k] <= 0)
-        self.log(f"[DIAGNOSE] {len(groups)} airfoil(s) selected; {reused} already have {self.n_runs} stored run(s).")
-        self.evaluate(requests, kp_refits=kp_refits, store_polar=True, title="Dataset diagnosis")
+        self.log(f"[DIAGNOSE] {len(groups)} airfoil(s) selected; {reused} already have {self.n_runs} stored "
+                 f"{self.mode}-mode run(s).")
+        self.evaluate(requests, kp_refits=kp_refits, store_polar=True, title=f"Dataset diagnosis ({self.mode} mode)")
 
-        analysis = {key: self._airfoil_diagnostics(key, self.runs_for(key)) for key in groups}
+        analysis = {key: self._airfoil_diagnostics(key, self.runs_for(key, self.mode)) for key in groups}
         summary = self._diagnosis_summary(flags, groups, analysis)
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         paths = {
@@ -2436,7 +2443,7 @@ class Dataset_Rectifier:
         f = summary["flags"]
         lines = ["=" * 110, f"Dataset diagnosis: {self.csv_path.name}", "=" * 110,
                  f"Pipeline: {json.dumps(summary['settings'])}",
-                 f"Signature: {summary['signature_id']} | runs per airfoil: {self.n_runs} | agreement tolerance: {pct(self.tol)}",
+                 f"Signature: {summary['signature_id']} | execution mode: {self.mode} | runs per airfoil: {self.n_runs} | agreement tolerance: {pct(self.tol)}",
                  f"CST values snapped to the generation grid: {summary['snapped_values']} (max shift {summary['max_snap_distance']:.2e})",
                  "",
                  "--- Neighbour-consistency scan " + "-" * 79,
