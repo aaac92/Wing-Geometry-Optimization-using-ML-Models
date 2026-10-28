@@ -835,6 +835,13 @@ if __name__ == "__main__":
                 for config_obj, _ in configs:
                     # Use __name__ to get the string representation of the class
                     log_file.write(f" - {config_obj.__name__}\n")
+            # Read back by src/utilities/dataset_rectification.py
+            log_file.write("\nFlow regime:\n")
+            log_file.write(f"  Re = {Re}\n")
+            log_file.write(f"  Mach = {Mach}\n")
+            log_file.write(f"  ASEQ = {ASEQ}\n")
+            log_file.write(f"  Base airfoil = {os.path.basename(base_airfoil)}\n")
+            log_file.write("  NACA key point file = naca_0012_M0-9281_RE250k_M0-093_RE250000.txt\n")
 
     # === Execution with Recovery === #
     status = rec_json.get_recovery_status()

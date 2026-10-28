@@ -6,6 +6,7 @@ import traceback
 from pathlib import Path
 from winpty import PtyProcess
 import psutil
+from .polar_sweep import SWEEP_MODES, run_zero_out_sweep
 
 # Logging helpers to find memory leak
 class FsyncFileHandler(logging.FileHandler):
@@ -173,7 +174,7 @@ class Xfoil_Polar_Creator:
         return False
 
     
-    def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200):
+    def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200, sweep_mode="sequential"):
         """
         Executes an XFOIL simulation for a single airfoil file.
 
@@ -184,7 +185,12 @@ class Xfoil_Polar_Creator:
             visc (float): Reynolds number for the simulation.
             mach (float): Mach number for the simulation.
             iter (int): Maximum number of iterations for the solver.
+            sweep_mode (str): 'sequential' (default, original behavior) or 'zero_out' (see simulation_support.polar_sweep).
         """
+        if sweep_mode == "zero_out":
+            return run_zero_out_sweep(self, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter)
+        if sweep_mode != "sequential":
+            raise ValueError(f"Unknown sweep_mode '{sweep_mode}'. Options: {SWEEP_MODES}")
         # Ensure the final output directory for the polar exists
         os.makedirs(os.path.dirname(polar_file_path), exist_ok=True)
 

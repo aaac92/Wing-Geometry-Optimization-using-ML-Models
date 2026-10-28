@@ -5,6 +5,9 @@ def __getattr__(name):
     if name == "Training_Data_Generator":
         from .trining_csv_creator import Training_Data_Generator
         return Training_Data_Generator
+    if name in ("Dataset_Rectifier", "Simulation_Settings", "grid_levels_from_ranges", "display_available"):
+        from . import database_correction
+        return getattr(database_correction, name)
     if name in ("Database_Corrector", "AccelerationConfig"):
         from .database_correction import Database_Corrector, AccelerationConfig
         return {"Database_Corrector": Database_Corrector, "AccelerationConfig": AccelerationConfig}[name]

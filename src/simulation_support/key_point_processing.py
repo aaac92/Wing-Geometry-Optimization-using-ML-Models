@@ -23,15 +23,18 @@ class Key_Point_Extraction:
     Gaussian Process Regressor, and extract key aerodynamic points.
     """
 
-    def __init__(self, polar_file_paths: list, verbose=False):
+    def __init__(self, polar_file_paths: list, verbose=False, random_state=None):
         """
         Initializes the processor with a list of paths to polar files.
 
         Args:
             polar_file_paths (list): A list of string paths to the .txt polar files.
+            random_state (int, optional): Seed for the Gaussian Process optimizer restarts. None (default)
+                keeps the original unseeded behavior, where repeated fits of the same polar can differ.
         """
 
         self.verbose = verbose
+        self.random_state = random_state
         if not isinstance(polar_file_paths, list):
             raise TypeError("polar_file_paths must be a list of strings.")
         self.polar_file_paths = polar_file_paths
@@ -125,8 +128,8 @@ class Key_Point_Extraction:
         alpha_X = alpha_array.reshape(-1, 1)
         kernel = 1.0 * Matern(length_scale=1.0, nu=1.5) + WhiteKernel(noise_level=1e-5)
         
-        gpr_cl = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
-        gpr_cd = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
+        gpr_cl = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, random_state=self.random_state)
+        gpr_cd = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, random_state=self.random_state)
 
         gpr_cl.fit(alpha_X, cl_array)
         gpr_cd.fit(alpha_X, cd_array)

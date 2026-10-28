@@ -4,6 +4,7 @@ import traceback
 from pathlib import Path
 import psutil
 import pexpect  # Replaces winpty for Linux PTY interaction
+from .polar_sweep import SWEEP_MODES, run_zero_out_sweep
 
 # Logging helpers to find memory leak
 class FsyncFileHandler(logging.FileHandler):
@@ -168,10 +169,15 @@ class Xfoil_Polar_Creator:
 
         return False, last_error_msg
 
-    def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200):
+    def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200, sweep_mode="sequential"):
         """
         Executes an XFOIL simulation for a single airfoil file.
+        sweep_mode: 'sequential' (default, original behavior) or 'zero_out' (see simulation_support.polar_sweep).
         """
+        if sweep_mode == "zero_out":
+            return run_zero_out_sweep(self, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter)
+        if sweep_mode != "sequential":
+            raise ValueError(f"Unknown sweep_mode '{sweep_mode}'. Options: {SWEEP_MODES}")
         os.makedirs(os.path.dirname(polar_file_path), exist_ok=True)
         airfoil_file_path = Path(airfoil_file_path)
 
