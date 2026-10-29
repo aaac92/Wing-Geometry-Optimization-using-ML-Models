@@ -367,12 +367,14 @@ def gt_polar_worker(args):
             polar_dir=polar_dir,
             verbose=False,
         )
+        # This script was intended to use with the original sequential alpha sweep, it has been updated to maintain intended behavior. To see how the type of sweep affect simulation refer to alpha_sweep.py
         xfoil_case.run_simulation(
             airfoil_file_path=airfoil_path,
             polar_file_path=polar_path,
             alfa_sequence=angles,
             visc=re,
             mach=mach,
+            sweep_mode="sequential",
         )
     except Exception as e:
         print(f"[ERROR] Ground-truth polar generation raised an exception for "

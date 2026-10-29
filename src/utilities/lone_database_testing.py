@@ -241,12 +241,14 @@ def main():
     num_steps = int((aseq[1] - aseq[0]) / aseq[2]) + 1
     angles = [aseq[0] + j * aseq[2] for j in range(num_steps)]
 
+    # This script was intended to use with the original sequential alpha sweep, it has been updated to maintain intended behavior. To see how the type of sweep affect simulation refer to alpha_sweep.py
     xfoil_case.run_simulation(
         airfoil_file_path=str(airfoil_dat_path),
         polar_file_path=str(polar_file_path),
         alfa_sequence=angles,
         visc=inputs["reynolds"],
-        mach=inputs["mach"]
+        mach=inputs["mach"],
+        sweep_mode="sequential"
     )
 
     print("Now executing Aerodynamic Key Point Extraction")

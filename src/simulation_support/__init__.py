@@ -1,5 +1,3 @@
-import sys
-
 from .key_point_processing import Key_Point_Extraction
 from .geo_file_creation import (
     RecWingGeo_Creation,
@@ -11,8 +9,4 @@ from .geo_file_creation import (
 
 from .polar_creation import Xfoil_Polar_Creator
 from .alpha_sweep import SWEEP_MODES, DEFAULT_SWEEP_MODE, SWEEP_REVISIONS
-
-if sys.platform == "win32":
-    from .avl_simulation import AVL_Run_Case
-else:
-    from .avl_simulation_linux import AVL_Run_Case
+from .avl_simulation import AVL_Run_Case

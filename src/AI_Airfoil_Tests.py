@@ -202,10 +202,12 @@ if __name__ == "__main__":
     for airfoil_path in tqdm(airfoil_paths, desc="Running XFOIL"):
         airfoil_name = Path(airfoil_path).stem
         polar_path = polars_temp_dir / f"polar_{airfoil_name}.txt"
+        # This script was intended to use with the original sequential alpha sweep, it has been updated to maintain intended behavior. To see how the type of sweep affect simulation refer to alpha_sweep.py
         xfoil_case.run_simulation(
             airfoil_file_path=airfoil_path,
             polar_file_path=str(polar_path),
-            alfa_sequence=ANGLES
+            alfa_sequence=ANGLES,
+            sweep_mode="sequential"
         )
     print("Polar generation complete.")
     rar_Alma.compress_folder(polars_temp_dir, output_root_folder, f"{dataset_name_prefix}_polars")

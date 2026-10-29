@@ -1,34 +1,22 @@
 import os
-import multiprocessing.pool
-import functools
+import sys
 from pathlib import Path
-from winpty import PtyProcess
 
-# === Timeout Decorator === #
-def timeout(max_timeout, default=None):
-    """Timeout decorator, parameter in seconds."""
-    def timeout_decorator(item):
-        @functools.wraps(item)
-        def func_wrapper(*args, **kwargs):
-            pool = multiprocessing.pool.ThreadPool(processes=1)
-            async_result = pool.apply_async(item, args, kwargs)
-            try:
-                return async_result.get(max_timeout)
-            except multiprocessing.TimeoutError:
-                # The original print is kept but will only show if the function itself doesn't handle the debug flag.
-                # The class method _send is designed to be quiet if debug is False.
-                print(f"Function {item.__name__} timed out after {max_timeout} seconds.")
-                return default
-            finally:
-                pool.terminate()
-        return func_wrapper
-    return timeout_decorator
+IS_WINDOWS = sys.platform == "win32"
+
+# Windows drives AVL through winpty, Linux through pexpect
+if IS_WINDOWS:
+    import multiprocessing.pool
+    from winpty import PtyProcess
+else:
+    import pexpect
 
 class AVL_Run_Case:
     """
     A class to automate AVL simulations for a batch of geometry files.
+    Works on Windows (winpty) and Linux (pexpect); the platform is detected automatically.
 
-    This class handles the creation of a temporary hidden directory,
+    This class handles the creation of a temporary directory,
     copies necessary files, runs AVL for each geometry, copies the
     results to a specified output folder, and cleans up all temporary files.
     """
@@ -39,7 +27,7 @@ class AVL_Run_Case:
         Args:
             geo_files (list): A list of absolute string paths to the geometry (.avl) files.
             case_file (str): An absolute string path to the case file.
-            avl_exe (str): An absolute string path to the avl.exe executable.
+            avl_exe_path (str): An absolute string path to the AVL executable (avl.exe on Windows).
             output_dir (str): An absolute string path to the folder where output force files will be saved.
             debug (bool, optional): If True, enables detailed console messages. Defaults to False.
         """
@@ -54,60 +42,93 @@ class AVL_Run_Case:
 
         self.output_dir.mkdir(exist_ok=True)
 
-    def _send(self, proc, command: str, expect_prompt: str = "AVL   c>"):
+    def _spawn(self):
+        if IS_WINDOWS:
+            return PtyProcess.spawn([str(self.avl_exe)])
+        return pexpect.spawn(str(self.avl_exe), encoding='utf-8')
+
+    def _send(self, proc, command: str, expect_prompt: str = "AVL   c>", timeout_sec: int = 30):
         """Sends a command to the AVL process and waits for the expected prompt."""
         if self.debug:
             print(f"[DEBUG] Sending command: {command}")
-        try:
-            proc.write(command + "\r\n")
-            output = ""
-            while True:
-                line = proc.read(64)
-                if not line:
-                    if self.debug:
-                        print("[DEBUG] No more output from process. EOF.")
-                    return False
-                output += line
-                if expect_prompt in output:
-                    if self.debug:
-                        print(f"[DEBUG] Prompt '{expect_prompt}' received.")
-                    return True
-        except EOFError:
-            if self.debug:
-                print("[DEBUG] EOFError encountered.")
-            return False
+        if IS_WINDOWS:
+            received, closed = self._winpty_exchange(proc, command, expect_prompt, timeout_sec)
+        else:
+            received, closed = self._pexpect_exchange(proc, command, expect_prompt, timeout_sec)
 
-    def _execute_avl_commands(self, proc, timed_send, geo_file, force_file_path):
+        if received:
+            if self.debug:
+                print(f"[DEBUG] Prompt '{expect_prompt}' received.")
+            return True
+        if closed:
+            # If the command was to quit, an EOF is a successful exit
+            if command == "QUIT":
+                return True
+            if self.debug:
+                print("[DEBUG] EOFError encountered (Process closed unexpectedly).")
+            return False
+        if self.debug:
+            print(f"[DEBUG] Timeout waiting for prompt '{expect_prompt}' after sending '{command}'.")
+        return False
+
+    def _pexpect_exchange(self, proc, command, expect_prompt, timeout_sec):
+        """Returns (prompt received, process closed)."""
+        try:
+            proc.sendline(command)
+            proc.expect_exact(expect_prompt, timeout=timeout_sec)
+            return True, False
+        except pexpect.TIMEOUT:
+            return False, False
+        except pexpect.EOF:
+            return False, True
+
+    def _winpty_exchange(self, proc, command, expect_prompt, timeout_sec):
+        """Returns (prompt received, process closed). winpty reads block, hence the thread timeout."""
+        def exchange():
+            output = ""
+            try:
+                proc.write(command + "\r\n")
+                while True:
+                    chunk = proc.read(64)
+                    if not chunk:
+                        return False, True
+                    output += chunk
+                    if expect_prompt in output:
+                        return True, False
+            except EOFError:
+                return False, True
+
+        pool = multiprocessing.pool.ThreadPool(processes=1)
+        try:
+            return pool.apply_async(exchange).get(timeout_sec)
+        except multiprocessing.TimeoutError:
+            return False, False
+        finally:
+            pool.terminate()
+
+    def _execute_avl_commands(self, proc, geo_file, force_file_path):
         """
         Executes the sequence of AVL commands.
         Returns True on success, False on timeout/failure.
         """
-        try:
-            # --- AVL Command Sequence ---
-            if not timed_send(proc, f"LOAD {geo_file}"): return False
-            if not timed_send(proc, f"CASE {self.case_file}"): return False
-            if not timed_send(proc, "OPER", expect_prompt='.OPER (case 1/1)   c>'): return False
-            if not timed_send(proc, "X", expect_prompt='.OPER (case 1/1)   c>'): return False
-            if not timed_send(proc, "FT", expect_prompt='Enter filename, or <return> for screen output   s>'): return False
-            if not timed_send(proc, str(force_file_path), expect_prompt='.OPER (case 1/1)   c>'): return False
-            if not timed_send(proc, ""): return False # Advance to the AVL prompt
-            timed_send(proc, "QUIT")
-            return True
-        except TimeoutError:
-            if self.debug:
-                print("A command timed out.")
-            return False
+        if not self._send(proc, f"LOAD {geo_file}"): return False
+        if not self._send(proc, f"CASE {self.case_file}"): return False
+        if not self._send(proc, "OPER", expect_prompt='.OPER (case 1/1)   c>'): return False
+        if not self._send(proc, "X", expect_prompt='.OPER (case 1/1)   c>'): return False
+        if not self._send(proc, "FT", expect_prompt='Enter filename, or <return> for screen output   s>'): return False
+        if not self._send(proc, str(force_file_path), expect_prompt='.OPER (case 1/1)   c>'): return False
+        if not self._send(proc, ""): return False # Advance to the AVL prompt
+        self._send(proc, "QUIT")
+        return True
 
     def run(self):
         """
         Orchestrates the entire batch simulation process.
         Runs AVL for each geometry file
         """
-        
         # A try...finally block ensures cleanup happens even if errors occur
         try:
             retry = 3
-            timed_send = timeout(30)(self._send)
 
             # --- Loop through each geometry file ---
             for geo_file in self.geo_files:
@@ -121,11 +142,10 @@ class AVL_Run_Case:
                         geometry_name = geo_file.stem.replace("_geo", "")
                         force_file_path = self.output_dir / f"force_{geometry_name}.txt"
 
-                        # Launch avl.exe
-                        proc = PtyProcess.spawn([str(self.avl_exe)])
+                        proc = self._spawn()
 
                         # --- AVL Command Sequence (using absolute paths) ---
-                        if self._execute_avl_commands(proc, timed_send, geo_file, force_file_path):
+                        if self._execute_avl_commands(proc, geo_file, force_file_path):
                             success = True
                             if self.debug:
                                 print(f"--- Successfully processed {geo_file.name} ---")
@@ -136,12 +156,12 @@ class AVL_Run_Case:
                             print(f"An unexpected error occurred on attempt {attempt}: {e}")
                     finally:
                         # Cleanup: ensure the process is closed after each attempt
-                        if proc:
-                            if proc.isalive():
-                                proc.close(force=True)
+                        if proc and proc.isalive():
+                            proc.close(force=True)
+
                     if not success and self.debug:
                         print(f"Attempt {attempt} failed. Retrying...")
-                
+
                 # After all retries, if still not successful, raise an error
                 if not success:
                     # This exception will be caught and logged in the avl runner.

@@ -256,10 +256,12 @@ def polar_worker(args):
             )
 
         # Run the simulation
+        # This script was intended to use with the original sequential alpha sweep, it has been updated to maintain intended behavior. To see how the type of sweep affect simulation refer to alpha_sweep.py
         xfoil_case.run_simulation(
             airfoil_file_path=airfoil_abs_path,
             polar_file_path=polar_abs_path,
-            alfa_sequence=ANGLES
+            alfa_sequence=ANGLES,
+            sweep_mode="sequential"
         )
 
     except Exception as e:

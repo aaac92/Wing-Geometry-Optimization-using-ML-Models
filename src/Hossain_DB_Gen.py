@@ -714,7 +714,7 @@ def Final_Database_Generation(dataset_dir):
 
     return
 
-def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
+def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs, sweep_mode=DEFAULT_SWEEP_MODE):
     '''
     Executes validation and correction of outlier efficiency values (mostly due to buggy multiprocessing implementation) in the generated regression training database.
 
@@ -764,7 +764,8 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
         middle_fraction=0.01,
         source_airfoils_dir=airfoils_temp_dir,
         temp_dir=correction_temp_dir,
-        verbose=False
+        verbose=False,
+        sweep_mode=sweep_mode
     )
     
     copernicus.run_correction()
@@ -902,7 +903,7 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     if not status.get('database_correction_complete'):
-        Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs)
+        Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs, sweep_mode=SWEEP_MODE)
         status['database_correction_complete'] = True
         rec_json.save_recovery_status(status)
 

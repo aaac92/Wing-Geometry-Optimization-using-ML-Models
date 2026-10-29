@@ -202,13 +202,15 @@ def run_polar_tests(airfoil_paths, alpha_start, alpha_end, alpha_step, re, mach,
                 polar_dir=str(polars_dir),
                 verbose=False
             )
+            # This script was intended to use with the original sequential alpha sweep, it has been updated to maintain intended behavior. To see how the type of sweep affect simulation refer to alpha_sweep.py
             xfoil_case.run_simulation(
                 airfoil_file_path=airfoil_path,
                 polar_file_path=polar_path,
                 alfa_sequence=alfa_sequence,
                 visc=re,
                 mach=mach,
-                iter=iter_count
+                iter=iter_count,
+                sweep_mode="sequential"
             )
         except Exception as e:
             unhandled_exception = True

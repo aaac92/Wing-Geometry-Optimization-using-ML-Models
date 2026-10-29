@@ -1,6 +1,11 @@
 """
 Alpha-sweep strategies for XFOIL polars, used by Xfoil_Polar_Creator.run_simulation on every platform.
 
+WHY TWO SWEEPS
+    'sequential' is the original sweep, used to generate every dataset up to dataset 17. It produces a
+    non-physical low-drag branch (see the note below), so 'zero_out' replaced it as the default. 'sequential'
+    remains only so legacy tools and datasets keep their original behavior.
+
 NOTE ON 'sequential' (NOT RECOMMENDED, LEGACY ONLY)
     One XFOIL process walks the whole alpha sequence from the lowest angle upwards, so every angle starts
     from the boundary layer solution of the previous one. Starting in deep stall (-20 deg) leaves many

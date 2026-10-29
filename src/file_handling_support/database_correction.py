@@ -142,6 +142,7 @@ class Database_Corrector:
         verbose: bool = False,
         append_kp: bool = False,
         accel_config: Optional[AccelerationConfig] = None,
+        sweep_mode: str = "sequential",
     ):
         """
         Parameters
@@ -216,6 +217,10 @@ class Database_Corrector:
             Pass AccelerationConfig(enabled=False) to disable it and test
             the full n_target/n_middle every pass, matching pre-acceleration
             behavior.
+        sweep_mode : str
+            XFOIL alpha sweep used for re-simulation (see simulation_support.alpha_sweep).
+            Defaults to the legacy 'sequential' sweep this class was written for; pass the
+            sweep that generated the dataset when mending a newer one.
         """
         self.csv_file_path = Path(csv_file_path)
         self.base_airfoil_csv = Path(base_airfoil_csv)
@@ -235,6 +240,7 @@ class Database_Corrector:
         self.verbose = verbose
         self.append_kp = append_kp
         self.accel_config = accel_config if accel_config is not None else AccelerationConfig()
+        self.sweep_mode = sweep_mode
 
         # Populated once per run_correction() call by _build_airfoil_index();
         # empty means every point falls back to CST regeneration.
@@ -820,12 +826,14 @@ class Database_Corrector:
                 verbose=False,
                 process_logging=False
             )
+            # This script was intended to use with the original sequential alpha sweep, it has been updated to maintain intended behavior. To see how the type of sweep affect simulation refer to alpha_sweep.py
             xfoil_case.run_simulation(
                 airfoil_file_path=airfoil_path,
                 polar_file_path=str(polar_path),
                 alfa_sequence=angles,
                 visc=self.Re,
                 mach=self.Mach,
+                sweep_mode=self.sweep_mode,
             )
 
             # Key point extraction
