@@ -4,7 +4,7 @@ Inference + validation pipeline for the trained airfoil/wing AI models.
 Usage:
     python inference_and_testing.py --classifier <name> --models <name1> [<name2> ...]
                                     [--dataset 17] [--wing-mode Hossain_config|single_configuration]
-                                    [--seed HEX [--decimal]] [--max-hours 6]
+                                    [--seed HEX [--decimal]] [--csv PATH]
 
 Flow:
     1. Candidate pool. For each seeded inference round: uniform CST samples, local samples around the best
@@ -17,10 +17,10 @@ Flow:
        a few edge-probe designs, the other wing configurations of the best consensus shapes, and the top
        dataset designs as a reproducibility reference.
     4. Main simulation of the shortlist (XFOIL -> key points -> .avl geometry -> AVL).
-    5. Robustness: small perturbations of the best simulated designs are simulated as well, sized to fit
-       the remaining time budget (--max-hours).
-    6. Reports: scorecard per selection group and per model, configuration check, candidate table,
-       robustness table and parity plot.
+    5. Robustness: small perturbations of the best simulated designs are simulated as well.
+    6. Reports. result.txt: did any model find a design that beats the best dataset E (SUCCESS!! / Try again...),
+       with the bare minimum around it. detailed_results.txt / .json: scorecard per selection group and per
+       model, configuration check, candidate table and robustness table. Plus a parity plot.
 
 No multiprocessing is used anywhere in this script.
 """
@@ -67,11 +67,12 @@ KP_SEED = 42              # random_state of the key-point GPR fit
 
 # --- Inference settings --- #
 NUM_INFERENCE_RUNS = 10
-NUM_SAMPLES = 1_000_000        # uniform (global) CST samples per inference round
-NUM_LOCAL_SAMPLES = 500_000    # local-refinement samples per round, drawn around the best dataset designs (0 = off)
-NUM_EDGE_SAMPLES = 200_000     # edge-probe samples per round (0 = off); only rows outside the window are kept
-LOCAL_TOP_K = 20               # number of distinct top-E dataset designs used as local search centers
+NUM_SAMPLES = 600_000          # uniform (global) CST samples per inference round
+NUM_LOCAL_SAMPLES = 800_000    # local-refinement samples per round, drawn around the best dataset designs (0 = off)
+NUM_EDGE_SAMPLES = 400_000     # edge-probe samples per round (0 = off); only rows outside the window are kept
+LOCAL_TOP_K = 30               # number of distinct top-E dataset designs used as local search centers
 LOCAL_SIGMA_FRACTION = 0.10    # local noise std dev, as a fraction of each coefficient's range width
+EDGE_SIGMA_STEPS = 0.5         # edge-probe noise std dev on the extended coefficients, in grid steps (reaches ~1 step past the edge)
 PREDICT_CHUNK = 250_000        # rows per model call; keeps GPU/CPU memory bounded for large candidate sets
 VALIDITY_THRESHOLD = 0.99
 SEED_POOL_SIZE = 10000  # per-round seeds are drawn (without repetition) from [0, SEED_POOL_SIZE)
@@ -79,26 +80,20 @@ MAX_MASTER_SEED = 0xFFFFFFFF  # upper limit of the master seed (8 hex digits); r
 ELITE_PER_CRITERION = 2000     # rows kept per round for each model's ranking and for the consensus ranking
 
 # --- Shortlist --- #
-TOP_K_PER_MODEL = 12           # diverse picks per model
-TOP_K_CONSENSUS = 12           # diverse picks by consensus (lowest prediction across models)
-TOP_K_EDGE = 8                 # diverse edge-probe picks (outside the window), ranked by consensus
+TOP_K_PER_MODEL = 20           # diverse picks per model
+TOP_K_CONSENSUS = 20           # diverse picks by consensus (lowest prediction across models)
+TOP_K_EDGE = 12                # diverse edge-probe picks (outside the window), ranked by consensus
 CONFIG_CHECK_SHAPES = 3        # best consensus shapes, also simulated in the configurations they were not picked with
-REFERENCE_TOP = 3              # top dataset designs re-simulated as they are (reproducibility check)
+REFERENCE_TOP = 5              # top dataset designs re-simulated as they are (reproducibility check)
 DIVERSITY_MIN_STEPS = 0.5      # kept designs differ by at least this many grid steps in some CST coefficient
 EDGE_MIN_SHARE = 0.5           # a window edge is probed if at least this share of the top dataset designs sit on it
 HIT_FRACTION = 0.9             # a "hit" simulates at >= HIT_FRACTION x dataset best E
 
 # --- Robustness --- #
-ROBUST_DESIGNS = 15            # best simulated designs (distinct shapes) that get perturbed
-ROBUST_PERTURBATIONS = 12      # perturbations per design (reduced automatically to fit the time budget)
-ROBUST_MIN_PERTURBATIONS = 3   # below this many perturbations per design, fewer designs are perturbed instead
-ROBUST_SIGMA_STEPS = 0.05      # perturbation std dev, in grid steps (run 20261022_m_seed46e56d10 showed E flips at this scale)
+ROBUST_DESIGNS = 10            # best simulated designs (distinct shapes) that get perturbed
+ROBUST_PERTURBATIONS = 8       # perturbations per design
+ROBUST_SIGMA_STEPS = 0.10      # perturbation std dev, in grid steps (0.05 was sized to the sequential-sweep artifact's E flips)
 ROBUST_HOLD_FRACTION = 0.9     # a perturbation "holds" if it simulates at >= this fraction of its parent's E
-
-# --- Time budget --- #
-DEFAULT_MAX_HOURS = 6.0
-MAX_INFERENCE_FRACTION = 0.55  # no new inference round starts if it would end past this fraction of the budget
-SAFETY_MARGIN_MIN = 20         # minutes kept free at the end (archiving, reports, slow XFOIL cases)
 
 # --- Candidate search window (CST deltas) --- #
 # Defaults replicate the dataset 17 generation ranges (Hossain_DB_Gen.py). This is an
@@ -196,16 +191,15 @@ def parse_args():
                              f"seeds derive from it; reuse it to get identical candidate clouds across invocations.")
     parser.add_argument('--decimal', action='store_true',
                         help="Interpret --seed as a decimal number instead of hexadecimal.")
-    parser.add_argument('--max-hours', type=float, default=DEFAULT_MAX_HOURS,
-                        help=f"Time budget of the whole run in hours (default: {DEFAULT_MAX_HOURS}). Inference rounds "
-                             f"and the robustness stage are trimmed to fit it; the main simulation always runs.")
+    parser.add_argument('--csv', default=None,
+                        help="Regressor dataset CSV that defines the dataset best, the local search centers and the "
+                             "reference designs (default: data/datasets/dataset_<N>/regressor_dataset_<N>.csv). Use the "
+                             "rectified CSV when the models were trained on it.")
     args = parser.parse_args()
     if len(set(args.models)) != len(args.models):
         parser.error("Duplicate names in --models.")
     if args.decimal and args.seed is None:
         parser.error("--decimal only makes sense together with --seed.")
-    if args.max_hours <= 0:
-        parser.error("--max-hours must be positive.")
     if args.seed is not None:
         try:
             args.seed = parse_master_seed(args.seed, args.decimal)
@@ -355,16 +349,19 @@ def generate_cst_candidates(num_samples, n_cst, ranges_upper, ranges_lower, rng)
     return candidates
 
 
-def generate_local_candidates(parents, num_samples, lows, highs, sigma_fraction, rng, clip_lows=None, clip_highs=None):
+def generate_local_candidates(parents, num_samples, lows, highs, sigma_fraction, rng, clip_lows=None, clip_highs=None,
+                              sigma=None):
     """
     Local refinement: Gaussian perturbations around randomly chosen parent designs (e.g. the best dataset
-    designs). The noise std dev is sigma_fraction of each coefficient's window width. The result is clipped
-    to the search window (or to clip_lows/clip_highs when given), so candidates near an edge stay on it.
+    designs). The noise std dev is sigma_fraction of each coefficient's window width, or the per-coefficient
+    `sigma` array when given. The result is clipped to the search window (or to clip_lows/clip_highs when
+    given), so candidates near an edge stay on it.
     """
     clip_lows = lows if clip_lows is None else clip_lows
     clip_highs = highs if clip_highs is None else clip_highs
+    sigma = (highs - lows) * sigma_fraction if sigma is None else sigma
     centers = parents[rng.integers(0, len(parents), size=num_samples)]
-    noise = rng.normal(0.0, 1.0, size=centers.shape).astype(np.float32) * (highs - lows) * sigma_fraction
+    noise = rng.normal(0.0, 1.0, size=centers.shape).astype(np.float32) * sigma
     return np.clip(centers + noise, clip_lows, clip_highs).astype(np.float32)
 
 
@@ -896,6 +893,96 @@ def short_sources(sources):
     return ", ".join(labels)
 
 
+# Plain block letters, 5 rows per glyph
+BANNER_GLYPHS = {
+    "S": [" ____  ", "/ ___| ", "\\___ \\ ", " ___) |", "|____/ "],
+    "U": [" _   _ ", "| | | |", "| | | |", "| |_| |", " \\___/ "],
+    "C": ["  ____ ", " / ___|", "| |    ", "| |___ ", " \\____|"],
+    "E": [" _____ ", "| ____|", "|  _|  ", "| |___ ", "|_____|"],
+    "T": [" _____ ", "|_   _|", "  | |  ", "  | |  ", "  |_|  "],
+    "R": [" ____  ", "|  _ \\ ", "| |_) |", "|  _ < ", "|_| \\_\\"],
+    "Y": ["__   __", "\\ \\ / /", " \\ V / ", "  | |  ", "  |_|  "],
+    "A": ["    _    ", "   / \\   ", "  / _ \\  ", " / ___ \\ ", "/_/   \\_\\"],
+    "G": ["  ____ ", " / ___|", "| |  _ ", "| |_| |", " \\____|"],
+    "I": [" ___ ", "|_ _|", " | | ", " | | ", "|___|"],
+    "N": [" _   _ ", "| \\ | |", "|  \\| |", "| |\\  |", "|_| \\_|"],
+    "!": [" _ ", "| |", "| |", "|_|", "(_)"],
+    ".": ["   ", "   ", "   ", " _ ", "(_)"],
+    " ": ["   ", "   ", "   ", "   ", "   "],
+}
+
+
+def banner(text: str) -> list:
+    """Big ASCII letters for the outcome line of result.txt."""
+    glyphs = [BANNER_GLYPHS[ch] for ch in text.upper()]
+    return ["".join(g[row].ljust(max(len(r) for r in g)) for g in glyphs).rstrip() for row in range(5)]
+
+
+def find_outcome(candidates, model_names, e_dataset_best, reference_best_E):
+    """
+    Did any model find a better design? Candidates picked by a model, by consensus, by the edge probe or by the
+    configuration check count; dataset designs re-simulated as they are (reference picks or exact on-grid rows)
+    do not. A design must beat both the dataset best and that design's own re-simulation, so simulation
+    differences alone cannot produce a success.
+    """
+    target = max(e_dataset_best, reference_best_E) if reference_best_E is not None else e_dataset_best
+    improvements = []
+    for c in candidates:
+        if c['status'] != 'ok' or not math.isfinite(c['simulated_E']):
+            continue
+        if all(s['group'] == GROUP_REFERENCE for s in c['sources']) or c['grid_distance'] < 1e-3:
+            continue
+        if c['simulated_E'] > target:
+            improvements.append(c)
+    improvements.sort(key=lambda c: c['simulated_E'], reverse=True)
+    per_model = {}
+    for name in model_names:
+        own = [c['simulated_E'] for c in candidates if c['status'] == 'ok'
+               and any(s['group'] == f"model:{name}" for s in c['sources'])]
+        per_model[name] = max(own) if own else None
+    return {'success': bool(improvements), 'target_E': target, 'dataset_best_E': e_dataset_best,
+            'reference_best_simulated_E': reference_best_E, 'improvements': improvements, 'best_per_model': per_model}
+
+
+def save_result_report(path: Path, ctx, outcome: dict, best_candidate, robust_by_parent: dict, run_info: dict):
+    """result.txt: the outcome in big letters and the bare minimum around it."""
+    message = "SUCCESS!!" if outcome['success'] else "Try again..."
+    target = outcome['target_E']
+    lines = [""] + ["   " + row for row in banner(message)] + ["", "=" * 90]
+    lines.append(f"Goal: a wing design with simulated E above the best of dataset {ctx.dataset_num}.")
+    ref = outcome['reference_best_simulated_E']
+    lines.append(f"Target: E > {target:.4f}  (dataset best {outcome['dataset_best_E']:.4f}"
+                 + (f", re-simulated {ref:.4f})" if ref is not None else ")"))
+    lines.append("")
+    if best_candidate is not None:
+        gain = 100 * (best_candidate['simulated_E'] - target) / target
+        lines.append(f"Best design found: E = {best_candidate['simulated_E']:.4f} ({gain:+.2f}% vs target) | "
+                     f"config {best_candidate['wing_config']} | picked by {short_sources(best_candidate['sources'])}")
+        n_cst = len(best_candidate['cst_coeffs']) // 2
+        lines.append(f"  CST lower: {[round(float(v), 4) for v in best_candidate['cst_coeffs'][:n_cst]]}")
+        lines.append(f"  CST upper: {[round(float(v), 4) for v in best_candidate['cst_coeffs'][n_cst:]]}")
+        rob = robust_by_parent.get(best_candidate['candidate_id'])
+        if rob and rob['simulated']:
+            lines.append(f"  Robustness: {rob['simulated']} small perturbations, E from {rob['min_E']:.2f} to "
+                         f"{rob['max_E']:.2f} (hold rate {rob['hold_rate']:.0%})")
+        lines.append("")
+    if outcome['success']:
+        lines.append(f"Designs above the target: {len(outcome['improvements'])}")
+        for c in outcome['improvements'][:10]:
+            lines.append(f"  {c['candidate_id']:<14} E = {c['simulated_E']:.4f}  {c['wing_config']:<6} "
+                         f"{short_sources(c['sources'])}")
+        lines.append("")
+    lines.append("Best simulated E of each model's own picks:")
+    for name, e in outcome['best_per_model'].items():
+        verdict = "-" if e is None else ("beats the target" if e > target else f"{e - target:+.2f} from the target")
+        lines.append(f"  {name:<18} {fmt(e, 4):>8}   {verdict}")
+    lines += ["", f"Run: {run_info['folder']} | master seed {run_info['seed']} | {run_info['total_time']}",
+              "Full details: detailed_results.txt", "=" * 90]
+    path.write_text("\n".join(lines) + "\n", encoding='utf-8')
+    print("\n".join(lines[:7]))
+    print(f"Saved result summary to '{path.name}'")
+
+
 def save_text_report(path: Path, ctx, report: dict):
     """Human-readable report: header, scorecards, configuration check, candidates and robustness."""
     model_names = ctx.model_names
@@ -907,7 +994,10 @@ def save_text_report(path: Path, ctx, report: dict):
                   f"  CST lower: {best['cst_lower']}", f"  CST upper: {best['cst_upper']}",
                   f"Hit = simulated E >= {HIT_FRACTION:.0%} of the dataset best ({HIT_FRACTION * best['E']:.2f}). "
                   f"Signed error = prediction - simulation (positive = the model was too optimistic)."]
-    lines += [f"Inference rounds completed: {report['rounds_completed']} | Total time: {report['total_time']}", ""]
+    outcome = report['outcome']
+    lines += [f"Outcome: {'SUCCESS!!' if outcome['success'] else 'Try again...'} | target E > {outcome['target_E']:.4f} | "
+              f"designs above it: {len(outcome['improvement_ids'])}",
+              f"Inference rounds completed: {report['rounds_completed']} | Total time: {report['total_time']}", ""]
 
     lines += ["--- Scorecard per selection group (each group judged with the score it ranked by) " + "-" * 60]
     lines.append(f"{'Group':<18} {'Picks':>5} {'Sim':>4} {'Fail':>4} {'Inval':>5} {'Best E':>8} {'Regret':>7} "
@@ -1040,12 +1130,12 @@ if __name__ == "__main__":
 
     dataset_num = args.dataset
     paths = build_paths(dataset_num)
+    if args.csv:
+        paths.training_file = Path(args.csv).resolve()
+    print(f"Dataset CSV: {paths.training_file}")
     dataset_name_prefix = f"AI_Test_Results_dataset_{dataset_num}"
     start_time = datetime.now()
-    deadline = start_time + timedelta(hours=args.max_hours)
-    inference_deadline = start_time + timedelta(hours=args.max_hours * MAX_INFERENCE_FRACTION)
-    print(f"Pipeline started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')} | time budget {args.max_hours} h "
-          f"(must finish by {deadline.strftime('%Y-%m-%d %H:%M')})\n")
+    print(f"Pipeline started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     # === Seeds: one per inference round, identical for every model === #
     # NumPy's Generator (np.random.default_rng) accepts any non-negative integer, so the accepted range
@@ -1111,6 +1201,9 @@ if __name__ == "__main__":
     lows, highs = window_bounds(n_cst, RANGES_UPPER, RANGES_LOWER)
     cst_names = cst_l_cols + cst_u_cols
     edge_directions, ext_lows, ext_highs = detect_edge_directions(info.parents, lows, highs, info.steps)
+    edge_sigma = (highs - lows) * LOCAL_SIGMA_FRACTION
+    for i, _side, _bound in edge_directions:
+        edge_sigma[i] = info.steps[i] * EDGE_SIGMA_STEPS
     use_local = NUM_LOCAL_SAMPLES > 0
     use_edge = NUM_EDGE_SAMPLES > 0 and bool(edge_directions)
 
@@ -1123,8 +1216,8 @@ if __name__ == "__main__":
     metadata = {
         "run_status": "running",
         "started": start_time.strftime('%Y-%m-%d %H:%M:%S'),
-        "time_budget_hours": args.max_hours,
         "dataset": dataset_num,
+        "dataset_csv": str(paths.training_file),
         "wing_mode": args.wing_mode,
         "wing_configurations": [v[1] for v in config_registry.values()],
         "master_seed": {"hex": f"{master_seed:x}", "decimal": master_seed},
@@ -1136,6 +1229,7 @@ if __name__ == "__main__":
         "inference": {"num_runs": NUM_INFERENCE_RUNS, "num_samples": NUM_SAMPLES, "validity_threshold": VALIDITY_THRESHOLD,
                       "num_local_samples": NUM_LOCAL_SAMPLES, "local_centers": len(info.parents),
                       "local_sigma_fraction": LOCAL_SIGMA_FRACTION, "num_edge_samples": NUM_EDGE_SAMPLES if use_edge else 0,
+                      "edge_sigma_grid_steps": EDGE_SIGMA_STEPS,
                       "elite_per_criterion": ELITE_PER_CRITERION, "predict_chunk": PREDICT_CHUNK},
         "shortlist": {"top_k_per_model": TOP_K_PER_MODEL, "top_k_consensus": TOP_K_CONSENSUS, "top_k_edge": TOP_K_EDGE,
                       "config_check_shapes": CONFIG_CHECK_SHAPES, "reference_top": REFERENCE_TOP,
@@ -1156,8 +1250,8 @@ if __name__ == "__main__":
     print(f"Local refinement: {NUM_LOCAL_SAMPLES if use_local else 0} samples per round around {len(info.parents)} "
           f"top dataset designs (sigma = {LOCAL_SIGMA_FRACTION} x range width).")
     if use_edge:
-        print(f"Edge probe: {NUM_EDGE_SAMPLES} samples per round past "
-              f"{[f'{cst_names[i]} {side} -> {bound:.4f}' for i, side, bound in edge_directions]}")
+        print(f"Edge probe: {NUM_EDGE_SAMPLES} samples per round (sigma = {EDGE_SIGMA_STEPS} grid steps on the extended "
+              f"coefficients) past {[f'{cst_names[i]} {side} -> {bound:.4f}' for i, side, bound in edge_directions]}")
     else:
         print("Edge probe disabled (NUM_EDGE_SAMPLES = 0 or no edge shared by the top dataset designs).")
 
@@ -1165,12 +1259,6 @@ if __name__ == "__main__":
     pool = defaultdict(list)
     rounds_completed, t_inference = 0, time.perf_counter()
     for r, seed in enumerate(round_seeds, start=1):
-        if r > 1:
-            last_round = (time.perf_counter() - t_inference) / rounds_completed
-            if datetime.now() + timedelta(seconds=last_round) > inference_deadline:
-                print(f"\n[TIME] Stopping inference after {rounds_completed} round(s): another round would pass "
-                      f"{MAX_INFERENCE_FRACTION:.0%} of the time budget.")
-                break
         print(f"\n--- Inference Run {r}/{NUM_INFERENCE_RUNS} (seed {seed:x}) ---")
         rng = np.random.default_rng(seed)
         blocks = [(generate_cst_candidates(NUM_SAMPLES, n_cst, RANGES_UPPER, RANGES_LOWER, rng), 'global')]
@@ -1178,7 +1266,7 @@ if __name__ == "__main__":
             blocks.append((generate_local_candidates(info.parents, NUM_LOCAL_SAMPLES, lows, highs, LOCAL_SIGMA_FRACTION, rng), 'local'))
         if use_edge:
             edge = generate_local_candidates(info.parents, NUM_EDGE_SAMPLES, lows, highs, LOCAL_SIGMA_FRACTION, rng,
-                                             clip_lows=ext_lows, clip_highs=ext_highs)
+                                             clip_lows=ext_lows, clip_highs=ext_highs, sigma=edge_sigma)
             blocks.append((edge[outside_window(edge, lows, highs)], 'edge'))
         cst_candidates = np.concatenate([b for b, _ in blocks])
         origins = np.concatenate([np.full(len(b), o) for b, o in blocks])
@@ -1314,11 +1402,9 @@ if __name__ == "__main__":
         c.update({'status': res['status'], 'simulated_CL': res['CL'], 'simulated_CD': res['CD'], 'simulated_E': res['E']})
     write_json(metadata_path, metadata)
 
-    # === Stage 4: robustness, sized to the remaining time === #
+    # === Stage 4: robustness === #
     robustness = {'status': 'not run', 'parents': []}
     seconds_per_sim = main_seconds / max(len(candidates), 1)
-    remaining = (deadline - datetime.now()).total_seconds() - SAFETY_MARGIN_MIN * 60
-    affordable = max(0, int(remaining // seconds_per_sim)) if seconds_per_sim > 0 else 0
     ranked = sorted((c for c in candidates if c['status'] == 'ok'), key=lambda c: c['simulated_E'], reverse=True)
     reference_best = next((c for c in candidates if any(s['group'] == GROUP_REFERENCE and s['rank'] == 1 for s in c['sources'])
                            and c['status'] == 'ok'), None)
@@ -1329,16 +1415,12 @@ if __name__ == "__main__":
             seen.add(key)
             parents.append(c)
     n_designs = min(ROBUST_DESIGNS, len(parents))
-    per_design = min(ROBUST_PERTURBATIONS, affordable // n_designs) if n_designs else 0
-    if n_designs and per_design < ROBUST_MIN_PERTURBATIONS:
-        n_designs = min(n_designs, affordable // ROBUST_MIN_PERTURBATIONS)
-        per_design = ROBUST_MIN_PERTURBATIONS if n_designs else 0
+    per_design = ROBUST_PERTURBATIONS
     print(f"\n[TIME] Main simulation: {len(candidates)} candidates in {timedelta(seconds=round(main_seconds))} "
-          f"(~{seconds_per_sim:.0f}s each). Time left for robustness: about {affordable} simulations.")
+          f"(~{seconds_per_sim:.0f}s each). Robustness: {n_designs * per_design} simulations "
+          f"(about {timedelta(seconds=round(n_designs * per_design * seconds_per_sim))}).")
     if not parents:
         robustness['status'] = 'no successfully simulated designs to perturb'
-    elif n_designs == 0:
-        robustness['status'] = 'skipped: not enough time left in the budget'
     else:
         print(f"Robustness: {n_designs} design(s) x {per_design} perturbation(s), "
               f"std dev {ROBUST_SIGMA_STEPS} grid steps.")
@@ -1421,8 +1503,21 @@ if __name__ == "__main__":
         'sources': c['sources'],
     } for c in candidates]
 
+    reference_best = next((c for c in candidates if any(s['group'] == GROUP_REFERENCE and s['rank'] == 1 for s in c['sources'])
+                           and c['status'] == 'ok'), None)
+    outcome = find_outcome(report_candidates, model_names, e_best,
+                           reference_best['simulated_E'] if reference_best else None)
+    best_found = max((c for c in report_candidates if c['status'] == 'ok' and math.isfinite(c['simulated_E'])
+                      and not all(s['group'] == GROUP_REFERENCE for s in c['sources']) and c['grid_distance'] >= 1e-3),
+                     key=lambda c: c['simulated_E'], default=None)
+
     end_time = datetime.now()
     report = to_json({
+        'outcome': {'success': outcome['success'], 'target_E': outcome['target_E'],
+                    'dataset_best_E': outcome['dataset_best_E'],
+                    'reference_best_simulated_E': outcome['reference_best_simulated_E'],
+                    'improvement_ids': [c['candidate_id'] for c in outcome['improvements']],
+                    'best_per_model': outcome['best_per_model']},
         'dataset_best': info.best,
         'rounds_completed': rounds_completed,
         'total_time': str(end_time - start_time).split('.')[0],
@@ -1432,10 +1527,13 @@ if __name__ == "__main__":
         'candidates': report_candidates,
         'robustness': robustness,
     })
-    json_report_path = run_dir / f"{dataset_name_prefix}_final_report.json"
+    json_report_path = run_dir / "detailed_results.json"
     write_json(json_report_path, report)
-    print(f"=> JSON final report saved to {json_report_path.name}")
-    save_text_report(run_dir / f"{dataset_name_prefix}_final_report.txt", ctx, report)
+    print(f"=> JSON detailed results saved to {json_report_path.name}")
+    save_text_report(run_dir / "detailed_results.txt", ctx, report)
+    robust_by_parent = {p['parent']: p for p in robustness['parents']}
+    save_result_report(run_dir / "result.txt", ctx, outcome, best_found, robust_by_parent,
+                       {'folder': run_dir.name, 'seed': f"0x{master_seed:x}", 'total_time': report['total_time']})
     save_parity_plot(run_dir / f"{dataset_name_prefix}_parity.png", candidates, model_names, e_best)
 
     metadata.update({
@@ -1445,6 +1543,7 @@ if __name__ == "__main__":
         "results": {"pool_rows": len(pool_cst), "unique_candidates": len(candidates),
                     "simulated_candidates": sum(c['status'] == 'ok' for c in candidates),
                     "robustness_simulations": sum(len(p['members']) for p in robustness['parents'])},
+        "outcome": "SUCCESS!!" if outcome['success'] else "Try again...",
     })
     write_json(metadata_path, metadata)
 
