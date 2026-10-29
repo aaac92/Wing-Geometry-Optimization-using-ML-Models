@@ -1,0 +1,1 @@
+{"feature_engineer": {"mode": "sum_station", "lower_prefix": "cst_l_", "upper_prefix": "cst_u_", "n_stations": 9, "n_input": 13, "lower_idx": [0, 1, 2, 3, 4], "upper_idx": [5, 6, 7, 8, 9]}}

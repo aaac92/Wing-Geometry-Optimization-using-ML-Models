@@ -1,0 +1,40 @@
+{
+    "name": "Murata_1.1",
+    "base_name": "Murata",
+    "version": "1.1",
+    "mode": "update",
+    "previous_model": "Murata",
+    "model_type": "mlp",
+    "feature_mode": "sum_station",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17/regressor_dataset_17_rectified.csv",
+    "hyperparameters": {
+        "layers": [
+            364,
+            424,
+            242,
+            474,
+            395
+        ],
+        "dropout_rate": 0.03200576131885279,
+        "learning_rate": 0.0007025469587163437,
+        "batch_size": 2048,
+        "epochs": 500,
+        "patience": 44,
+        "weight": "linear",
+        "log_trans": true
+    },
+    "protocol": {
+        "folds": 5,
+        "test_split": 0.2,
+        "seed": 42
+    },
+    "test_metrics": {
+        "MAE": 0.6694210057151148,
+        "R2_Score": 0.8954909078573957
+    },
+    "started": "2026-10-29 12:25:14",
+    "duration_s": 4503.4,
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti",
+    "command": "src/utilities/ml_gym.py update --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv --select Agares Odysseus Murata"
+}
