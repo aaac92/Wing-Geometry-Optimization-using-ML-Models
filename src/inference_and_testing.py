@@ -57,11 +57,13 @@ from ai_support import Classifier, MLP_Regressor, LGBM_Regressor
 # === Constants === #
 # =============================================================================================== #
 
-# --- Simulation conditions: MUST match Hossain_DB_Gen_linux.py (dataset generation) --- #
+# --- Simulation conditions: MUST match Hossain_DB_Gen.py (dataset generation) --- #
 ASEQ = [-20, 20, 0.5]
 RE = 2.5e5
 MACH = 0.09281
 NACA_KP_FILE = "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"  # AVL 3.32 section-local CDCL reference
+SWEEP_MODE = "zero_out"   # alpha sweep, see simulation_support.alpha_sweep
+KP_SEED = 42              # random_state of the key-point GPR fit
 
 # --- Inference settings --- #
 NUM_INFERENCE_RUNS = 10
@@ -99,7 +101,7 @@ MAX_INFERENCE_FRACTION = 0.55  # no new inference round starts if it would end p
 SAFETY_MARGIN_MIN = 20         # minutes kept free at the end (archiving, reports, slow XFOIL cases)
 
 # --- Candidate search window (CST deltas) --- #
-# Defaults replicate the dataset 17 generation ranges (Hossain_DB_Gen_linux.py). This is an
+# Defaults replicate the dataset 17 generation ranges (Hossain_DB_Gen.py). This is an
 # exploration window: narrow it manually once a promising direction is found.
 # Format: (start_value, end_value, step); only start/end are used for continuous sampling.
 RANGES_UPPER = {
@@ -759,12 +761,12 @@ def simulate_candidates(candidates: list, stage: str, ctx) -> dict:
             polar_path = polars_temp / f"polar_{Path(path).stem}.txt"
             # Does not require try/except due to internal handler
             xfoil_case.run_simulation(airfoil_file_path=path, polar_file_path=str(polar_path),
-                                      alfa_sequence=angles, visc=RE, mach=MACH)
+                                      alfa_sequence=angles, visc=RE, mach=MACH, sweep_mode=SWEEP_MODE)
 
         # Create Wing Geometries, each candidate uses the creator matching its own configuration
         print("\n--- Generating Wing Geometry (.avl files) ---")
         polar_paths = get_all_files_from(polars_temp, extension='txt')
-        key_points = Key_Point_Extraction(polar_file_paths=polar_paths, verbose=True)
+        key_points = Key_Point_Extraction(polar_file_paths=polar_paths, verbose=True, random_state=KP_SEED)
         key_points_data = key_points.process_files()
         key_points.save_error_log(os.path.join(geo_temp, 'KP_error_log.txt'))
 

@@ -2,7 +2,7 @@
 xfoil_polar_unit_test.py
 
 Standalone validation harness for an xfoil binary/build, independent of the
-full production pipeline (Hossain_DB_Gen_linux.py). Reuses the same building
+full production pipeline (Hossain_DB_Gen.py). Reuses the same building
 blocks:
 
   - Airfoil generation + geometric filter chain, mirroring
@@ -43,8 +43,8 @@ from simulation_support import Xfoil_Polar_Creator as XPR
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 
 utilities_dir = Path(__file__).resolve().parent
-current_dir = utilities_dir.parent      # matches current_dir in Hossain_DB_Gen_linux.py
-project_root = current_dir.parent       # matches project_root in Hossain_DB_Gen_linux.py
+current_dir = utilities_dir.parent      # matches current_dir in Hossain_DB_Gen.py
+project_root = current_dir.parent       # matches project_root in Hossain_DB_Gen.py
 
 # --- Short scratch path for XFOIL itself -- long paths break its LOAD/PACC prompts --- #
 if sys.platform == "win32":
@@ -55,7 +55,7 @@ else:
 # --- Permanent, descriptive location -- results are moved here once XFOIL is done with them --- #
 test_root = project_root / "data" / "singular_test_data" / "xfoil_bin_unit_test"
 
-# === Geometric filter thresholds -- identical to Hossain_DB_Gen_linux.py __main__ === #
+# === Geometric filter thresholds -- identical to Hossain_DB_Gen.py __main__ === #
 GEO_FILT_PARM = {
     'threshold_max_t': 0.25,
     'threshold_min_t': 0.03,
@@ -68,7 +68,7 @@ GEO_FILT_PARM = {
     'threshold_min_camber': -0.02
 }
 
-# === CST combination ranges -- identical to Hossain_DB_Gen_linux.py __main__ === #
+# === CST combination ranges -- identical to Hossain_DB_Gen.py __main__ === #
 RANGES_UPPER = {
     'LE': (0, 0.125, 0.0625),
     'inter': (0, 0.125, 1 / 24),

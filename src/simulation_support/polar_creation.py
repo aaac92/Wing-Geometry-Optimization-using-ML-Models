@@ -1,12 +1,19 @@
-import functools
 import logging
-import multiprocessing.pool
 import os
+import sys
 import traceback
 from pathlib import Path
-from winpty import PtyProcess
 import psutil
-from .polar_sweep import SWEEP_MODES, run_zero_out_sweep
+from .alpha_sweep import run_sweep
+
+IS_WINDOWS = sys.platform == "win32"
+
+# Windows drives XFOIL through winpty, Linux through pexpect
+if IS_WINDOWS:
+    import multiprocessing.pool
+    from winpty import PtyProcess
+else:
+    import pexpect
 
 # Logging helpers to find memory leak
 class FsyncFileHandler(logging.FileHandler):
@@ -19,10 +26,11 @@ class FsyncFileHandler(logging.FileHandler):
             os.fsync(self.stream.fileno())
         except (OSError, ValueError):
             pass
+
 def _resource_snapshot():
     try:
         p = psutil.Process()
-        return p.num_handles(), p.num_threads()
+        return (p.num_handles() if IS_WINDOWS else p.num_fds()), p.num_threads()
     except Exception:
         return -1, -1
 
@@ -30,18 +38,19 @@ def _resource_snapshot():
 class Xfoil_Polar_Creator:
     """
     Manages XFOIL simulations in a clean, temporary environment to avoid pathing issues.
+    Works on Windows (winpty) and Linux (pexpect); the platform is detected automatically.
     """
     def __init__(self, xfoil_exe_path, main_dir, airfoil_dir, polar_dir, verbose:bool=False, process_logging:bool=False, mdes_seq:bool=False):
         """
         Initializes the runner and sets up the temporary development environment.
 
         Args:
-            xfoil_exe_path (str): The original, absolute path to the xfoil.exe executable.
-            main_dir (str): The working directory, ideally use the root of a system drive to avoid long paths with conflicting directory names.
+            xfoil_exe_path (str): The original, absolute path to the xfoil executable (xfoil.exe on Windows).
+            main_dir (str): The working directory. On Windows, ideally use the root of a system drive to avoid long paths.
             airfoil_dir (str): The airfoil directory inside the working directory.
             polar_dir (str): The polar directory inside the working directory.
             verbose (bool): Trigger for console messages.
-            process_logging (bool): Used to log individual XFOIL process to debug a "memory leak", do not activate for normal use, only activate if the process crashes 
+            process_logging (bool): Used to log individual XFOIL process to debug a "memory leak", do not activate for normal use, only activate if the process crashes
             mid session. DEACTIVATE IN DATABASE CORRECTION PHASE, logging will interfere with _rmtree and crash.
             mdes_seq (bool): Trigger for the MDES geometry smoothing sequence.
         """
@@ -63,13 +72,6 @@ class Xfoil_Polar_Creator:
         self.xfoil_path = xfoil_exe_path
         self.airfoil_dir = airfoil_dir
         self.polar_dir = Path(polar_dir)
-
-        # Maybe not necessary
-        #self.temp_xfoil_path = temp_dir / "support_files"
-
-        # Copy xfoil.exe to the clean, temporary path
-        #print(f"[SETUP] Copying '{xfoil_exe_path}' to '{self.temp_xfoil_path}'")
-        #shutil.copy(xfoil_exe_path, self.temp_xfoil_path)
 
         # Create the sub-directory
         self.polar_dir.mkdir(exist_ok=True)
@@ -95,36 +97,36 @@ class Xfoil_Polar_Creator:
             self._spawn_count = 0
             self._close_count = 0
 
+    def _spawn(self):
+        if IS_WINDOWS:
+            return PtyProcess.spawn([str(self.xfoil_path)])
+        return pexpect.spawn(str(self.xfoil_path), encoding='utf-8')
+
     def initialize_xfoil(self, airfoil_file_path, polar_file_path, iter, visc, mach):
         """
-        Runs the standard initialization of XFOIL and tries to process rough airfoils, or skips that for special cases.
-        
-        :param airfoil_file_path: The relative path to the source airfoil .dat file.
-        :param polar_file_path: The final relative path to save the output polar file to.
-        :param iter: Number of XFOIL iterations before flagging non-convergence
-        :param visc: Reynolds Number for the experiment using viscosity
-        :param mach: Fluid Mach speed
+        Runs the standard initialization of XFOIL and tries to process rough airfoils.
+        Returns a tuple containing the active process (or False) and the most recent error message.
         """
+        last_error_msg = "Unknown initialization failure."
         for attempt in range(4):
             # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
-            # BEGIN LOGGING BLOCK
             if self.process_logging:
                 h, t = _resource_snapshot()
                 self._spawn_count += 1
                 self._debug_logger.debug(
                     f"SPAWN #{self._spawn_count} attempt={attempt} "
-                    f"airfoil={Path(airfoil_file_path).name} handles={h} threads={t}"
+                    f"airfoil={Path(airfoil_file_path).name} handles/fds={h} threads={t}"
                 )
-            proc = PtyProcess.spawn([str(self.xfoil_path)])
-            # BEGIN LOGGING BLOCK
+
+            proc = self._spawn()
+
             if self.process_logging:
                 self._debug_logger.debug(f"  spawned pid={getattr(proc, 'pid', 'n/a')}")
 
             try:
                 # --- SCRIPTED XFOIL COMMANDS --- #
-                if not self._send_command(proc, f"LOAD {airfoil_file_path}"): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
+                if not self._send_command(proc, f"LOAD {airfoil_file_path}", timeout_sec=15): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
                 if attempt < 3 and self.mdes_seq:
-                    # Try the MDES sequence (cleans airfoil geometry for easier convergence in simulations)
                     mdes_success = True
                     if not self._send_command(proc, "MDES"): mdes_success = False
                     elif not self._send_command(proc, "FILT"): mdes_success = False
@@ -133,6 +135,7 @@ class Xfoil_Polar_Creator:
 
                     if not mdes_success:
                         raise RuntimeError("MDES sequence failed")
+
                 if not self._send_command(proc, "PANE"): raise RuntimeError(f"PANE for {airfoil_file_path} failed")
                 if not self._send_command(proc, "OPER", expect_prompt=".OPERi   c>"): raise RuntimeError(f"Failed to initiate OPER command for {airfoil_file_path}")
                 if not self._send_command(proc, f"ITER {iter}", expect_prompt=".OPERi   c>"): raise RuntimeError(f"Failed to set ITER {iter} for {airfoil_file_path}")
@@ -141,19 +144,26 @@ class Xfoil_Polar_Creator:
 
                 # Set up polar accumulation using the temporary polar path
                 if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to setup PACC for {airfoil_file_path}")
-                if not self._send_command(proc, str(polar_file_path), expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} failed")
-                if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): raise RuntimeError(f"Final confirmation for {airfoil_file_path}'s polar simulation failed")
 
-                return proc
+                # Handling floating point truncation overwrite prompt safely
+                match_idx = self._send_command(proc, str(polar_file_path), expect_prompt=['Enter  polar dump filename  OR  <return> for no file   s>', "Set current parameters to old save file values ? y/n>"])
+                if match_idx == -1:
+                    raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} as {polar_file_path} failed")
+                elif match_idx == 1:
+                    if not self._send_command(proc, "y", expect_prompt='Enter  polar dump filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to confirm regime parameter overwrite for {airfoil_file_path}")
+                    if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
+                elif match_idx == 0:
+                    if not self._send_command(proc, "", expect_prompt=".OPERva   c>"): raise RuntimeError(f"Failed to omit polar dump file for {airfoil_file_path}.")
+
+                return proc, "Success"
 
             except RuntimeError as e:
-                # BEGIN LOGGING BLOCK
+                last_error_msg = str(e)
                 if self.process_logging:
-                    self._debug_logger.debug(f"  FAIL attempt={attempt} reason={e}")
+                    self._debug_logger.debug(f"  FAIL attempt={attempt} reason={last_error_msg}")
                 if proc:
                     try:
                         proc.close(force=True)
-                        # BEGIN LOGGING BLOCK
                         if self.process_logging:
                             self._close_count += 1
                             self._debug_logger.debug(
@@ -161,40 +171,39 @@ class Xfoil_Polar_Creator:
                                 f"(spawn_close_delta={self._spawn_count - self._close_count})"
                             )
                     except Exception as close_err:
-                        # BEGIN LOGGING BLOCK
                         if self.process_logging:
                             self._debug_logger.debug(f"  CLOSE FAILED: {type(close_err).__name__}: {close_err}")
                     proc = None
 
                 if attempt == 3:
-                    return False
-            
-            continue # Restart the loop for the next attempt
+                    return False, last_error_msg
 
-        return False
+            continue
 
-    
-    def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200, sweep_mode="sequential"):
+        return False, last_error_msg
+
+    def run_simulation(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=2.88e6, mach=0.15, iter=200, sweep_mode=None):
         """
-        Executes an XFOIL simulation for a single airfoil file.
+        Executes an XFOIL simulation for a single airfoil file and appends the completion flag on success.
 
         Args:
-            airfoil_path (str): The relative path to the source airfoil .dat file.
-            polar_file_path (str): The final relative path to save the output polar file to.
+            airfoil_file_path (str): The path to the source airfoil .dat file.
+            polar_file_path (str): The path to save the output polar file to.
             alfa_sequence (list): A list of angles of attack.
             visc (float): Reynolds number for the simulation.
             mach (float): Mach number for the simulation.
             iter (int): Maximum number of iterations for the solver.
-            sweep_mode (str): 'sequential' (default, original behavior) or 'zero_out' (see simulation_support.polar_sweep).
+            sweep_mode (str): None for the default ('zero_out'), or 'sequential' for the legacy sweep.
+                See simulation_support.alpha_sweep before using 'sequential'.
         """
-        if sweep_mode == "zero_out":
-            return run_zero_out_sweep(self, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter)
-        if sweep_mode != "sequential":
-            raise ValueError(f"Unknown sweep_mode '{sweep_mode}'. Options: {SWEEP_MODES}")
-        # Ensure the final output directory for the polar exists
         os.makedirs(os.path.dirname(polar_file_path), exist_ok=True)
+        return run_sweep(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=visc, mach=mach, iter=iter, sweep_mode=sweep_mode)
 
-        # Define paths for temporary files for this specific run
+    def alpha_pass(self, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter):
+        """
+        Walks one XFOIL process through alfa_sequence in the given order, writing every converged angle to
+        polar_file_path. Does not write the completion flag. Returns True if the pass reached the end.
+        """
         airfoil_file_path = Path(airfoil_file_path)
 
         if self.verbose:
@@ -202,48 +211,45 @@ class Xfoil_Polar_Creator:
 
         proc = None
         try:
-            # Initialize xfoil with given values
-            proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+            proc, init_msg = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
             if proc is False:
-                return False  # All internal retries in initialize_xfoil exhausted; abort this airfoil.
+                print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts. Reason: {init_msg}. Aborting run.")
+                return False
 
-            # Run the angle of attack sequence
             for alfa in alfa_sequence:
-                # Check for a valid process variable
-                if proc != None:
-                    if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
-                        # Close process and make proc variable invalid, in case of failure.
-                        print(f"[WARNING] Could not execute ALFA {alfa} for {airfoil_file_path.name}. Re-initializing and continuing.")
-                        proc.close()
-                        proc = None
-                        continue
-                else:
-                    # Reinitilaize XFOIL and run current ALFA angle for invalid proc variable
-                    proc = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
-                    if proc is False:
-                        return False  # Re-init exhausted its retries; abort this airfoil.
-                    if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
-                        # Repeat failure logic
-                        print(f"[WARNING] Could not execute ALFA {alfa}. Re-initializing and continuing.")
-                        proc.close()
-                        proc = None
-                        continue    
+                attempts = 0
+                success = False
 
+                while attempts < 2 and not success:
+                    if proc is None:
+                        proc, init_msg = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
+                        if proc is False:
+                            print(f"[INFO] {airfoil_file_path.name}: exhausted initialization during alpha sweep. Reason: {init_msg}.")
+                            return False
+
+                    if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
+                        attempts += 1
+                        print(f"[WARNING] Could not execute ALFA {alfa} for {airfoil_file_path.name} (Attempt {attempts}/2). Re-initializing.")
+                        proc.close(force=True)
+                        proc = None
+                    else:
+                        success = True
+
+                if not success:
+                    print(f"[WARNING] ALFA {alfa} completely failed for {airfoil_file_path.name}. Skipping this angle.")
 
             # --- FINISH AND CLEAN UP PROCESS ---
             if self.verbose:
                 print("[INFO] Finalizing XFOIL process.")
-            if not self._send_command(proc, "PACC", expect_prompt=".OPERv   c>"): return False
-            if not self._send_command(proc, ""): return False # Exit OPER mode
-            if not self._send_command(proc, "QUIT", quit=True): return False
-            proc.close()
-
-            self.completion_flag(polar_file_path)
+            if proc is not None:
+                if not self._send_command(proc, "PACC", expect_prompt=".OPERv   c>"): return False
+                if not self._send_command(proc, ""): return False
+                if not self._send_command(proc, "QUIT", quit=True): return False
+                proc.close()
 
             return True
 
         except Exception as e:
-            # BEGIN LOGGING BLOCK
             if self.process_logging:
                 self._debug_logger.debug(
                     f"[FATAL] airfoil={airfoil_file_path.name} "
@@ -252,22 +258,19 @@ class Xfoil_Polar_Creator:
             print(f"[FATAL] An unexpected error occurred: {e}")
             return False
         finally:
-            # Ensure the process is terminated if it's still alive
             if proc and proc.isalive():
                 try:
                     proc.close(force=True)
-                    # BEGIN LOGGING BLOCK
                     if self.process_logging:
                         self._close_count += 1
                 except Exception as close_err:
-                    # BEGIN LOGGING BLOCK
                     if self.process_logging:
                         self._debug_logger.debug(f"  finally-CLOSE FAILED: {close_err}")
-            # BEGIN LOGGING BLOCK
+
             if self.process_logging:
                 h, t = _resource_snapshot()
                 self._debug_logger.debug(
-                    f"END airfoil={airfoil_file_path.name} handles={h} threads={t} "
+                    f"END airfoil={airfoil_file_path.name} handles/fds={h} threads={t} "
                     f"spawn_close_delta={self._spawn_count - self._close_count}"
                 )
             if self.verbose:
@@ -282,51 +285,67 @@ class Xfoil_Polar_Creator:
         except IOError as e:
             print(f"[ERROR] Could not write completion flag to {polar_path}: {e}")
 
-    def _timeout(self, max_timeout):
-        """Timeout decorator, parameter in seconds."""
-        def timeout_decorator(item):
-            @functools.wraps(item)
-            def func_wrapper(*args, **kwargs):
-                pool = multiprocessing.pool.ThreadPool(processes=1)
-                async_result = pool.apply_async(item, args, kwargs)
-                try:
-                    return async_result.get(max_timeout)
-                except multiprocessing.TimeoutError:
-                    if self.verbose:
-                        print(f"[ERROR] Function {item.__name__} timed out after {max_timeout} seconds.")
-                    return None
-                finally:
-                    pool.terminate()
-            return func_wrapper
-        return timeout_decorator
-
     def _send_command(self, proc, command, expect_prompt="XFOIL   c>", timeout_sec=8, quit=False):
         """
         Sends a command to the XFOIL process and waits for the expected prompt.
+        expect_prompt may be a list: the index of the first prompt seen is returned, or -1 on failure.
         """
+        is_list = isinstance(expect_prompt, list)
+        failed = -1 if is_list else False
+        if proc is None:
+            if self.verbose:
+                print(f"[ERROR] _send_command called with no active XFOIL process (command='{command}').")
+            return failed
+
         if self.verbose:
             print(f"[CMD] Sending: {command if command else '-> <enter>'}")
-        @self._timeout(max_timeout=timeout_sec)
-        def timed_write(process, cmd, prompt):
+
+        prompts = expect_prompt if is_list else [expect_prompt]
+        if IS_WINDOWS:
+            index, closed = self._winpty_exchange(proc, command, prompts, timeout_sec)
+        else:
+            index, closed = self._pexpect_exchange(proc, command, prompts, timeout_sec)
+
+        if index is not None:
+            return index if is_list else True
+        if closed and quit:
+            return 0 if is_list else True
+        if self.verbose:
+            reason = "XFOIL closed unexpectedly" if closed else "Timeout"
+            print(f"[ERROR] {reason} while waiting for '{expect_prompt}' after sending '{command}'.")
+        return failed
+
+    def _pexpect_exchange(self, proc, command, prompts, timeout_sec):
+        """Returns (index of the matched prompt or None, process closed)."""
+        try:
+            proc.sendline(command)
+            return proc.expect_exact(prompts, timeout=timeout_sec), False
+        except pexpect.TIMEOUT:
+            return None, False
+        except pexpect.EOF:
+            return None, True
+
+    def _winpty_exchange(self, proc, command, prompts, timeout_sec):
+        """Returns (index of the matched prompt or None, process closed). winpty reads block, hence the thread timeout."""
+        def exchange():
             output_buffer = ""
             try:
-                process.write(cmd + "\r\n")
+                proc.write(command + "\r\n")
                 while True:
-                    line = process.read(128)
-                    if not line: return (False, output_buffer)
-                    output_buffer += line
-                    if prompt in output_buffer: return (True, output_buffer)
+                    chunk = proc.read(128)
+                    if not chunk:
+                        return None, True
+                    output_buffer += chunk
+                    hits = [(output_buffer.find(p), i) for i, p in enumerate(prompts) if p in output_buffer]
+                    if hits:
+                        return min(hits)[1], False
             except EOFError:
-                return (False, output_buffer)
+                return None, True
 
-        result_tuple = timed_write(proc, command, expect_prompt)
-        if result_tuple is None:
-            if self.verbose:
-                print(f"[ERROR] Timeout waiting for prompt '{expect_prompt}' after sending '{command}'.")
-            return False
-        success, _ = result_tuple
-        if not success and not quit:
-            if self.verbose:
-                print(f"[ERROR] Failed to get prompt '{expect_prompt}' after sending '{command}'.")
-            return False
-        return True
+        pool = multiprocessing.pool.ThreadPool(processes=1)
+        try:
+            return pool.apply_async(exchange).get(timeout_sec)
+        except multiprocessing.TimeoutError:
+            return None, False
+        finally:
+            pool.terminate()

@@ -3,7 +3,13 @@ Neighbour-consistency diagnosis and rectification of a generated regressor datas
 
 A dataset row is suspicious when its efficiency E differs strongly from the median E of its grid neighbours
 (same wing configuration, one grid step away in a single CST coefficient). Suspicious airfoils are simulated
-several times with fully independent runs and every row is decided by strict majority.
+with fully independent runs and every row is decided by strict majority.
+
+The simulation chain is deterministic (dataset 17 diagnosis, 2026-10-28: identical polars and E in every
+run, pool and single process alike), so repeating a run cannot change a value; only a different pipeline
+can. The default pipeline is therefore the 'zero_out' alpha sweep with a seeded key-point fit, and rectify
+uses one run per airfoil. See simulation_support.alpha_sweep for why the legacy 'sequential' sweep is not
+recommended.
 
 Modes
 -----
@@ -19,7 +25,8 @@ The underlying logic lives in file_handling_support.database_correction (Dataset
 Examples
 --------
     python src/utilities/dataset_rectification.py diagnose --dataset 17
-    python src/utilities/dataset_rectification.py diagnose --dataset 17 --sweep zero_out --kp-seed 0
+    python src/utilities/dataset_rectification.py diagnose --dataset 17 --flagged 0 --top 0 --controls 300 --runs 1
+    python src/utilities/dataset_rectification.py diagnose --dataset 17 --sweep sequential --kp-seed none
     python src/utilities/dataset_rectification.py rectify --dataset 17 --yes
 """
 import argparse
@@ -37,14 +44,14 @@ sys.path.insert(0, str(SRC_DIR))
 from file_handling_support.database_correction import (  # noqa: E402
     Dataset_Rectifier, Simulation_Settings, display_available, grid_levels_from_ranges,
 )
-from simulation_support.polar_sweep import SWEEP_MODES  # noqa: E402
+from simulation_support.alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_MODES  # noqa: E402
 
 # =============================================================================================== #
 # === Dataset properties === #
 # =============================================================================================== #
 
 # Flow regimes of datasets whose log predates the "Flow regime" block written by the generators.
-# Dataset 17: values from Hossain_DB_Gen_linux.py at the time it was generated.
+# Dataset 17: values from Hossain_DB_Gen.py at the time it was generated.
 KNOWN_FLOW_REGIMES = {
     17: {"reynolds": 2.5e5, "mach": 0.09281, "aseq": [-20.0, 20.0, 0.5], "base_airfoil": "naca0012_unit.csv",
          "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"},
@@ -64,6 +71,12 @@ def _literal(text: str):
     """Python literal from a log line; plain fractions such as 1/24 (older logs) are evaluated first."""
     text = re.sub(r'(?<![\w.])(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)', lambda m: repr(float(m.group(1)) / float(m.group(2))), text)
     return ast.literal_eval(text.strip())
+
+
+def _seed(text: str):
+    """Key-point seed from the CLI or a log: an integer, or 'none' for the legacy unseeded fit."""
+    text = str(text).strip()
+    return None if text.lower() == "none" else int(text)
 
 
 def parse_dataset_log(path: Path) -> dict:
@@ -99,6 +112,10 @@ def parse_dataset_log(path: Path) -> dict:
             props["base_airfoil"] = stripped.split("=", 1)[1].strip()
         elif stripped.startswith("NACA key point file = "):
             props["naca_kp_file"] = stripped.split("=", 1)[1].strip()
+        elif stripped.startswith("Sweep mode = "):
+            props["generation_sweep"] = stripped.split("=", 1)[1].strip()
+        elif stripped.startswith("Key point seed = "):
+            props["generation_kp_seed"] = _seed(stripped.split("=", 1)[1])
     if "lower" in dicts or "upper" in dicts:
         props["ranges_lower"], props["ranges_upper"] = dicts.get("lower"), dicts.get("upper")
     elif "both" in dicts:
@@ -234,17 +251,20 @@ def build_parser() -> argparse.ArgumentParser:
     flow.add_argument("--naca-kp", help="NACA 0012 key point file in data/support/naca_kp (or an absolute path).")
     flow.add_argument("--case-file", help="AVL run case file in data/support (or an absolute path).")
 
-    pipe = common.add_argument_group("simulation pipeline variants (defaults reproduce the dataset generation)")
-    pipe.add_argument("--sweep", choices=SWEEP_MODES, default="sequential",
-                      help="XFOIL alpha sweep. 'sequential' walks the whole sequence in one process (generation behavior); "
-                           "'zero_out' runs two processes that both start at 0 deg.")
-    pipe.add_argument("--kp-seed", type=int, default=None,
-                      help="Seed for the Gaussian-process key-point fit. Omit to keep the generation behavior (unseeded).")
+    pipe = common.add_argument_group("simulation pipeline")
+    pipe.add_argument("--sweep", choices=SWEEP_MODES, default=DEFAULT_SWEEP_MODE,
+                      help="XFOIL alpha sweep. 'zero_out' runs two processes that both start at 0 deg; 'sequential' "
+                           "walks the whole sequence from the lowest angle in one process (legacy generation behavior, "
+                           "not recommended: it produces a spurious low-drag branch, see simulation_support.alpha_sweep).")
+    pipe.add_argument("--kp-seed", type=_seed, default=42,
+                      help="Seed for the Gaussian-process key-point fit; 'none' reproduces the legacy unseeded fit.")
 
     rule = common.add_argument_group("outlier rule and decision")
     rule.add_argument("--threshold", type=float, default=15.0, help="Flag rows with |E - neighbour median| above this value.")
     rule.add_argument("--min-neighbours", type=int, default=3, help="Rows with fewer grid neighbours are never flagged.")
-    rule.add_argument("--runs", type=int, default=5, help="Independent simulations per airfoil.")
+    rule.add_argument("--runs", type=int, default=None,
+                      help="Independent simulations per airfoil (default: 5 for diagnose, to keep measuring "
+                           "repeatability; 1 for rectify, since the simulation chain is deterministic).")
     rule.add_argument("--tolerance", type=float, default=0.05,
                       help="Relative tolerance for two simulated E values to count as the same result.")
 
@@ -292,6 +312,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.runs is None:
+        args.runs = 5 if args.mode == "diagnose" else 1
     values, sources, log_path = resolve_properties(args)
     if log_path is None:
         print(f"[INFO] No generation log found for dataset {args.dataset} in data/logs.")
@@ -307,6 +329,10 @@ def main() -> None:
         case_file=str(support_file(values["case_file"])), xfoil_exe=str(xfoil), avl_exe=str(avl),
         sweep_mode=args.sweep, kp_seed=args.kp_seed,
     )
+    generation = (values.get("generation_sweep"), values.get("generation_kp_seed", "unknown"))
+    if values.get("generation_sweep") and generation != (args.sweep, args.kp_seed):
+        print(f"[NOTE] The dataset was generated with sweep = {generation[0]}, key-point seed = {generation[1]}; "
+              f"this run uses sweep = {args.sweep}, key-point seed = {args.kp_seed}.")
     dataset_dir = PROJECT_ROOT / "data" / "datasets" / f"dataset_{args.dataset}"
     work_dir = Path(args.work_dir) if args.work_dir else dataset_dir / "rectification"
     grid = None

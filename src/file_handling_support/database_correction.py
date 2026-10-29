@@ -23,7 +23,7 @@ from tqdm import tqdm
 from cst_modeling.foil import check_validity
 
 from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support import Key_Point_Extraction, AVL_Run_Case
+from simulation_support import Key_Point_Extraction, AVL_Run_Case, DEFAULT_SWEEP_MODE, SWEEP_REVISIONS
 from simulation_support import HossainWingRec_Creation, HossainWingFlat_Creation, HossainWing60DEG_Creation
 from geometric_support import Airfoil_Generator
 try:
@@ -1342,7 +1342,7 @@ class Database_Corrector:
         Runs `pass_fn(on_progress=..., on_status=..., **pass_kwargs)` in a
         background thread while a Progress_GUI window owns the main thread
         -- mirrors the threading.Thread + gui.run() + thread.join() pattern
-        Hossain_DB_Gen_linux.py already uses for its own multiprocessing
+        Hossain_DB_Gen.py already uses for its own multiprocessing
         stages, adapted here to a single sequential worker (num_workers=1)
         instead of a process pool. Replaces the tqdm bars, which were
         getting corrupted by other tools' stdout output interleaving with
@@ -1689,8 +1689,8 @@ class Simulation_Settings:
     case_file: str
     xfoil_exe: str
     avl_exe: str
-    sweep_mode: str = "sequential"
-    kp_seed: Optional[int] = None
+    sweep_mode: str = DEFAULT_SWEEP_MODE
+    kp_seed: Optional[int] = 42
     xfoil_iter: int = 200
 
     def angles(self) -> List[float]:
@@ -1698,15 +1698,25 @@ class Simulation_Settings:
         return [start + j * step for j in range(int(round((stop - start) / step)) + 1)]
 
     def signature(self) -> dict:
-        return {
+        signature = {
             "n_cst": self.n_cst, "aseq": list(self.aseq), "reynolds": self.reynolds, "mach": self.mach,
             "base_airfoil": Path(self.base_airfoil).name, "naca_kp_file": Path(self.naca_kp_file).name,
             "case_file": Path(self.case_file).name, "sweep_mode": self.sweep_mode, "kp_seed": self.kp_seed,
             "xfoil_iter": self.xfoil_iter,
         }
+        # Revision 1 is left out so signatures stored before revisions existed keep their id
+        revision = SWEEP_REVISIONS.get(self.sweep_mode, 1)
+        if revision > 1:
+            signature["sweep_revision"] = revision
+        return signature
 
     def signature_id(self) -> str:
         return hashlib.sha1(json.dumps(self.signature(), sort_keys=True).encode()).hexdigest()[:12]
+
+
+def laminar_cd_limit(reynolds: float) -> float:
+    """Friction drag of a fully laminar flat plate, both surfaces (Blasius): 2 x 1.328 / sqrt(Re)."""
+    return 2 * 1.328 / math.sqrt(reynolds)
 
 
 @dataclass
@@ -1786,7 +1796,7 @@ def simulate_airfoil_once(settings: Simulation_Settings, airfoil_id: str, cst: L
     kp_refits > 0 repeats the key-point fit on the same polar to measure the fit's own variance.
     """
     t0 = time.time()
-    record = {"status": "ok", "error": None, "polar_points": 0, "polar_hash": None, "key_points": None,
+    record = {"status": "ok", "error": None, "polar_points": 0, "polar_hash": None, "cd_min": None, "key_points": None,
               "kp_refits": [], "CL": {}, "CD": {}, "E": {}, "seconds": None}
     if run_dir.exists():
         shutil.rmtree(run_dir, ignore_errors=True)
@@ -1810,6 +1820,7 @@ def simulate_airfoil_once(settings: Simulation_Settings, airfoil_id: str, cst: L
                                           mach=settings.mach, iter=settings.xfoil_iter, sweep_mode=settings.sweep_mode)
         alpha, cl, cd = read_polar_arrays(polar_path)
         record["polar_points"] = int(len(alpha))
+        record["cd_min"] = float(np.min(cd)) if len(cd) else None
         record["polar_hash"] = hashlib.sha1(np.round(np.stack([alpha, cl, cd]), 6).tobytes()).hexdigest()[:16] if len(alpha) else None
         if store_polar:
             record["polar"] = {"alpha": alpha.tolist(), "CL": cl.tolist(), "CD": cd.tolist()}
@@ -1928,6 +1939,15 @@ class Dataset_Rectifier:
     --------------------------------
     Every selected airfoil is simulated `n_runs` times, each run fully independent (new XFOIL and AVL
     processes, own temp folder). Each row is decided by strict majority (see `majority_decision`).
+    The pipeline is deterministic: the dataset 17 diagnosis (2026-10-28, 30 airfoils x 5 runs, pool and
+    single process) gave bit-identical polars and identical E in every run. Repetition therefore cannot
+    change a value, only a different pipeline can, so rectification defaults to one run per airfoil and
+    diagnosis keeps several runs to keep measuring repeatability.
+
+    Physical check
+    --------------
+    Every run records the minimum CD of its polar. Runs below `laminar_cd_limit(Re)` (fully laminar flat
+    plate friction) are physically implausible; they are counted in the reports but not excluded.
 
     Evaluation store
     ----------------
@@ -1953,6 +1973,7 @@ class Dataset_Rectifier:
         self.workers = 1 if single_process else max(1, workers or (multiprocessing.cpu_count() - 1))
         self.use_gui = display_available() if use_gui is None else use_gui
         self.log = log
+        self.cd_limit = laminar_cd_limit(settings.reynolds)
         self.work_dir.mkdir(parents=True, exist_ok=True)
 
         self.df = pd.read_csv(self.csv_path, float_precision="round_trip")
@@ -2211,6 +2232,13 @@ class Dataset_Rectifier:
             decisions[row]["runs_E"] = values
         return decisions
 
+    def _below_cd_limit(self, run: dict) -> Optional[bool]:
+        """Whether the run's polar CDmin is below the laminar friction limit (None if unknown)."""
+        cd_min = run.get("cd_min")
+        if cd_min is None and run.get("polar") and run["polar"].get("CD"):
+            cd_min = min(run["polar"]["CD"])
+        return None if cd_min is None else bool(cd_min < self.cd_limit)
+
     def _airfoil_diagnostics(self, key: str, runs: List[dict]) -> dict:
         """Where the run-to-run variation of one airfoil comes from: XFOIL polar, key-point fit, or neither."""
         runs = runs[:self.n_runs]
@@ -2246,7 +2274,8 @@ class Dataset_Rectifier:
         return {"polar_identical": polar_identical, "polar_runs": len(hashes), "polar_points": [r.get("polar_points") for r in runs],
                 "polar_max_delta": polar_delta, "kp_run_spread": kp_run_spread, "kp_refit_spread": kp_refit_spread,
                 "repeatable": repeatable, "variation_source": source, "decisions": decisions,
-                "statuses": [r.get("status") for r in runs], "modes": sorted({r.get("mode", "pool") for r in runs})}
+                "statuses": [r.get("status") for r in runs], "modes": sorted({r.get("mode", "pool") for r in runs}),
+                "below_laminar_limit": any(self._below_cd_limit(r) for r in runs)}
 
     def _mode_study(self, keys: List[str]) -> List[dict]:
         """Repeatability split by execution mode (pool vs single process), for airfoils with >= 2 runs in a mode."""
@@ -2327,6 +2356,8 @@ class Dataset_Rectifier:
         """
         Rounds of: flag on the current E -> simulate flagged airfoils that have fewer than n_runs stored runs ->
         majority decision per row -> update E. Airfoils decided in an earlier round are not re-flagged.
+        Later rounds find airfoils that were hidden by flagged neighbours (their neighbour median only drops
+        once those neighbours are corrected). One run per airfoil is enough since the pipeline is deterministic.
         Stops when a round has no new flagged airfoils or after max_rounds. Writes the rectified CSV (only the
         target column changes) plus a report, a per-row CSV and a JSON of decisions. Returns the paths.
         """
@@ -2369,6 +2400,7 @@ class Dataset_Rectifier:
             "json": self.work_dir / f"rectification_{stamp}.json",
             "store": self.store_path,
         }
+        below_limit = {key: any(self._below_cd_limit(r) for r in self.runs_for(key)[:self.n_runs]) for key in decided}
         rows = []
         for key, decisions in decided.items():
             for row, d in decisions.items():
@@ -2376,6 +2408,7 @@ class Dataset_Rectifier:
                              **{c: self.df.iat[row, self.df.columns.get_loc(c)] for c in self.cst_cols},
                              "dataset_E": self.E[row], "rectified_E": E_current[row], "outcome": d["outcome"],
                              "agreement": d["agreement"], "valid_runs": d["n_valid"], "clusters": d["clusters"],
+                             "below_laminar_limit": below_limit[key],
                              "runs_E": ";".join("" if v is None else f"{v:.4f}" for v in d["runs_E"])})
         pd.DataFrame(rows).to_csv(paths["rows"], index=False)
         summary = {"settings": self.settings.signature(), "signature_id": self.settings.signature_id(),
@@ -2383,7 +2416,8 @@ class Dataset_Rectifier:
                    "agreement_tolerance": self.tol, "rounds": rounds,
                    "initial_flags": self._flag_summary(self.flag(self.E)), "final_flags": self._flag_summary(final_flags),
                    "dataset_best_before": float(np.max(self.E)), "dataset_best_after": float(np.max(E_current)),
-                   "rows_changed": int((np.abs(E_current - self.E) > 1e-12).sum())}
+                   "rows_changed": int((np.abs(E_current - self.E) > 1e-12).sum()),
+                   "laminar_cd_limit": self.cd_limit, "airfoils_below_laminar_limit": int(sum(below_limit.values()))}
         with open(paths["json"], 'w') as f:
             json.dump(_jsonable({**summary, "decisions": {self.airfoils[k]["id"]: {"cst": self.airfoils[k]["cst"],
                                                                                     "rows": {str(r): d for r, d in v.items()}}
@@ -2402,6 +2436,7 @@ class Dataset_Rectifier:
                              "dataset_E": self.E[row], "majority_E": d["value"] if d["outcome"] in ("confirmed", "corrected") else None,
                              "outcome": d["outcome"], "agreement": d["agreement"], "clusters": d["clusters"],
                              "variation_source": a["variation_source"], "polar_identical": a["polar_identical"],
+                             "below_laminar_limit": a["below_laminar_limit"],
                              "runs_E": ";".join("" if v is None else f"{v:.4f}" for v in d["runs_E"])})
         return pd.DataFrame(rows)
 
@@ -2422,6 +2457,7 @@ class Dataset_Rectifier:
                 "rows_corrected": sum(d["outcome"] == "corrected" for d in rows),
                 "rows_unresolved": sum(d["outcome"] == "unresolved" for d in rows),
                 "rows_failed": sum(d["outcome"] == "failed" for d in rows),
+                "below_laminar_limit": share(keys, lambda a: a["below_laminar_limit"]),
             }
         sources: Dict[str, int] = {}
         for a in analysis.values():
@@ -2430,7 +2466,8 @@ class Dataset_Rectifier:
         return {
             "settings": self.settings.signature(), "signature_id": self.settings.signature_id(),
             "n_runs": self.n_runs, "threshold": self.threshold, "min_neighbours": self.min_neighbours,
-            "agreement_tolerance": self.tol, "snapped_values": self.snapped_values, "max_snap_distance": self.snap_distance,
+            "agreement_tolerance": self.tol, "laminar_cd_limit": self.cd_limit,
+            "snapped_values": self.snapped_values, "max_snap_distance": self.snap_distance,
             "flags": self._flag_summary(flags), "groups": by_group, "variation_sources": sources,
             "polar_identical_share": share([k for k in analysis if analysis[k]["polar_runs"] >= 2], lambda a: a["polar_identical"]),
             "kp_refit_variable_share": share(refit_keys, lambda a: max(a["kp_refit_spread"].values()) > 0),
@@ -2456,10 +2493,12 @@ class Dataset_Rectifier:
                  f"Key-point fit changes when refitted on the same polar: {pct(summary['kp_refit_variable_share'])} of airfoils",
                  "Source of run-to-run variation: " + ", ".join(f"{k}: {v}" for k, v in sorted(summary["variation_sources"].items())),
                  ""]
-        lines.append(f"{'Group':<10} {'Airfoils':>8} {'Repeatable':>10} {'Rows':>5} {'Reproduced':>10} {'Corrected':>9} {'Unresolved':>10} {'Failed':>6}")
+        lines.append(f"{'Group':<10} {'Airfoils':>8} {'Repeatable':>10} {'Rows':>5} {'Reproduced':>10} {'Corrected':>9} {'Unresolved':>10} {'Failed':>6} {'CDmin<lim':>9}")
         for g, s in summary["groups"].items():
             lines.append(f"{g:<10} {s['airfoils']:>8} {pct(s['repeatable']):>10} {s['rows']:>5} {pct(s['rows_reproduced']):>10} "
-                         f"{s['rows_corrected']:>9} {s['rows_unresolved']:>10} {s['rows_failed']:>6}")
+                         f"{s['rows_corrected']:>9} {s['rows_unresolved']:>10} {s['rows_failed']:>6} {pct(s['below_laminar_limit']):>9}")
+        lines.append(f"CDmin<lim: share of airfoils with a run whose polar CDmin is below the laminar flat-plate limit "
+                     f"({summary['laminar_cd_limit']:.4f} at Re = {self.settings.reynolds:g}); physically implausible.")
         if summary["mode_study"]:
             lines += ["", "--- Execution mode study " + "-" * 85]
             for m in summary["mode_study"]:
@@ -2494,6 +2533,8 @@ class Dataset_Rectifier:
         lines += ["",
                   f"Flagged rows before: {fi['rows_flagged']} | after: {ff['rows_flagged']} (the remaining ones were confirmed, unresolved or failed)",
                   f"Rows changed: {summary['rows_changed']}",
+                  f"Simulated airfoils with polar CDmin below the laminar limit ({summary['laminar_cd_limit']:.4f}): "
+                  f"{summary['airfoils_below_laminar_limit']} of {len(decided)} (reported, not excluded)",
                   f"Dataset best E before: {summary['dataset_best_before']:.4f} | after: {summary['dataset_best_after']:.4f}",
                   "", "E distribution (rows)    before     after"]
         for lo, hi in ((50, np.inf), (45, 50), (40, 45), (30, 40), (-np.inf, 30)):

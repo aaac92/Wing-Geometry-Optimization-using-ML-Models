@@ -1,7 +1,8 @@
 import numpy as np
 import os
-import subprocess
 import shutil
+import subprocess
+import sys
 import threading
 from tqdm import tqdm
 from datetime import datetime
@@ -10,33 +11,49 @@ from cst_modeling.foil import check_validity
 from multiprocessing import Pool, Manager, cpu_count
 # Import custom package class and methods
 from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossainWing60DEG_Creation, HossainWingFlat_Creation, AVL_Run_Case
+from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossainWing60DEG_Creation, HossainWingFlat_Creation, AVL_Run_Case, DEFAULT_SWEEP_MODE
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from file_handling_support import compression_Alma, Training_Data_Generator, Database_Corrector, get_all_files_from
 from ux_support import Progress_GUI, recovery_json, recovery_Fabius
+
+# Platform: binaries carry .exe on Windows
+IS_WINDOWS = sys.platform == "win32"
+EXE_SUFFIX = ".exe" if IS_WINDOWS else ""
 
 # Get the path to the src directory.
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 # Define final directories
+dataset_build_data = project_root / "data" / "dataset_build_data"
+dataset_build_data.mkdir(exist_ok=True)
 airfoils_dir = project_root / "data" / "dataset_build_data" / "airfoils"
 force_files_dir = project_root / "data" / "dataset_build_data" / "force files"
 polars_dir = project_root / "data" / "dataset_build_data" / "polars"
 geo_files_dir = project_root / "data" / "dataset_build_data" / "geometry files"
 support_files_dir = project_root / "data" / "support"
+naca_kp_dir = project_root / "data" / "support" / "naca_kp"
 logs_dir = project_root / "data" / "logs"
 datasets_dir = project_root / "data" / "datasets"
 binaries_dir = project_root / "bin"
 # Define temp directories
 # Temp directories with a short path are needed for XFOIL and AVL
-training_temp_root = Path(r'C:\training_temp') # Uses personal 'P' drive, any drive can be used
+# The correction temp root is kept independent of training_temp_root (not nested under it) -- XFOIL/AVL
+# don't tolerate the resulting path length well.
+if IS_WINDOWS:
+    training_temp_root = Path(r'C:\training_temp') # Drive root keeps paths short, any drive can be used
+    correction_temp_root = Path(r'C:\correction_temp')
+else:
+    training_temp_root = Path.home() / '.training_temp' # The dot prefix naturally hides the folder in Linux; user-writable, avoids needing root on '/'
+    correction_temp_root = Path.home() / '.correction_temp'
 os.makedirs(training_temp_root, exist_ok=True)
-subprocess.run(['attrib', '+h', training_temp_root], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+if IS_WINDOWS:
+    subprocess.run(['attrib', '+h', str(training_temp_root)], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
 airfoils_temp_dir = training_temp_root / "airfoils"
 force_files_temp_dir = training_temp_root / "force files"
 polars_temp_dir = training_temp_root / "polars"
 AI_results_temp_dir = training_temp_root / "AI results"
 support_files_temp_dir = training_temp_root / "support_files"
+naca_kp_temp_dir = training_temp_root / "support_files" / "naca_kp"
 geo_files_temp_dir = training_temp_root / "geometry files"
 training_files_temp_dir = training_temp_root / "training files"
 # Define .rar paths and names for recovery logic
@@ -208,11 +225,78 @@ def Airfoil_Database_Generation(base_airfoil_path, n_cst, cmb_datalist, generate
 
     return
 
+def _resolve_polar_status(polar_abs_path, ASEQ, completion_flag):
+    '''
+    Determines an existing polar file's status against ASEQ, and repairs the
+    completion flag if the file already has every required angle but the
+    flag write itself was interrupted (e.g. killed between the last ALFA and
+    QUIT/close). Without this repair, such a file recomputes an empty angle
+    list on every future resume attempt and is silently treated as "not
+    complete" forever, since it never re-enters run_simulation() to reach
+    the completion_flag() call.
+
+    Returns:
+        status (str): 'complete', 'partial', or 'corrupt'
+        angles_remaining (list[float] or None): angles still needed;
+            None for 'corrupt' (caller decides the full-range reprocessing).
+    '''
+    with open(polar_abs_path, 'r') as f:
+        content = f.read()
+
+    if completion_flag in content:
+        return 'complete', []
+
+    lines = content.splitlines()
+
+    # XFOIL always emits "alpha CL CD CDp CM Top_Xtr Bot_Xtr" as the column
+    # header, regardless of version or flow regime. Data rows only ever
+    # appear below it (past its dashed underline), so scanning must be
+    # scoped to that region -- otherwise numeric tokens in the metadata
+    # above (e.g. "1 1 Reynolds number fixed ... Mach number fixed") can be
+    # misread as a valid alpha/CL data row.
+    header_idx = None
+    for i, line in enumerate(lines):
+        if line.strip().split()[:2] == ['alpha', 'CL']:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        return 'corrupt', None  # Column header missing -- malformed file
+
+    last_alfa = -999
+    for line in reversed(lines[header_idx + 2:]):
+        parts = line.strip().split()
+        if len(parts) >= 4:
+            try:
+                last_alfa = float(parts[0])
+                float(parts[1])
+                break
+            except (ValueError, IndexError):
+                continue
+
+    if last_alfa <= -999:
+        return 'corrupt', None  # Header present but no data rows beneath it
+
+    start_angle = last_alfa + ASEQ[2]
+    num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
+    angles_remaining = [start_angle + j * ASEQ[2] for j in range(num_steps)]
+
+    if not angles_remaining:
+        # Every required angle is already in the file -- repair the flag.
+        try:
+            with open(polar_abs_path, "a") as f:
+                f.write(f"\n{completion_flag}")
+        except IOError as e:
+            print(f"[ERROR] Could not repair completion flag on {polar_abs_path}: {e}")
+        return 'complete', []
+
+    return 'partial', angles_remaining
+
 def polar_worker(args):
     '''
     Worker function to run XFOIL simulation for a single airfoil.
     '''
-    airfoil_abs_path, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list = args
+    airfoil_abs_path, polar_abs_path, ASEQ, Re, Mach, sweep_mode, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, index, worker_status_list, verbose, corrupted_files_list = args
 
     # Obtain airfoil name for GUI
     airfoil_name = os.path.basename(airfoil_abs_path)
@@ -221,31 +305,24 @@ def polar_worker(args):
     # --- Recovery Logic for each polar file --- #
     completion_flag = "XFOIL process completed successfully"
     if os.path.exists(polar_abs_path):
-        with open(polar_abs_path, 'r') as f:
-            if completion_flag in f.read():
-                if progress_queue:
-                    progress_queue.put(1)
-                return  # Skip if already completed
-        
-        # --- Incomplete file, determine where to resume --- #
-        with open(polar_abs_path, 'r') as f:
-            lines = f.readlines()
-        
-        last_alfa = -999
-        for line in reversed(lines):
+        status, angles_remaining = _resolve_polar_status(polar_abs_path, ASEQ, completion_flag)
+
+        if status == 'complete':
+            if progress_queue:
+                progress_queue.put(1)
+            return  # Skip if already completed (or just repaired)
+
+        if status == 'partial' and sweep_mode == "sequential":
+            ANGLES = angles_remaining
+        else: # 'corrupt', or 'partial' under zero_out: resuming mid-sequence would rebuild the warm-start path zero_out avoids
+            if status == 'corrupt':
+                if verbose:
+                    print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh file.")
+                corrupted_files_list.append(polar_abs_path)
             try:
-                # Assuming alpha is the first column in the data section
-                current_alfa = float(line.strip().split()[0])
-                last_alfa = current_alfa
-                break
-            except (ValueError, IndexError):
-                continue
-        
-        if last_alfa > -999:
-            start_angle = last_alfa + ASEQ[2]
-            num_steps = int((ASEQ[1] - start_angle) / ASEQ[2]) + 1
-            ANGLES = [start_angle + j * ASEQ[2] for j in range(num_steps)]
-        else: # File exists but is empty or corrupt
+                os.remove(polar_abs_path)
+            except OSError:
+                pass
             num_steps = int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1
             ANGLES = [ASEQ[0] + j * ASEQ[2] for j in range(num_steps)]
 
@@ -261,7 +338,7 @@ def polar_worker(args):
 
     # --- Calculate Polar --- #
     try:
-        xfoil_exe = os.path.join(binaries_dir, 'xfoil.exe')
+        xfoil_exe = os.path.join(binaries_dir, f'xfoil{EXE_SUFFIX}')
         # Create an instance of the runner
         xfoil_case = XPR(
             xfoil_exe_path=xfoil_exe,
@@ -277,7 +354,8 @@ def polar_worker(args):
             polar_file_path=polar_abs_path,
             alfa_sequence=ANGLES,
             visc = Re,
-            mach=Mach
+            mach=Mach,
+            sweep_mode=sweep_mode
         )
 
     except Exception as e:
@@ -286,7 +364,7 @@ def polar_worker(args):
         if progress_queue:
             progress_queue.put(1)
 
-def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
+def Polar_Database_Generation(ASEQ, Re, Mach, sweep_mode=DEFAULT_SWEEP_MODE, verbose=False):
     '''
     Runs XFOIL to create drag polars for each airfoil using multiprocessing and a GUI.
 
@@ -296,6 +374,7 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
                     ASEQ[0]: Smallest angle of attack to test.
                     ASEQ[1]: Largest angle of attack to test.
                     ASEQ[2]: Resolution for intermediate angles of attack.
+    sweep_mode (str): Alpha sweep strategy, see simulation_support.alpha_sweep ('sequential' is legacy only).
     verbose (bool): Toggles prints and tqdm if any are present.
     '''
     # Recovery check
@@ -308,17 +387,79 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
         print("No airfoils found to process for polar generation.")
         return
 
-    num_workers = min(cpu_count() - 1, len(airfoil_abs_paths))
+    # --- Pre-allocation recovery filtering --- #
+    # polar_worker() also checks this flag, but only after a task has already
+    # been dispatched to a pool worker. On a resumed run that check has to be
+    # re-run for every already-completed airfoil (potentially tens of
+    # thousands), which is what was driving the rapid XFOIL spawn/kill cycling.
+    # Filtering here removes completed airfoils from the queue before the Pool
+    # is ever created, matching the intended recovery design.
+    completion_flag = "XFOIL process completed successfully"
+    complete_paths = []
+    partial_paths = []   # polar file exists but no flag yet -> polar_worker resumes mid-sequence (sequential) or restarts (zero_out)
+    fresh_paths = []     # no polar file yet -> starts from ASEQ[0]
+
+    corrupted_count = 0
+    for file in airfoil_abs_paths:
+        airfoil_name = os.path.splitext(os.path.basename(file))[0]
+        polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
+        if os.path.exists(polar_abs_path):
+            status, _ = _resolve_polar_status(polar_abs_path, ASEQ, completion_flag)
+            if status == 'complete':  # includes flag repaired just now
+                complete_paths.append(file)
+            elif status == 'partial':
+                partial_paths.append(file)
+            else: # 'corrupt'
+                if verbose:
+                    print(f"[INFO] Corrupted file detected and deleted: {polar_abs_path}. Reverting to fresh start.")
+                corrupted_count += 1
+                try:
+                    os.remove(polar_abs_path)
+                except OSError:
+                    pass
+                fresh_paths.append(file)
+        else:
+            fresh_paths.append(file)
+
+    if corrupted_count and not verbose:
+        print(f"[INFO] {corrupted_count} corrupted polar file(s) detected and deleted. Reverting to fresh start.")
+            
+    os.makedirs(polars_temp_dir, exist_ok=True)  # first-ever run: XPR only creates this once a task spawns
+    polar_files_on_disk = get_all_files_from(polars_temp_dir, extension='txt')
+    matched_polar_count = len(complete_paths) + len(partial_paths)
+    print(
+        f"[INFO] Recovery scan: {len(airfoil_abs_paths)} airfoil(s) found | "
+        f"{len(polar_files_on_disk)} polar file(s) on disk | "
+        f"{len(complete_paths)} confirmed complete (flagged) | "
+        f"{len(partial_paths)} partial (will {'resume' if sweep_mode == 'sequential' else 'restart'}) | "
+        f"{len(fresh_paths)} not started."
+    )
+    if len(polar_files_on_disk) != matched_polar_count:
+        print(
+            f"[WARNING] {len(polar_files_on_disk)} polar file(s) on disk vs "
+            f"{matched_polar_count} matched to a current airfoil by name "
+            f"({len(polar_files_on_disk) - matched_polar_count} unmatched) -- check for a naming mismatch."
+        )
+
+    pending_airfoil_paths = partial_paths + fresh_paths
+
+    if not pending_airfoil_paths:
+        print("[INFO] All airfoils already have completed polars. Nothing to dispatch.")
+        rar_Alma.compress_folder(polars_temp_dir, polars_dir, polar_dataset_name)
+        return
+
+    num_workers = min(cpu_count() - 1, len(pending_airfoil_paths))
 
     with Manager() as manager:
         progress_queue = manager.Queue()
         worker_status_list = manager.list(["Initializing..."] * num_workers)
+        corrupted_files_list = manager.list()
 
         tasks = []
-        for i, file in enumerate(airfoil_abs_paths):
+        for i, file in enumerate(pending_airfoil_paths):
             airfoil_name = os.path.splitext(os.path.basename(file))[0]
             polar_abs_path = os.path.join(polars_temp_dir, f"polar_{airfoil_name}.txt")
-            tasks.append((file, polar_abs_path, ASEQ, Re, Mach, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list))
+            tasks.append((file, polar_abs_path, ASEQ, Re, Mach, sweep_mode, binaries_dir, training_temp_root, airfoils_temp_dir, polars_temp_dir, progress_queue, i % num_workers, worker_status_list, verbose, corrupted_files_list))
 
         # Define the processing job to run in a separate thread
         def processing_job():
@@ -326,7 +467,7 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
                 pool.map(polar_worker, tasks)
 
         # --- Setup and run GUI ---
-        header = f"Creating polars from {ASEQ[0]}° to {ASEQ[1]}° (Resolution: {ASEQ[2]}°)"
+        header = f"Creating polars from {ASEQ[0]}° to {ASEQ[1]}° (Resolution: {ASEQ[2]}°, sweep: {sweep_mode})"
         gui = Progress_GUI(
             total_files=len(tasks),
             progress_queue=progress_queue,
@@ -345,15 +486,19 @@ def Polar_Database_Generation(ASEQ, Re, Mach, verbose=False):
 
         proc_thread.join() # Wait for the background process to finish
 
+        if corrupted_files_list and not verbose:
+            print(f"[INFO] {len(corrupted_files_list)} corrupted polar file(s) detected and deleted. Reverting to fresh file.")
+
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[INFO] Polar database generation completed at {current_time}.")
     rar_Alma.compress_folder(polars_temp_dir, polars_dir, polar_dataset_name)
     
     return
 
-def Geometric_File_Creation(configs):
+def Geometric_File_Creation(configs, kp_seed=None):
     '''
     Generates AVL's .geo files that build the wing geometry, this script focuses on replicating Hossain's experiment so there are 3 wing configurations.
+    kp_seed fixes the random_state of the key-point GPR fit (None keeps the legacy unseeded fit).
     '''
     # Recovery check
     rec_dependencies = [
@@ -362,21 +507,24 @@ def Geometric_File_Creation(configs):
     ]
     if rec_Fabius.check_stage_status(stage_name="AVL Geometric File Formation", current_rar=geo_rar_path, required_deps=rec_dependencies):
         return
-    
+
     polars_abs_paths = get_all_files_from(polars_temp_dir)
-    key_points = Key_Point_Extraction(
-        polar_file_paths=polars_abs_paths
-        )
+    print("\n--- Extracting key aerodynamic points from polar data ---")
+    key_points = Key_Point_Extraction(polar_file_paths=polars_abs_paths, verbose=True, random_state=kp_seed)
     key_points_data = key_points.process_files()
     KP_error_log = os.path.join(geo_files_temp_dir, 'KP_error_log.txt')
     key_points.save_error_log(KP_error_log)
     
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
 
+    # NACA 0012 CDCL support file (AVL 3.32 requires section-local CDCL)
+    naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt")
+
     for creator_class, identifier in configs:
         geo_creator = creator_class(
             key_points_data=key_points_data,
             airfoil_abs_paths=airfoil_abs_paths,
+            naca_key_points_data=naca_0012_kp_path,
             output_dir=str(geo_files_temp_dir),
             verbose=False, 
             pb=True
@@ -395,7 +543,9 @@ def Geometric_File_Creation(configs):
                 print(f"Warning: Could not delete {last_file.name} for recovery: {e}")
 
         # --- File Creation & Logging ---
-        geo_creator.create_geo_files()
+        print(f"\n--- Creating {identifier} geometry files ---")
+        with tqdm(total=len(geo_creator.airfoil_path_map), desc=f"{identifier} geo files", disable=False) as bar:
+            geo_creator.create_geo_files(progress_callback=bar.update)
         
         error_log_name = f'geo_{identifier}_error_log.txt'
         geo_creator.save_error_log(os.path.join(geo_files_temp_dir, error_log_name))
@@ -445,7 +595,7 @@ def Final_Coefficient_Generation(verbose=False):
     if rec_Fabius.check_stage_status(stage_name="Force Computation", current_rar=force_rar_path, required_deps=rec_dependencies):
         return
 
-    avl_exe = os.path.join(binaries_dir, 'avl.exe')
+    avl_exe = os.path.join(binaries_dir, f'avl{EXE_SUFFIX}')
     case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
     support_files_temp_dir.mkdir(exist_ok=True)
     case_file_temp = os.path.join(support_files_temp_dir, "Hossain_sqwing_case.run")
@@ -466,7 +616,13 @@ def Final_Coefficient_Generation(verbose=False):
 
     num_workers = min(cpu_count() - 2, len(geo_files_to_process))
 
-    chunksize = max(1, len(geo_files_to_process) // (num_workers * 4))
+    # chunksize=1: AVL_Run_Case's retry loop (up to 3 attempts, ~30s timeout per
+    # command) makes per-task duration highly variable. Any chunksize > 1 locks a
+    # worker into finishing its whole assigned batch before it can pull more work,
+    # so a worker stuck with several slow/retrying tasks stalls while workers with
+    # "easy" chunks run out of work and idle. Per-task IPC overhead is negligible
+    # next to multi-second AVL subprocess calls, so there's no real cost to this.
+    chunksize = 1
     if existing_force_files:
         print(f"Resuming with {len(geo_files_to_process)} remaining simulations.")
     print(f"Distributing {len(geo_files_to_process)} tasks with a chunksize of {chunksize}.")
@@ -558,9 +714,18 @@ def Final_Database_Generation(dataset_dir):
 
     return
 
-def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
+def Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs):
     '''
     Executes validation and correction of outlier efficiency values (mostly due to buggy multiprocessing implementation) in the generated regression training database.
+
+    CORRECTION: multiprocessing is not the cause. Dataset rectification study on dataset 17 (2026-10-28,
+    data/datasets/dataset_17/rectification): 30 airfoils (20 most strongly flagged, top 5 by E, 10 random
+    controls), 5 independent runs each, process pool (11 workers) vs single process. All 300 runs gave
+    bit-identical XFOIL polars and identical E values in both modes (30/30 airfoils repeatable per mode).
+    Refitting the key-point GPR changes the key points slightly but never moves E beyond 5 %. The outliers
+    come from the legacy 'sequential' alpha sweep (see simulation_support.alpha_sweep): with 'zero_out'
+    the flagged airfoils drop from E ~ 53-58 to E ~ 20-24, in line with their neighbours. This stage is kept
+    for legacy datasets; src/utilities/dataset_rectification.py is the tool for neighbour-consistency checks.
     '''
     # Recovery check
     rec_dependencies = [(training_files_rar_path, training_files_temp_dir)]
@@ -578,10 +743,11 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
     print(f"Database correction stage started at {current_time}.")
 
     base_airfoil_path = os.path.join(support_files_dir, 'naca0012_unit.csv')
-    xfoil_exe = os.path.join(binaries_dir, 'xfoil.exe')
-    avl_exe = os.path.join(binaries_dir, 'avl.exe')
+    xfoil_exe = os.path.join(binaries_dir, f'xfoil{EXE_SUFFIX}')
+    avl_exe = os.path.join(binaries_dir, f'avl{EXE_SUFFIX}')
     case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
-    correction_temp_dir = training_temp_root / "correction_temp"
+    correction_temp_dir = correction_temp_root
+    naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt")
 
     copernicus = Database_Corrector(
         csv_file_path=csv_path,
@@ -591,8 +757,12 @@ def Database_Correction(dataset_dir, n_cst, ASEQ, configs):
         case_file_path=case_file,
         n_cst=n_cst,
         aseq=ASEQ,
+        Re=Re,
+        Mach=Mach,
+        naca_key_points_data=naca_0012_kp_path,
         configs=configs,
-        middle_fraction=0.1,
+        middle_fraction=0.01,
+        source_airfoils_dir=airfoils_temp_dir,
         temp_dir=correction_temp_dir,
         verbose=False
     )
@@ -664,6 +834,8 @@ if __name__ == "__main__":
     ASEQ = [-20, 20, 0.5]
     Re = 2.5e5
     Mach = 0.09281
+    SWEEP_MODE = DEFAULT_SWEEP_MODE # 'zero_out'; 'sequential' only reproduces legacy datasets (see simulation_support.alpha_sweep)
+    KP_SEED = 42 # random_state of the key-point GPR fit, None reproduces the legacy unseeded fit
 
     # === Dataset Parameter Logging === # 
     # Dataset Number is a Global Variable, select at the top of the file.
@@ -698,6 +870,8 @@ if __name__ == "__main__":
             log_file.write(f"  ASEQ = {ASEQ}\n")
             log_file.write(f"  Base airfoil = {os.path.basename(base_airfoil)}\n")
             log_file.write("  NACA key point file = naca_0012_M0-9281_RE250k_M0-093_RE250000.txt\n")
+            log_file.write(f"  Sweep mode = {SWEEP_MODE}\n")
+            log_file.write(f"  Key point seed = {KP_SEED}\n")
 
     # === Execution with Recovery === #
     status = rec_json.get_recovery_status()
@@ -708,12 +882,12 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     if not status.get('polar_database_generation_complete'):
-        Polar_Database_Generation(ASEQ, Re, Mach)
+        Polar_Database_Generation(ASEQ, Re, Mach, sweep_mode=SWEEP_MODE)
         status['polar_database_generation_complete'] = True
         rec_json.save_recovery_status(status)
 
     if not status.get('geometric_file_creation_complete'):
-        Geometric_File_Creation(configs)
+        Geometric_File_Creation(configs, kp_seed=KP_SEED)
         status['geometric_file_creation_complete'] = True
         rec_json.save_recovery_status(status)
 
@@ -728,7 +902,7 @@ if __name__ == "__main__":
         rec_json.save_recovery_status(status)
 
     if not status.get('database_correction_complete'):
-        Database_Correction(dataset_dir, n_cst, ASEQ, configs)
+        Database_Correction(dataset_dir, n_cst, ASEQ, Re, Mach, configs)
         status['database_correction_complete'] = True
         rec_json.save_recovery_status(status)
 

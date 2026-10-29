@@ -9,9 +9,10 @@ from .geo_file_creation import (
     HossainWingFlat_Creation,
 )
 
+from .polar_creation import Xfoil_Polar_Creator
+from .alpha_sweep import SWEEP_MODES, DEFAULT_SWEEP_MODE, SWEEP_REVISIONS
+
 if sys.platform == "win32":
-    from .polar_creation import Xfoil_Polar_Creator
     from .avl_simulation import AVL_Run_Case
 else:
-    from .polar_creation_linux import Xfoil_Polar_Creator
     from .avl_simulation_linux import AVL_Run_Case
