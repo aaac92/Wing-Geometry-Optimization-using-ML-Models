@@ -1,0 +1,135 @@
+======================================================================================================================================================
+Aerodynamic Efficiency (E) Validation Report for Dataset 17
+======================================================================================================================================================
+Dataset best: E = 57.8681 | config = rec
+  CST lower: [0.0, 0.125, 0.0417, 0.0833, 0.125]
+  CST upper: [0.0, 0.0417, 0.0417, 0.0, 0.125]
+Hit = simulated E >= 90% of the dataset best (52.08). Signed error = prediction - simulation (positive = the model was too optimistic).
+Outcome: Try again... | target E > 57.8681 | designs above it: 0
+Inference rounds completed: 10 | Total time: 3:29:45
+
+--- Scorecard per selection group (each group judged with the score it ranked by) ------------------------------------------------------------
+Group              Picks  Sim Fail Inval   Best E  Regret  Median E Hits Signed err Rank agr. Score>max
+Agares_1.1            20    0   20     0        -       -         -    0          -         -         0
+Odysseus_1.1          20    0   20     0        -       -         -    0          -         -        20
+Murata_1.1            20    0   20     0        -       -         -    0          -         -        20
+consensus             20    0   20     0        -       -         -    0          -         -         0
+edge                  12    0   12     0        -       -         -    0          -         -         1
+config_check           9    0    9     0        -       -         -    0          -         -         0
+reference              5    0    5     0        -       -         -    0          -         -         0
+
+--- Every model on every simulated main-stage candidate ----------------------------------------------------------------------------------------------
+Model                 N Signed err  Abs err Rank agr. Pred>max
+Agares_1.1            0          -        -         -        0
+Odysseus_1.1          0          -        -         -        0
+Murata_1.1            0          -        -         -        0
+
+--- Configuration check (dataset order: rec > flat > 60DEG) --------------------------------------------------------------------------------
+Agares_1.1         winner candidate_001 (rec): rec=56.89  flat=48.08  60DEG=46.79  -> matches dataset order
+Odysseus_1.1       winner candidate_021 (rec): rec=65.40  flat=57.24  60DEG=55.08  -> matches dataset order
+Murata_1.1         winner candidate_041 (flat): rec=67.49  flat=77.11  60DEG=66.86  -> DIFFERS FROM dataset order
+Consensus shape #1 simulated: rec=-  flat=-  60DEG=-  -> incomplete (a simulation failed)
+Consensus shape #2 simulated: rec=-  flat=-  60DEG=-  -> incomplete (a simulation failed)
+Consensus shape #3 simulated: rec=-  flat=-  60DEG=-  -> incomplete (a simulation failed)
+
+--- Candidates (sorted by simulated E) ----------------------------------------------------------------------------------------------------------------
+Candidate      Cfg    Region          Agares_1 Odysseus Murata_1 Spread   Sim E Err(cons)  Near E  Flags      Picked by
+candidate_001  rec    between 0.26       56.89    51.13    39.57  17.31       -         -   56.38  no_result  Agares_1.1#1
+candidate_002  rec    between 0.05       56.67    54.63    53.94   2.73       -         -   54.14  no_result  Agares_1.1#2
+candidate_003  rec    between 0.06       56.34    58.50    55.22   3.28       -         -   56.49  pred>max,no_result Agares_1.1#3, consensus#4
+candidate_004  rec    between 0.47       56.34    55.89    54.72   1.61       -         -   53.75  no_result  Agares_1.1#4
+candidate_005  rec    between 0.08       56.12    58.46    57.04   2.34       -         -   57.87  pred>max,no_result Agares_1.1#5, consensus#2, config_check#2
+candidate_006  rec    between 0.33       56.10    58.76    55.63   3.13       -         -   55.73  pred>max,no_result Agares_1.1#6
+candidate_007  rec    between 0.36       55.43    52.22    52.89   3.21       -         -   54.37  no_result  Agares_1.1#7
+candidate_008  rec    between 0.42       54.36    55.95    54.05   1.90       -         -   56.27  no_result  Agares_1.1#8, consensus#7
+candidate_009  rec    between 0.41       54.26    26.40    50.27  27.87       -         -   19.40  no_result  Agares_1.1#9
+candidate_010  rec    between 0.15       54.22    55.64    60.76   6.54       -         -   54.27  pred>max,no_result Agares_1.1#10, consensus#6
+candidate_011  rec    between 0.43       54.10    53.74    24.54  29.57       -         -   55.07  no_result  Agares_1.1#11
+candidate_012  rec    between 0.44       53.73    54.94    56.24   2.51       -         -   53.00  no_result  Agares_1.1#12, consensus#8
+candidate_013  rec    between 0.38       53.59    56.00    58.68   5.09       -         -   54.81  pred>max,no_result Agares_1.1#13, consensus#9
+candidate_014  rec    between 0.50       52.84    48.96    56.60   7.64       -         -   54.27  no_result  Agares_1.1#14
+candidate_015  rec    between 0.36       52.77    55.97    55.24   3.20       -         -   53.47  no_result  Agares_1.1#15, consensus#12
+candidate_016  rec    between 0.32       52.49    57.86    47.08  10.78       -         -   55.73  no_result  Agares_1.1#16
+candidate_017  rec    between 0.11       51.98    55.30    56.30   4.32       -         -   54.94  no_result  Agares_1.1#17, consensus#18
+candidate_018  rec    between 0.42       51.96    54.13    50.23   3.90       -         -   51.49  no_result  Agares_1.1#18
+candidate_019  rec    between 0.42       51.81    58.98    56.98   7.17       -         -   54.37  pred>max,no_result Agares_1.1#19
+candidate_020  rec    between 0.49       51.57    54.71    55.05   3.48       -         -   57.87  no_result  Agares_1.1#20
+candidate_021  rec    between 0.45       33.56    65.40    26.21  39.19       -         -   55.79  pred>max,no_result Odysseus_1.1#1
+candidate_022  rec    between 0.44       32.66    64.65    25.14  39.51       -         -   55.79  pred>max,no_result Odysseus_1.1#2
+candidate_023  rec    between 0.46       31.11    64.06    57.04  32.95       -         -   57.87  pred>max,no_result Odysseus_1.1#3
+candidate_024  rec    between 0.48       34.28    63.39    55.46  29.11       -         -   54.53  pred>max,no_result Odysseus_1.1#4
+candidate_025  rec    between 0.48       34.48    63.34    51.38  28.86       -         -   23.53  pred>max,no_result Odysseus_1.1#5
+candidate_026  rec    between 0.46       32.13    63.08    24.51  38.56       -         -   54.81  pred>max,no_result Odysseus_1.1#6
+candidate_027  rec    between 0.46       31.39    62.63    54.67  31.24       -         -   55.06  pred>max,no_result Odysseus_1.1#7
+candidate_028  rec    between 0.47       31.69    62.35    29.28  33.07       -         -   51.33  pred>max,no_result Odysseus_1.1#8
+candidate_029  rec    between 0.38       27.56    62.27    57.51  34.71       -         -   22.70  pred>max,no_result Odysseus_1.1#9
+candidate_030  rec    between 0.43       35.72    62.14    50.04  26.42       -         -   54.37  pred>max,no_result Odysseus_1.1#10
+candidate_031  rec    between 0.47       34.19    62.11    49.04  27.92       -         -   23.54  pred>max,no_result Odysseus_1.1#11
+candidate_032  rec    between 0.35       33.75    62.07    56.01  28.32       -         -   55.07  pred>max,no_result Odysseus_1.1#12
+candidate_033  rec    between 0.42       28.05    62.05    44.12  34.00       -         -   22.03  pred>max,no_result Odysseus_1.1#13
+candidate_034  rec    between 0.47       29.96    61.97    49.27  32.01       -         -   22.53  pred>max,no_result Odysseus_1.1#14
+candidate_035  rec    between 0.48       36.25    61.84    31.34  30.50       -         -   22.70  pred>max,no_result Odysseus_1.1#15
+candidate_036  rec    between 0.36       43.82    61.83    54.34  18.01       -         -   55.73  pred>max,no_result Odysseus_1.1#16
+candidate_037  rec    between 0.36       28.42    61.76    44.07  33.33       -         -   56.27  pred>max,no_result Odysseus_1.1#17
+candidate_038  rec    between 0.41       30.14    61.49    33.75  31.35       -         -   55.06  pred>max,no_result Odysseus_1.1#18
+candidate_039  rec    between 0.30       31.99    61.49    34.19  29.49       -         -   23.93  pred>max,no_result Odysseus_1.1#19
+candidate_040  rec    between 0.47       31.97    61.47    55.72  29.49       -         -   25.04  pred>max,no_result Odysseus_1.1#20
+candidate_041  flat   between 0.32       24.73    43.66    77.11  52.37       -         -   46.78  pred>max,no_result Murata_1.1#1
+candidate_042  rec    between 0.46       25.99    53.10    70.30  44.30       -         -   55.07  pred>max,no_result Murata_1.1#2
+candidate_043  rec    between 0.44       37.51    52.73    68.82  31.32       -         -   54.27  pred>max,no_result Murata_1.1#3
+candidate_044  rec    between 0.42       42.24    41.76    67.89  26.13       -         -   51.79  pred>max,no_result Murata_1.1#4
+candidate_045  rec    between 0.42       32.92    44.89    67.17  34.25       -         -   54.27  pred>max,no_result Murata_1.1#5
+candidate_046  rec    between 0.42       27.18    31.73    65.93  38.74       -         -   53.15  pred>max,no_result Murata_1.1#6
+candidate_047  rec    between 0.49       29.35    36.36    65.32  35.97       -         -   22.56  pred>max,no_result Murata_1.1#7
+candidate_048  rec    between 0.47       30.13    41.25    64.97  34.85       -         -   25.10  pred>max,no_result Murata_1.1#8
+candidate_049  rec    between 0.46       25.67    42.85    64.93  39.26       -         -   50.34  pred>max,no_result Murata_1.1#9
+candidate_050  rec    between 0.38       31.66    54.46    64.22  32.57       -         -   54.53  pred>max,no_result Murata_1.1#10
+candidate_051  rec    between 0.43       30.71    49.19    63.79  33.08       -         -   47.04  pred>max,no_result Murata_1.1#11
+candidate_052  rec    between 0.49       25.84    26.74    63.45  37.61       -         -   21.56  pred>max,no_result Murata_1.1#12
+candidate_053  rec    between 0.42       31.10    22.47    63.08  40.61       -         -   55.84  pred>max,no_result Murata_1.1#13
+candidate_054  rec    between 0.40       26.92    35.94    63.05  36.14       -         -   56.07  pred>max,no_result Murata_1.1#14
+candidate_055  rec    between 0.49       26.50    26.27    62.96  36.69       -         -   21.56  pred>max,no_result Murata_1.1#15
+candidate_056  rec    between 0.49       37.70    47.08    62.54  24.84       -         -   22.70  pred>max,no_result Murata_1.1#16
+candidate_057  rec    between 0.50       38.37    52.51    62.54  24.16       -         -   22.93  pred>max,no_result Murata_1.1#17
+candidate_058  rec    between 0.42       34.78    22.49    62.50  40.01       -         -   23.85  pred>max,no_result Murata_1.1#18
+candidate_059  rec    between 0.40       46.55    49.60    62.44  15.89       -         -   53.32  pred>max,no_result Murata_1.1#19
+candidate_060  rec    between 0.35       33.58    51.80    62.06  28.48       -         -   54.27  pred>max,no_result Murata_1.1#20
+candidate_061  rec    between 0.05       56.21    57.14    56.23   0.93       -         -   56.38  no_result  consensus#1, config_check#1
+candidate_062  rec    between 0.15       56.10    58.25    56.01   2.24       -         -   55.73  pred>max,no_result consensus#3, config_check#3
+candidate_063  rec    between 0.14       54.61    55.94    54.59   1.34       -         -   54.14  no_result  consensus#5
+candidate_064  rec    between 0.46       53.20    58.75    54.97   5.55       -         -   57.87  pred>max,no_result consensus#10
+candidate_065  rec    between 0.15       52.85    56.26    54.00   3.40       -         -   55.07  no_result  consensus#11
+candidate_066  rec    between 0.44       52.79    55.71    52.74   2.96       -         -   54.37  no_result  consensus#13
+candidate_067  rec    between 0.12       52.55    54.86    53.72   2.31       -         -   54.62  no_result  consensus#14
+candidate_068  rec    between 0.47       52.35    54.79    54.29   2.44       -         -   55.73  no_result  consensus#15
+candidate_069  rec    between 0.42       52.20    55.32    56.00   3.80       -         -   53.75  no_result  consensus#16
+candidate_070  rec    between 0.53       52.10    54.82    53.42   2.72       -         -   54.37  no_result  consensus#17
+candidate_071  rec    between 0.49       51.80    52.82    58.35   6.55       -         -   54.27  pred>max,no_result consensus#19
+candidate_072  rec    between 0.55       51.15    56.14    53.88   4.98       -         -   56.49  no_result  consensus#20
+candidate_073  rec    outside 0.95       59.73    60.60    64.86   5.13       -         -   54.14  pred>max,no_result edge#1
+candidate_074  rec    outside 0.60       59.98    57.86    62.81   4.95       -         -   54.14  pred>max,no_result edge#2
+candidate_075  rec    outside 0.55       57.48    60.68    60.38   3.21       -         -   53.75  pred>max,no_result edge#3
+candidate_076  rec    outside 0.41       61.58    60.43    57.36   4.22       -         -   54.14  pred>max,no_result edge#4
+candidate_077  rec    outside 0.76       57.98    58.55    56.88   1.67       -         -   24.28  pred>max,no_result edge#5
+candidate_078  rec    outside 0.57       56.76    63.03    62.87   6.27       -         -   52.98  pred>max,no_result edge#6
+candidate_079  rec    outside 0.29       58.02    56.41    55.67   2.36       -         -   55.73  pred>max,no_result edge#7
+candidate_080  rec    outside 0.86       55.09    55.03    55.51   0.48       -         -   56.38  no_result  edge#8
+candidate_081  rec    outside 0.47       56.89    54.98    55.72   1.91       -         -   53.47  no_result  edge#9
+candidate_082  rec    outside 0.98       54.87    68.21    55.36  13.34       -         -   13.22  pred>max,no_result edge#10
+candidate_083  rec    outside 0.81       57.14    57.98    54.85   3.14       -         -   54.14  pred>max,no_result edge#11
+candidate_084  rec    outside 0.72       54.77    60.75    57.95   5.97       -         -   56.49  pred>max,no_result edge#12
+candidate_085  flat   between 0.05       48.35    49.84    52.86   4.50       -         -   48.86  no_result  config_check#1
+candidate_086  60DEG  between 0.05       47.65    47.92    58.17  10.52       -         -   46.92  pred>max,no_result config_check#1
+candidate_087  flat   between 0.08       48.35    50.56    50.76   2.41       -         -   49.98  no_result  config_check#2
+candidate_088  60DEG  between 0.08       45.36    47.78    46.69   2.42       -         -   47.94  no_result  config_check#2
+candidate_089  flat   between 0.15       46.90    50.70    48.40   3.81       -         -   48.63  no_result  config_check#3
+candidate_090  60DEG  between 0.15       44.16    48.62    45.85   4.46       -         -   46.64  no_result  config_check#3
+candidate_091  rec    on-grid 0.00       57.39    58.53    57.46   1.14       -         -   57.87  pred>max,no_result reference#1
+candidate_092  rec    on-grid 0.00       56.28    58.14    55.04   3.10       -         -   56.49  pred>max,no_result reference#2
+candidate_093  rec    on-grid 0.00       56.25    56.80    55.38   1.42       -         -   56.38  no_result  reference#3
+candidate_094  rec    on-grid 0.00       48.69    55.27    57.03   8.35       -         -   56.27  no_result  reference#4
+candidate_095  rec    on-grid 0.00       54.83    56.53    56.12   1.71       -         -   56.07  no_result  reference#5
+
+--- Robustness (small perturbations of the best simulated designs) -----------------------------------------------------------------------------------
+Not run: no successfully simulated designs to perturb
+======================================================================================================================================================
