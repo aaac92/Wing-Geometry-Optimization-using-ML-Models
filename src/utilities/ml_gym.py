@@ -23,6 +23,8 @@ update         Scans a folder for saved models, reads their architecture from th
                The new model gets the next minor version (Murata -> Murata_1.1, Murata_1.9 ->
                Murata_1.10) in the same folder; the old model's files move to '<folder>/Old models'.
 major-update   Same as update, but the new model gets the next major version (Murata_1.4 -> Murata_2.0).
+retrain        Same as update, but the model keeps its name and its files are overwritten (no copy is kept).
+               Meant for a model trained on bad data, e.g. retraining Murata_1.1 after its dataset was fixed.
 
 Every trained model also gets '<name>_training_info.json' (dataset, configuration, test metrics and,
 for updates, the model it replaced).
@@ -33,6 +35,7 @@ Examples
     python src/utilities/ml_gym.py train --model lgbm --dataset 17 --params models/dataset_17/lgbm_regressor_sum_station/Agares_regressor_model_parameters.json --name Foras
     python src/utilities/ml_gym.py update --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv
     python src/utilities/ml_gym.py major-update --target models/dataset_17/mlp_regressor --dataset 17 --select Odysseus
+    python src/utilities/ml_gym.py retrain --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv --select Murata_1.1
 """
 import argparse
 import json
@@ -424,8 +427,9 @@ def parse_selection(text: str, count: int) -> list:
     return sorted(set(picks))
 
 
-def run_update(args, major: bool) -> None:
-    mode = "major-update" if major else "update"
+def run_update(args, mode: str) -> None:
+    """update / major-update: new version, old files retired. retrain: same name, files overwritten."""
+    in_place = mode == "retrain"
     target = Path(args.target).resolve()
     if not target.is_dir():
         raise SystemExit(f"[ERROR] Target folder not found: {target}")
@@ -435,7 +439,8 @@ def run_update(args, major: bool) -> None:
 
     rows = []
     for model in found:
-        rows.append({**model, "new_name": next_free_version(model["folder"], model["name"], major)})
+        new_name = model["name"] if in_place else next_free_version(model["folder"], model["name"], mode == "major-update")
+        rows.append({**model, "new_name": new_name})
     print("\n" + "=" * 100)
     print(f"{mode} | models found under {target}")
     print("=" * 100)
@@ -469,11 +474,14 @@ def run_update(args, major: bool) -> None:
     print("\nPlanned retraining:")
     for job in jobs:
         csv_paths[job["name"]] = resolve_csv(args, job["type"])
-        print(f"  {job['name']} -> {job['new_name']} | {job['type']}, features: {job['features']} | "
-              f"{csv_paths[job['name']].name}")
+        change = "retrained in place" if in_place else f"-> {job['new_name']}"
+        print(f"  {job['name']} {change} | {job['type']}, features: {job['features']} | {csv_paths[job['name']].name}")
         print(f"      {describe(job['hyper'])}")
     print(f"  Protocol: {args.folds} folds, test split {args.test_split}, seed {args.seed}")
-    print(f"  Replaced models move to '<model folder>/{OLD_MODELS_DIR}'.")
+    if in_place:
+        print("  The current files of these models are overwritten; no copy is kept.")
+    else:
+        print(f"  Replaced models move to '<model folder>/{OLD_MODELS_DIR}'.")
     check_device([job["type"] for job in jobs], args.allow_cpu)
     confirm(args)
 
@@ -481,7 +489,8 @@ def run_update(args, major: bool) -> None:
     for job in jobs:
         try:
             metrics = train_and_save({"type": job["type"], "features": job["features"], "hyper": job["hyper"],
-                                      "name": job["new_name"], "folder": job["folder"], "previous": job["name"]},
+                                      "name": job["new_name"], "folder": job["folder"],
+                                      "previous": None if in_place else job["name"]},
                                      csv_paths[job["name"]], protocol, mode)
             results.append((job["name"], job["new_name"], metrics, None))
         except Exception as e:
@@ -493,7 +502,7 @@ def run_update(args, major: bool) -> None:
     print("=" * 100)
     for old, new, metrics, error in results:
         outcome = ", ".join(f"{k} = {v:.4f}" for k, v in metrics.items()) if metrics else f"FAILED ({error})"
-        print(f"  {old} -> {new}: {outcome}")
+        print(f"  {old} {'(retrained in place)' if old == new else '-> ' + new}: {outcome}")
 
 
 # =============================================================================================== #
@@ -548,14 +557,19 @@ def build_parser() -> argparse.ArgumentParser:
     hp.add_argument("--lr-decay", type=float, help="[lgbm] Per-round learning rate decay factor (off by default).")
     hp.add_argument("--stopping-rounds", type=int, help="[lgbm] Early-stopping rounds.")
 
-    for name, major in (("update", False), ("major-update", True)):
-        bump = "major (Murata_1.4 -> Murata_2.0)" if major else "minor (Murata -> Murata_1.1, Murata_1.9 -> Murata_1.10)"
+    variants = {
+        "update": ("minor version bump", "New version: minor (Murata -> Murata_1.1, Murata_1.9 -> Murata_1.10). The replaced "
+                                         f"model's files move to '<model folder>/{OLD_MODELS_DIR}'."),
+        "major-update": ("major version bump", "New version: major (Murata_1.4 -> Murata_2.0). The replaced model's files move "
+                                               f"to '<model folder>/{OLD_MODELS_DIR}'."),
+        "retrain": ("same name, files overwritten", "The model keeps its name and its files are overwritten; no copy is kept."),
+    }
+    for name, (short, detail) in variants.items():
         sub = modes.add_parser(name, parents=[common], formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-                               help=f"Retrain saved models with their own architecture; {bump.split(' ')[0]} version bump.",
+                               help=f"Retrain saved models with their own architecture; {short}.",
                                description=f"Scans --target for saved models, reads their architecture from their parameters "
                                            f"and metadata JSON files, asks which ones to retrain and retrains them on the given "
-                                           f"dataset. New version: {bump}. The replaced model's files move to "
-                                           f"'<model folder>/{OLD_MODELS_DIR}'.")
+                                           f"dataset. {detail}")
         sub.add_argument("--target", required=True, help="Folder to scan (e.g. models/dataset_17 or one model type folder).")
         sub.add_argument("--select", nargs="+", metavar="NAME", help="Models to retrain, skipping the interactive selection.")
         sub.add_argument("--classifier-csv", help="Explicit training CSV for classifiers (--csv applies to the regressors here).")
@@ -567,7 +581,7 @@ def main() -> None:
     if args.mode == "train":
         run_train(args)
     else:
-        run_update(args, major=args.mode == "major-update")
+        run_update(args, args.mode)
 
 
 if __name__ == "__main__":

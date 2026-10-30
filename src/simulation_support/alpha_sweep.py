@@ -29,8 +29,9 @@ from pathlib import Path
 SWEEP_MODES = ("zero_out", "sequential")
 DEFAULT_SWEEP_MODE = "zero_out"
 # Revision of each mode's output. Bump it when a mode's polars change, so stored rectification runs of an
-# older revision are not reused (zero_out 2 = tail fill added).
-SWEEP_REVISIONS = {"sequential": 1, "zero_out": 2}
+# older revision are not reused (zero_out 2 = tail fill added; zero_out 3 = XFOIL file names kept short: on Linux
+# revision 2 wrote its branch files under names longer than XFOIL reads, so it produced no polars at all).
+SWEEP_REVISIONS = {"sequential": 1, "zero_out": 3}
 COMPLETION_FLAG = "XFOIL process completed successfully"
 
 

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -2315,6 +2316,53 @@ class Dataset_Rectifier:
 
     # --- Modes --- #
 
+    # --- Console summaries --- #
+
+    def _simulation_outcomes(self, keys) -> Tuple[int, int, int, List[Tuple[str, int]]]:
+        """
+        (airfoils with at least one result, invalid geometries, airfoils whose runs all failed, most common errors)
+        over the first n_runs stored runs of each airfoil. Quoted paths are collapsed so that errors which only
+        differ by file name are counted together.
+        """
+        ok = invalid = failed = 0
+        errors = Counter()
+        for key in keys:
+            runs = self.runs_for(key)[:self.n_runs]
+            if any(v is not None for r in runs for v in r.get("E", {}).values()):
+                ok += 1
+            elif runs and all(r.get("status") == "invalid_geometry" for r in runs):
+                invalid += 1
+            else:
+                failed += 1
+                errors.update(re.sub(r"'[^']*'", "'...'", r["error"]) for r in runs if r.get("error"))
+        return ok, invalid, failed, errors.most_common(3)
+
+    @staticmethod
+    def _failure_lines(ok: int, failed: int, errors: List[Tuple[str, int]], consequence: str) -> List[str]:
+        """An ERROR when every simulation failed, a WARNING when more than a quarter failed, otherwise nothing."""
+        if failed == 0:
+            return []
+        if ok == 0:
+            lines = ["", f"[ERROR] Every simulation failed: {consequence}"]
+        elif failed > 0.25 * (ok + failed):
+            lines = ["", f"[WARNING] {failed / (ok + failed):.0%} of the simulated airfoils failed; check the report."]
+        else:
+            return []
+        lines += [f"        {count:,} x {error[:150]}" for error, count in errors]
+        return lines
+
+    @staticmethod
+    def _short_path(path) -> str:
+        """Path relative to the current folder when possible (readable console output)."""
+        try:
+            return os.path.relpath(path)
+        except ValueError:
+            return str(path)
+
+    def _print_summary(self, title: str, lines: List[str], files: List[Path]) -> None:
+        bar = "=" * 72
+        self.log("\n".join(["", bar, title, bar, *lines, "", "Files:", *[f"  {self._short_path(f)}" for f in files], bar]))
+
     def diagnose(self, n_flagged: int = 20, n_controls: int = 10, n_top: int = 5, all_flagged: bool = False,
                  kp_refits: int = 5, seed: int = 0) -> dict:
         """
@@ -2358,6 +2406,16 @@ class Dataset_Rectifier:
                                  "summary": summary, "airfoils": {k: {"id": self.airfoils[k]["id"], "groups": sorted(groups[k]), **v}
                                                                   for k, v in analysis.items()}}), f, indent=2)
         paths["report"].write_text(self._diagnosis_report(summary, analysis, groups), encoding='utf-8')
+
+        ok, invalid, failed, errors = self._simulation_outcomes(groups)
+        lines = [f"Airfoils simulated: {len(groups):,} ({ok:,} with results, {invalid:,} invalid geometry, {failed:,} failed)"]
+        for group, g in summary["groups"].items():
+            if g["airfoils"]:
+                reproduced = "-" if g["rows_reproduced"] is None else f"{g['rows_reproduced']:.0%}"
+                lines.append(f"  {group:<8} {g['airfoils']:>5} airfoils | dataset E reproduced in {reproduced} of "
+                             f"{g['rows']} rows | different: {g['rows_corrected']} | failed: {g['rows_failed']}")
+        lines += self._failure_lines(ok, failed, errors, "this diagnosis says nothing about the dataset.")
+        self._print_summary("DIAGNOSIS RESULT", lines, [paths["report"]])
         return paths
 
     def rectify(self, output_csv, max_rounds: int = 5) -> dict:
@@ -2431,6 +2489,19 @@ class Dataset_Rectifier:
                                                                                     "rows": {str(r): d for r, d in v.items()}}
                                                            for k, v in decided.items()}}), f, indent=2)
         paths["report"].write_text(self._rectification_report(summary, E_current, decided), encoding='utf-8')
+
+        totals = {k: sum(r[k] for r in rounds) for k in ("corrected", "confirmed", "unresolved", "failed")}
+        ok, invalid, failed, errors = self._simulation_outcomes(decided)
+        lines = [f"Rows checked: {sum(totals.values()):,} (every configuration of the {len(decided):,} flagged airfoils)",
+                 f"  corrected   {totals['corrected']:>9,}   E replaced by the simulated value",
+                 f"  confirmed   {totals['confirmed']:>9,}   dataset E reproduced",
+                 f"  unresolved  {totals['unresolved']:>9,}   runs disagree, dataset E kept",
+                 f"  failed      {totals['failed']:>9,}   no simulation result, dataset E kept",
+                 f"Rows changed: {summary['rows_changed']:,} of {len(self.E):,}",
+                 f"Dataset best E: {summary['dataset_best_before']:.2f} -> {summary['dataset_best_after']:.2f}",
+                 f"Airfoils simulated: {ok:,} with results, {invalid:,} invalid geometry, {failed:,} failed"]
+        lines += self._failure_lines(ok, failed, errors, "nothing was rectified, so do not train on the rectified CSV.")
+        self._print_summary("RECTIFICATION RESULT", lines, [paths["dataset"], paths["report"]])
         return paths
 
     # --- Reports --- #

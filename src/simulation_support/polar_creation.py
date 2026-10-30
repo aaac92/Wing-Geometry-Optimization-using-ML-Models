@@ -4,7 +4,13 @@ import sys
 import traceback
 from pathlib import Path
 import psutil
-from .alpha_sweep import run_sweep
+try:
+    from .alpha_sweep import run_sweep, branch_directory
+    from .file_names import XFOIL_MAX_NAME, short_name
+except ImportError:  # run as a script: python src/simulation_support/polar_creation.py (self-test)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from alpha_sweep import run_sweep, branch_directory
+    from file_names import XFOIL_MAX_NAME, short_name
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -69,7 +75,7 @@ class Xfoil_Polar_Creator:
 
         # Set up directory paths
         self.main_dir = main_dir
-        self.xfoil_path = xfoil_exe_path
+        self.xfoil_path = os.path.abspath(xfoil_exe_path)  # absolute: XFOIL is started inside other folders
         self.airfoil_dir = airfoil_dir
         self.polar_dir = Path(polar_dir)
 
@@ -97,16 +103,29 @@ class Xfoil_Polar_Creator:
             self._spawn_count = 0
             self._close_count = 0
 
-    def _spawn(self):
+    def _spawn(self, work_dir):
+        """Starts XFOIL inside work_dir, so the files it reads and writes can be named relative to it."""
         if IS_WINDOWS:
-            return PtyProcess.spawn([str(self.xfoil_path)])
-        return pexpect.spawn(str(self.xfoil_path), encoding='utf-8')
+            return PtyProcess.spawn([str(self.xfoil_path)], cwd=str(work_dir))
+        return pexpect.spawn(str(self.xfoil_path), encoding='utf-8', cwd=str(work_dir))
+
+    @staticmethod
+    def xfoil_file_names(airfoil_file_path, polar_file_path):
+        """
+        (working folder, airfoil name, polar name) as given to XFOIL: XFOIL runs inside the polar file's folder
+        and both files are named as briefly as possible, because XFOIL silently cuts file names at 64
+        characters (see simulation_support.file_names). Raises ValueError if a name still does not fit.
+        """
+        work_dir = Path(polar_file_path).parent
+        return (work_dir, short_name(airfoil_file_path, work_dir, XFOIL_MAX_NAME),
+                short_name(polar_file_path, work_dir, XFOIL_MAX_NAME))
 
     def initialize_xfoil(self, airfoil_file_path, polar_file_path, iter, visc, mach):
         """
         Runs the standard initialization of XFOIL and tries to process rough airfoils.
         Returns a tuple containing the active process (or False) and the most recent error message.
         """
+        work_dir, airfoil_name, polar_name = self.xfoil_file_names(airfoil_file_path, polar_file_path)
         last_error_msg = "Unknown initialization failure."
         for attempt in range(4):
             # --- LAUNCH XFOIL FROM THE CLEAN TEMP DIRECTORY --- #
@@ -118,14 +137,14 @@ class Xfoil_Polar_Creator:
                     f"airfoil={Path(airfoil_file_path).name} handles/fds={h} threads={t}"
                 )
 
-            proc = self._spawn()
+            proc = self._spawn(work_dir)
 
             if self.process_logging:
                 self._debug_logger.debug(f"  spawned pid={getattr(proc, 'pid', 'n/a')}")
 
             try:
                 # --- SCRIPTED XFOIL COMMANDS --- #
-                if not self._send_command(proc, f"LOAD {airfoil_file_path}", timeout_sec=15): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
+                if not self._send_command(proc, f"LOAD {airfoil_name}", timeout_sec=15): raise RuntimeError(f"LOAD for {airfoil_file_path} failed")
                 if attempt < 3 and self.mdes_seq:
                     mdes_success = True
                     if not self._send_command(proc, "MDES"): mdes_success = False
@@ -146,7 +165,7 @@ class Xfoil_Polar_Creator:
                 if not self._send_command(proc, "PACC", expect_prompt='Enter  polar save filename  OR  <return> for no file   s>'): raise RuntimeError(f"Failed to setup PACC for {airfoil_file_path}")
 
                 # Handling floating point truncation overwrite prompt safely
-                match_idx = self._send_command(proc, str(polar_file_path), expect_prompt=['Enter  polar dump filename  OR  <return> for no file   s>', "Set current parameters to old save file values ? y/n>"])
+                match_idx = self._send_command(proc, polar_name, expect_prompt=['Enter  polar dump filename  OR  <return> for no file   s>', "Set current parameters to old save file values ? y/n>"])
                 if match_idx == -1:
                     raise RuntimeError(f"Setting the polar filename for {airfoil_file_path} as {polar_file_path} failed")
                 elif match_idx == 1:
@@ -195,8 +214,15 @@ class Xfoil_Polar_Creator:
             iter (int): Maximum number of iterations for the solver.
             sweep_mode (str): None for the default ('zero_out'), or 'sequential' for the legacy sweep.
                 See simulation_support.alpha_sweep before using 'sequential'.
+
+        Raises ValueError before running anything if XFOIL could not be given the file names in full.
         """
         os.makedirs(os.path.dirname(polar_file_path), exist_ok=True)
+        # Every pass of a sweep writes either the polar itself or a branch file (<stem>_b0 etc.) next to the polar folder
+        polar = Path(polar_file_path)
+        branch = branch_directory(polar) / f"{polar.stem}_b0{polar.suffix}"
+        for pass_file in (polar, branch):
+            self.xfoil_file_names(airfoil_file_path, pass_file)
         return run_sweep(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=visc, mach=mach, iter=iter, sweep_mode=sweep_mode)
 
     def alpha_pass(self, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter):
@@ -349,3 +375,111 @@ class Xfoil_Polar_Creator:
             return None, False
         finally:
             pool.terminate()
+
+
+# =============================================================================================== #
+# === Self-test: python src/simulation_support/polar_creation.py [--xfoil PATH] [--keep] === #
+# =============================================================================================== #
+
+def _write_naca0012(path, n=81):
+    """NACA 0012 in Selig order (trailing edge -> upper surface -> leading edge -> lower surface), closed TE."""
+    import numpy as np
+    x = 0.5 * (1 - np.cos(np.linspace(0, np.pi, n)))
+    t = 0.6 * (0.2969 * np.sqrt(x) - 0.1260 * x - 0.3516 * x**2 + 0.2843 * x**3 - 0.1036 * x**4)
+    xs = np.concatenate([x[::-1], x[1:]])
+    ys = np.concatenate([t[::-1], -t[1:]])
+    Path(path).write_text("NACA 0012\n" + "\n".join(f"{a:.6f} {b:.6f}" for a, b in zip(xs, ys)) + "\n")
+
+
+def _polar_rows(path):
+    """Number of data rows in a polar file."""
+    lines = Path(path).read_text().splitlines()
+    start = next((i for i, line in enumerate(lines) if line.strip().startswith("------")), len(lines))
+    rows = 0
+    for line in lines[start + 1:]:
+        try:
+            float(line.split()[0])
+            rows += 1
+        except (ValueError, IndexError):
+            pass
+    return rows
+
+
+def self_test(xfoil_exe, keep=False):
+    """
+    Runs both sweeps on a NACA 0012 inside folders whose full paths are far longer than XFOIL's 64-character
+    limit, and checks that each polar is written in full, that no truncated file names appear, and that a file
+    name that cannot fit is refused before XFOIL starts. Returns True if every check passed.
+    """
+    import shutil
+    import tempfile
+    import time
+
+    root = Path(tempfile.gettempdir()) / "xpr_self_test"
+    work = root / "a_deliberately_long_folder_name_well_past_the_xfoil_limit" / "and_one_more_level"
+    shutil.rmtree(root, ignore_errors=True)
+    airfoil_dir, polar_dir = work / "airfoils", work / "polars"
+    airfoil_dir.mkdir(parents=True)
+    airfoil = airfoil_dir / "naca0012_self_test.dat"
+    _write_naca0012(airfoil)
+    angles = [float(a) for a in range(-4, 5)]
+    modes = ("zero_out", "sequential")
+    expected = {f"polar_naca0012_self_test_{m}.txt" for m in modes}
+
+    print(f"XFOIL runner self-test ({'Windows' if IS_WINDOWS else 'Linux'})")
+    print(f"  XFOIL: {xfoil_exe}")
+    print(f"  Polar path length: {len(str(polar_dir / sorted(expected)[0]))} characters (XFOIL limit {XFOIL_MAX_NAME})")
+    print(f"  Angles: {angles[0]:g} to {angles[-1]:g} deg\n")
+
+    results = []
+
+    def check(name, ok, detail):
+        results.append(ok)
+        print(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
+
+    runner = Xfoil_Polar_Creator(xfoil_exe, main_dir=work, airfoil_dir=airfoil_dir, polar_dir=polar_dir)
+    for mode in modes:
+        polar = polar_dir / f"polar_naca0012_self_test_{mode}.txt"
+        t0 = time.time()
+        try:
+            runner.run_simulation(str(airfoil), str(polar), angles, visc=2.5e5, mach=0.09281, sweep_mode=mode)
+        except Exception as e:
+            check(f"{mode} sweep", False, f"{type(e).__name__}: {e}")
+            continue
+        if not polar.exists():
+            check(f"{mode} sweep", False, "no polar file was written")
+            continue
+        rows = _polar_rows(polar)
+        flag = "XFOIL process completed successfully" in polar.read_text()
+        check(f"{mode} sweep", rows >= len(angles) - 1 and flag,
+              f"{rows} of {len(angles)} angles in the polar, completion flag {'present' if flag else 'MISSING'} "
+              f"({time.time() - t0:.0f} s)")
+
+    folders = [polar_dir, branch_directory(polar_dir / "x.txt")]
+    stray = [p.name for d in folders if d.exists() for p in d.iterdir() if p.name not in expected]
+    check("no truncated or leftover files", not stray, "none" if not stray else ", ".join(stray))
+
+    too_long = polar_dir / ("polar_" + "x" * 70 + ".txt")
+    try:
+        runner.run_simulation(str(airfoil), str(too_long), angles, visc=2.5e5, mach=0.09281)
+        check("over-long file name refused", False, "no error was raised")
+    except ValueError:
+        check("over-long file name refused", True, "stopped with a clear error before XFOIL started")
+
+    failed = results.count(False)
+    print(f"\n{'ALL ' + str(len(results)) + ' CHECKS PASSED' if not failed else f'{failed} OF {len(results)} CHECKS FAILED'}")
+    if keep:
+        print(f"Test files kept in: {root}")
+    else:
+        shutil.rmtree(root, ignore_errors=True)
+    return not failed
+
+
+if __name__ == "__main__":
+    import argparse
+    default_exe = Path(__file__).resolve().parents[2] / "bin" / ("xfoil.exe" if IS_WINDOWS else "xfoil")
+    parser = argparse.ArgumentParser(description="Self-test of the XFOIL runner with long folder paths.")
+    parser.add_argument("--xfoil", default=str(default_exe), help="XFOIL executable (default: bin/xfoil of the project).")
+    parser.add_argument("--keep", action="store_true", help="Keep the test folder for inspection.")
+    args = parser.parse_args()
+    sys.exit(0 if self_test(args.xfoil, args.keep) else 1)

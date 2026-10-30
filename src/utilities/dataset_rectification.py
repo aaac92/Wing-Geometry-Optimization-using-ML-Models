@@ -366,9 +366,9 @@ def main() -> None:
         output = Path(args.output) if args.output else csv_path.with_name(f"{csv_path.stem}_rectified{csv_path.suffix}")
         paths = rectifier.rectify(output_csv=output, max_rounds=args.max_rounds)
 
-    print("\nOutputs:")
+    print("\nAll outputs:")
     for name, path in paths.items():
-        print(f"  {name:<8} {path}")
+        print(f"  {name:<8} {Dataset_Rectifier._short_path(path)}")
 
 
 if __name__ == "__main__":
