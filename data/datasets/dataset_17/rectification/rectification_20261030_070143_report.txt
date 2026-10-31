@@ -1,0 +1,42 @@
+==============================================================================================================
+Dataset rectification: regressor_dataset_17.csv
+==============================================================================================================
+Pipeline: {"n_cst": 5, "aseq": [-20.0, 20.0, 0.5], "reynolds": 250000.0, "mach": 0.09281, "base_airfoil": "naca0012_unit.csv", "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt", "case_file": "Hossain_sqwing_case.run", "sweep_mode": "zero_out", "kp_seed": 42, "xfoil_iter": 200, "sweep_revision": 3}
+Signature: 83d566d2998a | runs per airfoil: 1 | threshold: 15.0 | agreement tolerance: 5.0%
+
+Round Flagged rows New airfoils Reused Confirmed Corrected Unresolved Failed
+    1        12524         5170      0       497     14985          0      6
+    2          138           84      0         8       241          0      0
+    3            9            3      0         0         9          0      0
+    4            7            1      0         0         3          0      0
+
+Flagged rows before: 12524 | after: 6 (the remaining ones were confirmed, unresolved or failed)
+Rows changed: 15721
+Simulated airfoils with polar CDmin below the laminar limit (0.0053): 0 of 5258 (reported, not excluded)
+Dataset best E before: 57.8681 | after: 45.1120
+
+E distribution (rows)    before     after
+E >= 50                     223         0
+45 <= E < 50                629         1
+40 <= E < 45               1871         1
+30 <= E < 40               9115       322
+E < 30                   386642    398156
+
+--- Top 15 rows after rectification -------------------------------------------------------------------------
+    Row Cfg    Dataset E Rectified  Status
+  40821 rec      45.1120   45.1120  failed
+  34592 rec      40.9954   40.9954  failed
+ 173650 flat     39.5845   39.5845  failed
+ 306485 60DEG    38.1627   38.1627  failed
+ 173090 flat     37.0282   37.0282  not flagged
+ 167422 flat     36.7764   36.7764  failed
+  90218 rec      36.2828   36.2828  not flagged
+ 155878 flat     36.1610   36.1610  not flagged
+ 305927 60DEG    36.1010   36.1010  not flagged
+ 155880 flat     36.0899   36.0899  not flagged
+ 160852 flat     36.0871   36.0871  not flagged
+ 128305 rec      35.9663   35.9663  not flagged
+ 150923 flat     35.7859   35.7859  not flagged
+ 169139 flat     35.7771   35.7771  not flagged
+   7971 rec      35.6723   35.6723  not flagged
+==============================================================================================================
