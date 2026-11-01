@@ -26,6 +26,12 @@ major-update   Same as update, but the new model gets the next major version (Mu
 retrain        Same as update, but the model keeps its name and its files are overwritten (no copy is kept).
                Meant for a model trained on bad data, e.g. retraining Murata_1.1 after its dataset was fixed.
 
+update and major-update also take:
+  --version X.Y  the exact new version instead of the next one (Murata_1.1 -> Murata_1.5).
+  --dataset N    when N is not the dataset of the --target folder, the new models are saved in
+                 models/dataset_<N>/<same type folder> and the old ones stay where they are (they still belong
+                 to their own dataset). Example: dataset 17.5 rebuilds 17, its models start from the 17 ones.
+
 Every trained model also gets '<name>_training_info.json' (dataset, configuration, test metrics and,
 for updates, the model it replaced).
 
@@ -36,6 +42,7 @@ Examples
     python src/utilities/ml_gym.py update --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv
     python src/utilities/ml_gym.py major-update --target models/dataset_17/mlp_regressor --dataset 17 --select Odysseus
     python src/utilities/ml_gym.py retrain --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv --select Murata_1.1
+    python src/utilities/ml_gym.py update --target models/dataset_17 --dataset 17.5 --version 1.5 --select Agares_1.1 Odysseus_1.1 Murata_1.1 Calipso
 """
 import argparse
 import json
@@ -54,6 +61,7 @@ sys.path.insert(0, str(SRC_DIR))
 
 import torch  # noqa: E402
 from ai_support import MLP_Regressor, LGBM_Regressor, Classifier, CSTFeatureEngineer  # noqa: E402
+from file_handling_support.dataset_names import dataset_number_arg  # noqa: E402
 
 # =============================================================================================== #
 # === Model types === #
@@ -302,7 +310,7 @@ def train_and_save(job: dict, csv_path: Path, protocol: dict, mode: str) -> dict
     base, major, minor = split_version(job["name"])
     info = {
         "name": job["name"], "base_name": base, "version": f"{major}.{minor}", "mode": mode,
-        "previous_model": job.get("previous"), "model_type": job["type"], "feature_mode": job["features"],
+        "previous_model": job.get("previous") or job.get("source_model"), "model_type": job["type"], "feature_mode": job["features"],
         "dataset_csv": str(csv_path), "hyperparameters": job["hyper"], "protocol": protocol, "test_metrics": metrics,
         "started": started.strftime("%Y-%m-%d %H:%M:%S"), "duration_s": round(time.time() - t0, 1),
         "platform": platform.platform(), "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
@@ -343,8 +351,26 @@ def resolve_csv(args, model_type: str) -> Path:
 def dataset_number(args, csv_path: Path):
     if args.dataset is not None:
         return args.dataset
-    match = re.search(r"dataset_(\d+)", csv_path.name)
-    return int(match.group(1)) if match else None
+    match = re.search(r"dataset_(\d+(?:\.\d+)?)", csv_path.name)
+    return match.group(1) if match else None
+
+
+def folder_dataset(folder: Path):
+    """Dataset number of a model folder (the 'dataset_<N>' part of its path), or None."""
+    for part in reversed(folder.parts):
+        match = re.fullmatch(r"dataset_(\d+(?:\.\d+)?)", part)
+        if match:
+            return match.group(1)
+    return None
+
+
+def destination_folder(model_folder: Path, dataset):
+    """Where an updated model goes: its own folder, or the same type folder of another dataset (--dataset)."""
+    source = folder_dataset(model_folder)
+    if dataset is None or source is None or source == dataset:
+        return model_folder
+    root = next(p for p in [model_folder, *model_folder.parents] if p.name == f"dataset_{source}")
+    return root.parent / f"dataset_{dataset}" / model_folder.relative_to(root)
 
 
 def check_device(types, allow_cpu: bool) -> None:
@@ -437,10 +463,18 @@ def run_update(args, mode: str) -> None:
     if not found:
         raise SystemExit(f"[ERROR] No retrainable models under '{target}'.")
 
+    if args.version and in_place:
+        raise SystemExit("[ERROR] --version does not apply to retrain (the model keeps its name).")
     rows = []
     for model in found:
-        new_name = model["name"] if in_place else next_free_version(model["folder"], model["name"], mode == "major-update")
-        rows.append({**model, "new_name": new_name})
+        destination = model["folder"] if in_place else destination_folder(model["folder"], args.dataset)
+        if in_place:
+            new_name = model["name"]
+        elif args.version:
+            new_name = f"{split_version(model['name'])[0]}_{args.version}"
+        else:
+            new_name = next_free_version(destination, model["name"], mode == "major-update")
+        rows.append({**model, "new_name": new_name, "destination": destination})
     print("\n" + "=" * 100)
     print(f"{mode} | models found under {target}")
     print("=" * 100)
@@ -448,6 +482,9 @@ def run_update(args, mode: str) -> None:
     for i, row in enumerate(rows, 1):
         print(f"  {i:>3}  {row['name']:<22} {row['new_name']:<22} {row['type']:<11} {row['features']:<12} "
               f"{row['folder'].relative_to(target) if row['folder'] != target else '.'}")
+    moved_dataset = any(row["destination"] != row["folder"] for row in rows)
+    if moved_dataset:
+        print(f"  New versions are saved under models/dataset_{args.dataset}; the models above stay where they are.")
     for meta_path, reason in skipped:
         print(f"  ---  {meta_path.name[:-len('_meta.json')]:<22} not retrainable: {reason}")
     print("=" * 100)
@@ -468,6 +505,10 @@ def run_update(args, mode: str) -> None:
         if not picks:
             raise SystemExit("Cancelled.")
     jobs = [rows[i] for i in picks]
+    if not in_place:
+        taken = [f"{job['new_name']} ({job['destination']})" for job in jobs if name_taken(job["destination"], job["new_name"])]
+        if taken:
+            raise SystemExit(f"[ERROR] These models already exist: {', '.join(taken)}. Choose another --version.")
 
     protocol = {"folds": args.folds, "test_split": args.test_split, "seed": args.seed}
     csv_paths = {}
@@ -475,11 +516,15 @@ def run_update(args, mode: str) -> None:
     for job in jobs:
         csv_paths[job["name"]] = resolve_csv(args, job["type"])
         change = "retrained in place" if in_place else f"-> {job['new_name']}"
+        if job["destination"] != job["folder"]:
+            change += f" in '{job['destination']}'"
         print(f"  {job['name']} {change} | {job['type']}, features: {job['features']} | {csv_paths[job['name']].name}")
         print(f"      {describe(job['hyper'])}")
     print(f"  Protocol: {args.folds} folds, test split {args.test_split}, seed {args.seed}")
     if in_place:
         print("  The current files of these models are overwritten; no copy is kept.")
+    elif all(job["destination"] != job["folder"] for job in jobs):
+        print("  The current models are kept: the new versions belong to another dataset.")
     else:
         print(f"  Replaced models move to '<model folder>/{OLD_MODELS_DIR}'.")
     check_device([job["type"] for job in jobs], args.allow_cpu)
@@ -488,9 +533,12 @@ def run_update(args, mode: str) -> None:
     results = []
     for job in jobs:
         try:
+            # A model moved to another dataset is not retired: it still belongs to its own dataset
+            retire_previous = not in_place and job["destination"] == job["folder"]
             metrics = train_and_save({"type": job["type"], "features": job["features"], "hyper": job["hyper"],
-                                      "name": job["new_name"], "folder": job["folder"],
-                                      "previous": None if in_place else job["name"]},
+                                      "name": job["new_name"], "folder": job["destination"],
+                                      "previous": job["name"] if retire_previous else None,
+                                      "source_model": None if retire_previous or in_place else str(job["folder"] / job["name"])},
                                      csv_paths[job["name"]], protocol, mode)
             results.append((job["name"], job["new_name"], metrics, None))
         except Exception as e:
@@ -512,7 +560,8 @@ def run_update(args, mode: str) -> None:
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     data = common.add_argument_group("dataset")
-    data.add_argument("--dataset", type=int, help="Dataset number; selects data/datasets/dataset_<N>/<regressor|classifier>_dataset_<N>.csv.")
+    data.add_argument("--dataset", type=dataset_number_arg,
+                      help="Dataset number (e.g. 17 or 17.5); selects data/datasets/dataset_<N>/<regressor|classifier>_dataset_<N>.csv.")
     data.add_argument("--csv", help="Explicit training CSV (e.g. a rectified dataset); overrides the file chosen by --dataset.")
     proto = common.add_argument_group("training protocol")
     proto.add_argument("--folds", type=int, default=5, help="Cross-validation folds.")
@@ -573,11 +622,23 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--target", required=True, help="Folder to scan (e.g. models/dataset_17 or one model type folder).")
         sub.add_argument("--select", nargs="+", metavar="NAME", help="Models to retrain, skipping the interactive selection.")
         sub.add_argument("--classifier-csv", help="Explicit training CSV for classifiers (--csv applies to the regressors here).")
+        if name != "retrain":
+            sub.add_argument("--version", type=_version_arg, metavar="X.Y",
+                             help="Exact new version instead of the next one (e.g. 1.5: Murata_1.1 -> Murata_1.5).")
     return parser
+
+
+def _version_arg(text: str) -> str:
+    if not re.fullmatch(r"\d+\.\d+", text):
+        raise argparse.ArgumentTypeError(f"'{text}' is not a version (format X.Y, e.g. 1.5).")
+    major, minor = text.split(".")
+    return f"{int(major)}.{int(minor)}"
 
 
 def main() -> None:
     args = build_parser().parse_args()
+    if not hasattr(args, "version"):
+        args.version = None
     if args.mode == "train":
         run_train(args)
     else:

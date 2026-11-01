@@ -31,6 +31,7 @@ try:
     from ux_support import Progress_GUI
 except ImportError:  # tkinter missing (headless install); only the GUI progress view needs it
     Progress_GUI = None
+from ux_support.progress import display_available, run_with_progress
 
 
 @dataclass
@@ -1648,17 +1649,8 @@ GEO_CREATORS_BY_IDENTIFIER: Dict[str, Type] = {
     "60DEG": HossainWing60DEG_Creation,
 }
 KEY_POINT_NAMES: List[str] = ["CLneg", "CDneg", "CLcdmin", "CDmin", "CLpos", "CDpos"]
+FLAG_RULES = ("robust", "absolute")
 STORE_FORMAT_VERSION = 1
-
-
-def display_available() -> bool:
-    """
-    True when a graphical display can be used. On Linux this requires DISPLAY or WAYLAND_DISPLAY;
-    Windows and macOS sessions are assumed to have one.
-    """
-    if sys.platform.startswith("linux"):
-        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-    return True
 
 
 def grid_levels_from_ranges(n_cst: int, ranges_lower: dict, ranges_upper: dict) -> List[np.ndarray]:
@@ -1724,7 +1716,14 @@ class Simulation_Settings:
 
 
 def laminar_cd_limit(reynolds: float) -> float:
-    """Friction drag of a fully laminar flat plate, both surfaces (Blasius): 2 x 1.328 / sqrt(Re)."""
+    """
+    Lowest physically plausible 2D section drag: the friction drag of a flat plate of zero thickness with
+    fully laminar flow on both surfaces. Blasius' laminar boundary layer gives a mean skin-friction
+    coefficient Cf = 1.328 / sqrt(Re) per surface (referred to the chord); two wetted surfaces double it:
+    CD_limit = 2 x 1.328 / sqrt(Re), e.g. 0.00531 at Re = 2.5e5. A real airfoil adds pressure drag and, once
+    the flow turns turbulent, more friction, so a polar CD below this value points to a non-physical XFOIL
+    solution (the legacy sequential sweep produced CDmin ~ 0.002, see simulation_support.alpha_sweep).
+    """
     return 2 * 1.328 / math.sqrt(reynolds)
 
 
@@ -1940,9 +1939,19 @@ class Dataset_Rectifier:
     Outlier criterion
     -----------------
     Two dataset rows are neighbours when they share the wing configuration and their CST vectors differ by
-    exactly one grid step in exactly one coefficient. A row is flagged when it has at least `min_neighbours`
-    neighbours and |E - median(neighbour E)| > `threshold`. Work is done per airfoil (unique CST vector): all
-    of its configuration rows are re-simulated together, since they share the polar and key points.
+    exactly one grid step in exactly one coefficient. A row with at least `min_neighbours` neighbours is
+    flagged when its distance to the neighbour median, |E - median(neighbour E)|, is too large:
+      robust   (default) -- more than `robust_k` robust standard deviations of its neighbours, where the robust
+                  standard deviation is 1.4826 x the median absolute deviation (MAD) of the neighbour E values
+                  (the 1.4826 factor makes it equal the standard deviation for normally distributed values), and
+                  never less than `min_deviation` (flat neighbourhoods have a MAD near zero). The row itself is
+                  not part of its neighbourhood, so an outlier cannot widen its own limit, and the median and MAD
+                  ignore a few bad neighbours. 3.5 is the usual cut-off for this modified z-score
+                  (Iglewicz & Hoaglin). The limit adapts to how much E naturally varies around each airfoil.
+      absolute -- more than `threshold` E points (the rule the dataset 17 rectification of 2026-10-30 used).
+    Work is done per airfoil (unique CST vector): all of its configuration rows are re-simulated together,
+    since they share the polar and key points. Rows whose simulation fails are dropped from the rectified CSV
+    unless drop_failed is False.
 
     Repeated simulation and decision
     --------------------------------
@@ -1969,12 +1978,19 @@ class Dataset_Rectifier:
     def __init__(self, csv_path, settings: Simulation_Settings, work_dir, temp_root,
                  grid_levels: Optional[List[np.ndarray]] = None, threshold: float = 15.0, min_neighbours: int = 3,
                  n_runs: int = 5, agreement_tolerance: float = 0.05, workers: Optional[int] = None,
-                 single_process: bool = False, use_gui: Optional[bool] = None, log: Callable[[str], None] = print):
+                 single_process: bool = False, use_gui: Optional[bool] = None, log: Callable[[str], None] = print,
+                 rule: str = "robust", robust_k: float = 3.5, min_deviation: float = 2.0, drop_failed: bool = True):
         self.csv_path = Path(csv_path)
         self.settings = settings
         self.work_dir = Path(work_dir)
         self.temp_root = Path(temp_root)
+        if rule not in FLAG_RULES:
+            raise ValueError(f"Unknown flag rule '{rule}'. Known: {FLAG_RULES}")
+        self.rule = rule
         self.threshold = threshold
+        self.robust_k = robust_k
+        self.min_deviation = min_deviation
+        self.drop_failed = drop_failed
         self.min_neighbours = min_neighbours
         self.n_runs = n_runs
         self.tol = agreement_tolerance
@@ -2067,13 +2083,25 @@ class Dataset_Rectifier:
         has = count > 0
         median[has] = np.nanmedian(nb_values[has], axis=1)
         deviation = E - median
-        flagged = (count >= self.min_neighbours) & (np.abs(deviation) > self.threshold)
+        if self.rule == "robust":
+            mad = np.full(len(E), np.nan)
+            mad[has] = np.nanmedian(np.abs(nb_values[has] - median[has, None]), axis=1)
+            limit = np.maximum(self.robust_k * 1.4826 * np.nan_to_num(mad), self.min_deviation)
+        else:
+            limit = np.full(len(E), float(self.threshold))
+        flagged = (count >= self.min_neighbours) & (np.abs(deviation) > limit)
         severity: Dict[str, float] = {}
         for i in np.flatnonzero(flagged):
             key = self.row_key[i]
-            severity[key] = max(severity.get(key, 0.0), abs(float(deviation[i])))
+            severity[key] = max(severity.get(key, 0.0), abs(float(deviation[i])) / limit[i])
         keys = sorted(severity, key=severity.get, reverse=True)
         return Neighbour_Flags(median, count, deviation, flagged, keys)
+
+    def rule_text(self) -> str:
+        """The flag rule in words, for reports."""
+        if self.rule == "robust":
+            return f"|E - neighbour median| > max({self.robust_k:g} x 1.4826 x neighbour MAD, {self.min_deviation:g})"
+        return f"|E - neighbour median| > {self.threshold:g}"
 
     # --- Evaluation store --- #
 
@@ -2199,34 +2227,10 @@ class Dataset_Rectifier:
 
     def _run_with_progress(self, job: Callable[[], None], total: int, progress_queue, status_list, n_workers: int,
                            title: str, header: str) -> None:
-        """Runs `job` in a background thread while the main thread shows its progress."""
-        thread = threading.Thread(target=job, daemon=True)
-        gui = None
-        if self.use_gui and Progress_GUI is not None:
-            try:
-                gui = Progress_GUI(total_files=total, progress_queue=progress_queue, worker_status_list=status_list,
-                                   num_workers=n_workers, window_title=title, header_text=header, detailed_only=True)
-            except Exception as e:
-                self.log(f"[INFO] Progress window unavailable ({e}); using the console progress bar.")
-                gui = None
-        thread.start()
-        if gui is not None:
-            gui.run()
-        else:
-            done = 0
-            with tqdm(total=total, desc="Simulations", unit="run") as bar:
-                while thread.is_alive() or done < total:
-                    try:
-                        progress_queue.get(timeout=0.5)
-                        step = min(1, total - done)
-                        done += step
-                        bar.update(step)
-                    except queue.Empty:
-                        if not thread.is_alive():
-                            break
-                    if done >= total:
-                        break
-        thread.join()
+        """Runs `job` in a background thread while the main thread shows its progress (ux_support.progress)."""
+        run_with_progress(job, total, progress_queue, title, header, status_list=status_list, n_workers=n_workers,
+                          detailed_only=True, use_gui=self.use_gui and Progress_GUI is not None,
+                          console_desc="Simulations", unit="run")
 
     # --- Analysis --- #
 
@@ -2454,6 +2458,9 @@ class Dataset_Rectifier:
 
         rectified = self.df.copy()
         rectified[self.target] = E_current
+        failed_rows = sorted(row for decisions in decided.values() for row, d in decisions.items() if d["outcome"] == "failed")
+        if self.drop_failed and failed_rows:
+            rectified = rectified.drop(index=failed_rows)
         output_csv = Path(output_csv)
         output_csv.parent.mkdir(parents=True, exist_ok=True)
         rectified.to_csv(output_csv, index=False)
@@ -2467,6 +2474,9 @@ class Dataset_Rectifier:
             "store": self.store_path,
         }
         below_limit = {key: any(self._below_cd_limit(r) for r in self.runs_for(key)[:self.n_runs]) for key in decided}
+        if any(below_limit.values()):
+            paths["below_laminar_limit"] = self.work_dir / f"rectification_{stamp}_below_laminar_limit.json"
+            self._write_below_limit_log(paths["below_laminar_limit"], [k for k, below in below_limit.items() if below])
         rows = []
         for key, decisions in decided.items():
             for row, d in decisions.items():
@@ -2478,8 +2488,9 @@ class Dataset_Rectifier:
                              "runs_E": ";".join("" if v is None else f"{v:.4f}" for v in d["runs_E"])})
         pd.DataFrame(rows).to_csv(paths["rows"], index=False)
         summary = {"settings": self.settings.signature(), "signature_id": self.settings.signature_id(),
-                   "n_runs": self.n_runs, "threshold": self.threshold, "min_neighbours": self.min_neighbours,
+                   "n_runs": self.n_runs, "rule": self.rule_text(), "min_neighbours": self.min_neighbours,
                    "agreement_tolerance": self.tol, "rounds": rounds,
+                   "failed_rows_dropped": len(failed_rows) if self.drop_failed else 0,
                    "initial_flags": self._flag_summary(self.flag(self.E)), "final_flags": self._flag_summary(final_flags),
                    "dataset_best_before": float(np.max(self.E)), "dataset_best_after": float(np.max(E_current)),
                    "rows_changed": int((np.abs(E_current - self.E) > 1e-12).sum()),
@@ -2496,13 +2507,31 @@ class Dataset_Rectifier:
                  f"  corrected   {totals['corrected']:>9,}   E replaced by the simulated value",
                  f"  confirmed   {totals['confirmed']:>9,}   dataset E reproduced",
                  f"  unresolved  {totals['unresolved']:>9,}   runs disagree, dataset E kept",
-                 f"  failed      {totals['failed']:>9,}   no simulation result, dataset E kept",
-                 f"Rows changed: {summary['rows_changed']:,} of {len(self.E):,}",
+                 f"  failed      {totals['failed']:>9,}   no simulation result, "
+                 f"{'row dropped from the CSV' if self.drop_failed else 'dataset E kept'}",
+                 f"Rows changed: {summary['rows_changed']:,} of {len(self.E):,}"
+                 + (f" | rows dropped: {len(failed_rows):,}" if self.drop_failed else ""),
                  f"Dataset best E: {summary['dataset_best_before']:.2f} -> {summary['dataset_best_after']:.2f}",
-                 f"Airfoils simulated: {ok:,} with results, {invalid:,} invalid geometry, {failed:,} failed"]
+                 f"Airfoils simulated: {ok:,} with results, {invalid:,} invalid geometry, {failed:,} failed",
+                 f"Polars below the laminar CD limit ({self.cd_limit:.5f}): {summary['airfoils_below_laminar_limit']:,} airfoil(s)"
+                 + (" (listed in the JSON below)" if "below_laminar_limit" in paths else "")]
         lines += self._failure_lines(ok, failed, errors, "nothing was rectified, so do not train on the rectified CSV.")
-        self._print_summary("RECTIFICATION RESULT", lines, [paths["dataset"], paths["report"]])
+        self._print_summary("RECTIFICATION RESULT", lines,
+                            [paths["dataset"], paths["report"]] + [paths[k] for k in ("below_laminar_limit",) if k in paths])
         return paths
+
+    def _write_below_limit_log(self, path: Path, keys: List[str]) -> None:
+        """JSON list of the re-simulated airfoils whose polar CDmin is below the laminar limit (see laminar_cd_limit)."""
+        entries = []
+        for key in keys:
+            runs = [r for r in self.runs_for(key)[:self.n_runs] if self._below_cd_limit(r)]
+            entries.append({"airfoil": self.airfoils[key]["id"], "cst": self.airfoils[key]["cst"],
+                            "cd_min": min(r["cd_min"] for r in runs if r.get("cd_min") is not None),
+                            "rows": {self.row_config[row]: int(row) for row in self.airfoils[key]["rows"]}})
+        with open(path, 'w') as f:
+            json.dump(_jsonable({"laminar_cd_limit": self.cd_limit, "reynolds": self.settings.reynolds,
+                                 "rule": "polar CDmin < 2 x 1.328 / sqrt(Re) (laminar flat plate, both surfaces)",
+                                 "signature_id": self.settings.signature_id(), "airfoils": entries}), f, indent=2)
 
     # --- Reports --- #
 
@@ -2544,7 +2573,7 @@ class Dataset_Rectifier:
         refit_keys = [k for k in analysis if analysis[k]["kp_refit_spread"] is not None]
         return {
             "settings": self.settings.signature(), "signature_id": self.settings.signature_id(),
-            "n_runs": self.n_runs, "threshold": self.threshold, "min_neighbours": self.min_neighbours,
+            "n_runs": self.n_runs, "rule": self.rule_text(), "min_neighbours": self.min_neighbours,
             "agreement_tolerance": self.tol, "laminar_cd_limit": self.cd_limit,
             "snapped_values": self.snapped_values, "max_snap_distance": self.snap_distance,
             "flags": self._flag_summary(flags), "groups": by_group, "variation_sources": sources,
@@ -2563,7 +2592,7 @@ class Dataset_Rectifier:
                  f"CST values snapped to the generation grid: {summary['snapped_values']} (max shift {summary['max_snap_distance']:.2e})",
                  "",
                  "--- Neighbour-consistency scan " + "-" * 79,
-                 f"Rows: {f['rows']} | mean neighbours per row: {f['mean_neighbours']:.1f} | threshold: |E - neighbour median| > {self.threshold}",
+                 f"Rows: {f['rows']} | mean neighbours per row: {f['mean_neighbours']:.1f} | rule: {self.rule_text()}",
                  f"Flagged rows: {f['rows_flagged']} ({f['flagged_above_neighbours']} above, {f['flagged_below_neighbours']} below their neighbours)",
                  f"Flagged airfoils: {f['airfoils_flagged']} of {f['airfoils']}",
                  "",
@@ -2603,15 +2632,15 @@ class Dataset_Rectifier:
         fi, ff = summary["initial_flags"], summary["final_flags"]
         lines = ["=" * 110, f"Dataset rectification: {self.csv_path.name}", "=" * 110,
                  f"Pipeline: {json.dumps(summary['settings'])}",
-                 f"Signature: {summary['signature_id']} | runs per airfoil: {self.n_runs} | threshold: {self.threshold} | "
-                 f"agreement tolerance: {100 * self.tol:.1f}%", "",
+                 f"Signature: {summary['signature_id']} | runs per airfoil: {self.n_runs} | agreement tolerance: {100 * self.tol:.1f}%",
+                 f"Flag rule: {summary['rule']}", "",
                  f"{'Round':>5} {'Flagged rows':>12} {'New airfoils':>12} {'Reused':>6} {'Confirmed':>9} {'Corrected':>9} {'Unresolved':>10} {'Failed':>6}"]
         for r in summary["rounds"]:
             lines.append(f"{r['round']:>5} {r['flagged_rows']:>12} {r['new_airfoils']:>12} {r['reused_airfoils']:>6} "
                          f"{r['confirmed']:>9} {r['corrected']:>9} {r['unresolved']:>10} {r['failed']:>6}")
         lines += ["",
                   f"Flagged rows before: {fi['rows_flagged']} | after: {ff['rows_flagged']} (the remaining ones were confirmed, unresolved or failed)",
-                  f"Rows changed: {summary['rows_changed']}",
+                  f"Rows changed: {summary['rows_changed']} | failed rows dropped from the CSV: {summary['failed_rows_dropped']}",
                   f"Simulated airfoils with polar CDmin below the laminar limit ({summary['laminar_cd_limit']:.4f}): "
                   f"{summary['airfoils_below_laminar_limit']} of {len(decided)} (reported, not excluded)",
                   f"Dataset best E before: {summary['dataset_best_before']:.4f} | after: {summary['dataset_best_after']:.4f}",

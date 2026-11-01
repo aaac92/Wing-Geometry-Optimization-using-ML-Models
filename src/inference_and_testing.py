@@ -59,6 +59,7 @@ from simulation_support.alpha_sweep import COMPLETION_FLAG
 from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossainWingFlat_Creation, HossainWing60DEG_Creation, AVL_Run_Case
 from geometric_support import Airfoil_Generator
 from file_handling_support import compression_Alma, get_all_files_from
+from file_handling_support.dataset_names import dataset_number_arg
 from ai_support import Classifier, MLP_Regressor, LGBM_Regressor
 
 # =============================================================================================== #
@@ -192,7 +193,7 @@ def parse_master_seed(raw: str, decimal: bool) -> int:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Inference and simulation-based validation of trained AI models.")
-    parser.add_argument('--dataset', type=int, default=17, help="Dataset number (default: 17).")
+    parser.add_argument('--dataset', type=dataset_number_arg, default="17", help="Dataset number, e.g. 17 or 17.5 (default: 17).")
     parser.add_argument('--wing-mode', choices=[HOSSAIN_MODE, SINGLE_MODE], default=None,
                         help=f"'{HOSSAIN_MODE}': one-hot rec/flat/60DEG configurations (default). "
                              f"'{SINGLE_MODE}': dataset without one-hot columns.")
@@ -237,7 +238,7 @@ def parse_args():
     return args
 
 
-def build_paths(dataset_num: int) -> SimpleNamespace:
+def build_paths(dataset_num: str) -> SimpleNamespace:
     current_dir = Path(__file__).resolve().parent
     project_root = current_dir.parent
     sys.path.insert(0, str(project_root))
@@ -294,7 +295,7 @@ def load_previous_run(args):
     if not metadata_files:
         sys.exit(f"[ERROR] --resume: no run metadata found in '{folder}'.")
     previous = json.loads(metadata_files[0].read_text())
-    args.dataset = previous['dataset']
+    args.dataset = str(previous['dataset'])
     args.wing_mode = previous['wing_mode']
     args.classifier = previous['classifier']['name']
     args.models = [m['name'] for m in previous['models']] + [m['name'] for m in previous.get('skipped_models', [])]
@@ -827,7 +828,7 @@ def polar_complete(path: Path) -> bool:
     return path.exists() and COMPLETION_FLAG in path.read_text()
 
 
-def stop_without_polars(error: NoPolarsError, run_dir: Path, dataset_num: int, metadata: dict, metadata_path: Path):
+def stop_without_polars(error: NoPolarsError, run_dir: Path, dataset_num: str, metadata: dict, metadata_path: Path):
     """Ends the run with a readable explanation when a simulation stage produced no polars."""
     print(f"\n[ERROR] No polar files were found after the XFOIL step of the '{error.stage}' simulation stage.")
     print(f"        XFOIL was given {error.airfoils} airfoil(s) and wrote no polar, so nothing can be simulated.")

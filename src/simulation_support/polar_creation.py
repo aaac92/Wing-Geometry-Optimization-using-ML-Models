@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 import psutil
 try:
@@ -40,13 +41,17 @@ def _resource_snapshot():
     except Exception:
         return -1, -1
 
+# Header of the failed-angle log written through Xfoil_Polar_Creator(aoa_log_path=...)
+AOA_LOG_HEADER = "time,airfoil,alpha,event\n"
+
 # Useful class
 class Xfoil_Polar_Creator:
     """
     Manages XFOIL simulations in a clean, temporary environment to avoid pathing issues.
     Works on Windows (winpty) and Linux (pexpect); the platform is detected automatically.
     """
-    def __init__(self, xfoil_exe_path, main_dir, airfoil_dir, polar_dir, verbose:bool=False, process_logging:bool=False, mdes_seq:bool=False):
+    def __init__(self, xfoil_exe_path, main_dir, airfoil_dir, polar_dir, verbose:bool=False, process_logging:bool=False, mdes_seq:bool=False,
+                 aoa_log_path=None):
         """
         Initializes the runner and sets up the temporary development environment.
 
@@ -59,8 +64,13 @@ class Xfoil_Polar_Creator:
             process_logging (bool): Used to log individual XFOIL process to debug a "memory leak", do not activate for normal use, only activate if the process crashes
             mid session. DEACTIVATE IN DATABASE CORRECTION PHASE, logging will interfere with _rmtree and crash.
             mdes_seq (bool): Trigger for the MDES geometry smoothing sequence.
+            aoa_log_path (str, optional): CSV file that gets one line per failed ALFA attempt
+                (time,airfoil,alpha,event): 'retry' after a first failed attempt, 'skipped' when the second one failed too,
+                'init_failed' when XFOIL could not be restarted for that angle (the pass ends there). Parallel workers can share it.
+                See AOA_LOG_HEADER.
         """
         self.verbose = verbose
+        self.aoa_log_path = aoa_log_path
         self.process_logging = process_logging
         self.mdes_seq = mdes_seq
 
@@ -102,6 +112,16 @@ class Xfoil_Polar_Creator:
                 self._debug_logger.addHandler(fh)
             self._spawn_count = 0
             self._close_count = 0
+
+    def _log_aoa(self, airfoil_name, alfa, event):
+        """Appends one failed-angle line to aoa_log_path (one write call, so parallel workers don't interleave)."""
+        if not self.aoa_log_path:
+            return
+        try:
+            with open(self.aoa_log_path, "a") as f:
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')},{airfoil_name},{alfa},{event}\n")
+        except OSError:
+            pass
 
     def _spawn(self, work_dir):
         """Starts XFOIL inside work_dir, so the files it reads and writes can be named relative to it."""
@@ -239,7 +259,9 @@ class Xfoil_Polar_Creator:
         try:
             proc, init_msg = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
             if proc is False:
-                print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts. Reason: {init_msg}. Aborting run.")
+                self._log_aoa(airfoil_file_path.name, alfa_sequence[0] if alfa_sequence else "", "init_failed")
+                if self.verbose:
+                    print(f"[INFO] {airfoil_file_path.name}: exhausted all initialization attempts. Reason: {init_msg}. Aborting run.")
                 return False
 
             for alfa in alfa_sequence:
@@ -250,19 +272,26 @@ class Xfoil_Polar_Creator:
                     if proc is None:
                         proc, init_msg = self.initialize_xfoil(airfoil_file_path, polar_file_path, iter, visc, mach)
                         if proc is False:
-                            print(f"[INFO] {airfoil_file_path.name}: exhausted initialization during alpha sweep. Reason: {init_msg}.")
+                            self._log_aoa(airfoil_file_path.name, alfa, "init_failed")
+                            if self.verbose:
+                                print(f"[INFO] {airfoil_file_path.name}: exhausted initialization during alpha sweep. Reason: {init_msg}.")
                             return False
 
                     if not self._send_command(proc, f"ALFA {alfa}", expect_prompt=".OPERva   c>", timeout_sec=10):
                         attempts += 1
-                        print(f"[WARNING] Could not execute ALFA {alfa} for {airfoil_file_path.name} (Attempt {attempts}/2). Re-initializing.")
+                        if attempts < 2:
+                            self._log_aoa(airfoil_file_path.name, alfa, "retry")
+                        if self.verbose:
+                            print(f"[WARNING] Could not execute ALFA {alfa} for {airfoil_file_path.name} (Attempt {attempts}/2). Re-initializing.")
                         proc.close(force=True)
                         proc = None
                     else:
                         success = True
 
                 if not success:
-                    print(f"[WARNING] ALFA {alfa} completely failed for {airfoil_file_path.name}. Skipping this angle.")
+                    self._log_aoa(airfoil_file_path.name, alfa, "skipped")
+                    if self.verbose:
+                        print(f"[WARNING] ALFA {alfa} completely failed for {airfoil_file_path.name}. Skipping this angle.")
 
             # --- FINISH AND CLEAN UP PROCESS ---
             if self.verbose:

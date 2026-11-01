@@ -42,6 +42,8 @@ class Training_Data_Generator:
         self.geo_files_dir = Path(geo_files_dir)
         self.output_dir = Path(output_dir)
         self.verbose = verbose
+        self.skipped = []
+        self.row_counts = {}
         self.output_mode = output_mode
         self.append_kp = append_kp
 
@@ -177,17 +179,24 @@ class Training_Data_Generator:
         )
         return None
 
-    def _process_valid_airfoils(self) -> List[List]:
+    def count_force_files(self) -> int:
+        """Number of force files generate_training_files() will read (one progress step each)."""
+        return sum(1 for _ in self.force_files_dir.glob('*.txt'))
+
+    def _process_valid_airfoils(self, progress_callback=None) -> List[List]:
         """Processes valid airfoils and returns their CSTs and performance metrics."""
         self._log_and_print("--- Processing valid airfoils ---")
         processed_data = []
         force_files = list(self.force_files_dir.glob('*.txt'))
         
-        iterable = tqdm(force_files, desc="Processing valid airfoils") if self.verbose else force_files
+        iterable = tqdm(force_files, desc="Processing valid airfoils") if self.verbose and progress_callback is None else force_files
 
         for force_file_path in iterable:
+            if progress_callback is not None:
+                progress_callback()
             force_data = self._extract_force_data(force_file_path)
             if not force_data:
+                self.skipped.append((force_file_path.name, "force file could not be read"))
                 continue
 
             airfoil_name, cl, cd = force_data
@@ -195,11 +204,13 @@ class Training_Data_Generator:
             geometry_name = force_file_path.stem.replace("force_", "", 1)
             config_encoding = self._extract_config_encoding(geometry_name)
             if not config_encoding:
+                self.skipped.append((force_file_path.name, "no wing configuration in the file name"))
                 continue
 
             airfoil_dat_path = self.airfoils_dir / f"{airfoil_name}.dat"
             cst_params = self._extract_cst_from_dat(airfoil_dat_path)
             if not cst_params:
+                self.skipped.append((force_file_path.name, "CST coefficients missing from the .dat file"))
                 continue
 
             # Modified execution conditionally reliant on self.append_kp toggle
@@ -214,6 +225,7 @@ class Training_Data_Generator:
             if self.output_mode == 'Efficiency':
                 if cd == 0:
                     self._log_and_print(f"CD is zero for {airfoil_name}, cannot compute E. Skipping.", "warning")
+                    self.skipped.append((force_file_path.name, "CD is zero"))
                     continue
                 performance_metric = [cl / cd]
             else:  # 'Coefficients'
@@ -266,17 +278,22 @@ class Training_Data_Generator:
         except IOError as e:
             self._log_and_print(f"Error writing to CSV file {file_path}: {e}", 'error')
 
-    def generate_training_files(self, regression_filename: str, classification_filename: str):
+    def generate_training_files(self, regression_filename: str, classification_filename: str, progress_callback=None):
         """
         Generates two training files: one for regression and one for classification.
 
         Args:
             regression_filename (str): Filename for the regression model (valid data only).
             classification_filename (str): Filename for the classification model (all data).
+            progress_callback (callable, optional): Called once per force file read (see count_force_files).
+
+        Afterwards `self.skipped` lists (force file, reason) for every force file left out of the regression
+        file and `self.row_counts` the rows written to each file.
         """
         self._log_and_print("--- Starting data generation ---")
+        self.skipped = []
         
-        valid_data_for_regression = self._process_valid_airfoils()
+        valid_data_for_regression = self._process_valid_airfoils(progress_callback)
         invalid_csts_for_classification = self._process_invalid_airfoils()
 
         # --- Generate the REGRESSION file (valid data only) ---
@@ -302,6 +319,8 @@ class Training_Data_Generator:
         invalid_data_for_classification = [cst + [0] for cst in invalid_csts_for_classification]
         
         all_classification_data = valid_csts_for_classification + invalid_data_for_classification
+        self.row_counts = {"regression": len(valid_data_for_regression), "classification_valid": len(valid_csts_for_classification),
+                           "classification_invalid": len(invalid_data_for_classification)}
         
         if all_classification_data:
             class_header = self.cst_headers + ['valid']

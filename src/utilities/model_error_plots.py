@@ -77,9 +77,9 @@ if not os.path.exists(DATA_PATH):
     sys.exit(1)
 
 # Automatically determine the Dataset number from the filename
-match = re.search(r"(?<=Dataset_)\d+", Training_File)
+match = re.search(r"(?<=dataset_)\d+(?:\.\d+)?", Training_File, re.IGNORECASE)
 if match:
-    dataset_num = int(match.group())
+    dataset_num = match.group()
 else:
     print(f"[ERROR] Could not extract dataset number from filename: '{Training_File}'")
     sys.exit(1)

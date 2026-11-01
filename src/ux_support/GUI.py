@@ -13,6 +13,8 @@ class Progress_GUI:
         detailed_only: bool = False,
         show_acceleration: bool = False,
         acceleration_state: Optional[dict] = None,
+        show_details: bool = True,
+        is_done: Optional[Callable[[], bool]] = None,
     ):
         """
         detailed_only, show_acceleration, and acceleration_state are all
@@ -38,6 +40,13 @@ class Progress_GUI:
             each poll) when `show_acceleration` is True; a missing key
             or None state falls back to a 0/0.0 display rather than
             raising.
+        show_details : bool
+            False hides the "More details..." button of the simple view
+            (stages that run on a single thread have nothing to detail).
+        is_done : callable, optional
+            Returns True once the producing job has ended; the window then
+            closes even if fewer than total_files items were reported (a
+            job that skipped work or raised would otherwise leave it open).
         """
         self.total_files = total_files
         self.progress_queue = progress_queue
@@ -49,6 +58,7 @@ class Progress_GUI:
         self.detailed_only = detailed_only
         self.show_acceleration = show_acceleration
         self.acceleration_state = acceleration_state
+        self.is_done = is_done
 
         # initial_completed lets a resumed run start the bar/ETA at the
         # right offset instead of counting back up from 0. The ETA rate
@@ -90,8 +100,9 @@ class Progress_GUI:
             self.eta_label = tk.Label(self.main_frame, text="")
             self.eta_label.pack()
 
-            self.more_button = tk.Button(self.main_frame, text="More details...", command=self.show_detailed_view)
-            self.more_button.pack(pady=10)
+            if show_details:
+                self.more_button = tk.Button(self.main_frame, text="More details...", command=self.show_detailed_view)
+                self.more_button.pack(pady=10)
 
     def format_eta(self, seconds, end=False):
         """Formats seconds into a human-readable string: H-M-S."""
@@ -165,7 +176,8 @@ class Progress_GUI:
 
     def check_for_completion(self):
         """Checks if all files have been processed and closes the GUI if so."""
-        if self.files_completed >= self.total_files and not self.is_finished:
+        done = self.files_completed >= self.total_files or (self.is_done is not None and self.is_done())
+        if done and not self.is_finished:
             self.is_finished = True
             print(f"Calculation complete. {self.format_eta(time.time() - self.start_time, end=True)}")
             self.root.destroy() # Automatically close the window

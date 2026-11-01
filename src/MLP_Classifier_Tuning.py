@@ -8,6 +8,7 @@ import platform
 from pathlib import Path
 from ai_support import Classifier
 from ux_support import recovery_json
+from file_handling_support.model_names import pick_model_name
 
 # === Mandatory GPU Check === #
 if not torch.cuda.is_available():
@@ -28,7 +29,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 datasets_dir = project_root / "data" / "datasets"
 # Path to dataset
-dataset_num = 17
+dataset_num = "17.5" # text: decimal datasets are rebuilds (17.5 rebuilds 17)
 dataset_name = f"classifier_dataset_{dataset_num}"
 dataset_dir = datasets_dir / f"dataset_{dataset_num}"
 training_file_dir = dataset_dir / f"{dataset_name}.csv"
@@ -111,7 +112,8 @@ for key, value in best_params.items():
 # Setup names for saving
 names = ["Barbatos", "Focalors", "Istaroth", "Calipso", "Asmoday", "Lauma"]
 if 'best_f1_name' not in status:
-    status['best_f1_name'] = random.choice(names)
+    # Avoids the names of models already saved for this dataset (any type, any version, old models included)
+    status['best_f1_name'] = pick_model_name(names, project_root / "models" / f"dataset_{dataset_num}", kind="classifier")
     rec_json.save_recovery_status(status)
 best_f1_name = status['best_f1_name']
 

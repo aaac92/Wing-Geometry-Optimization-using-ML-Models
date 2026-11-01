@@ -28,6 +28,11 @@ Examples
     python src/utilities/dataset_rectification.py diagnose --dataset 17 --flagged 0 --top 0 --controls 300 --runs 1
     python src/utilities/dataset_rectification.py diagnose --dataset 17 --sweep sequential --kp-seed none
     python src/utilities/dataset_rectification.py rectify --dataset 17 --yes
+    python src/utilities/dataset_rectification.py rectify --dataset 17 --rule absolute --threshold 15 --keep-failed
+
+Outlier rule: 'robust' (default) adapts the limit to how much E varies among each row's neighbours (median
+absolute deviation); 'absolute' uses one fixed limit in E points (used for the dataset 17 rectification).
+Rows whose simulation fails are dropped from the rectified CSV unless --keep-failed is given.
 """
 import argparse
 import ast
@@ -44,6 +49,7 @@ sys.path.insert(0, str(SRC_DIR))
 from file_handling_support.database_correction import (  # noqa: E402
     Dataset_Rectifier, Simulation_Settings, display_available, grid_levels_from_ranges,
 )
+from file_handling_support.dataset_names import dataset_number_arg  # noqa: E402
 from simulation_support.alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_MODES  # noqa: E402
 
 # =============================================================================================== #
@@ -53,7 +59,7 @@ from simulation_support.alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_MODES  # no
 # Flow regimes of datasets whose log predates the "Flow regime" block written by the generators.
 # Dataset 17: values from Hossain_DB_Gen.py at the time it was generated.
 KNOWN_FLOW_REGIMES = {
-    17: {"reynolds": 2.5e5, "mach": 0.09281, "aseq": [-20.0, 20.0, 0.5], "base_airfoil": "naca0012_unit.csv",
+    "17": {"reynolds": 2.5e5, "mach": 0.09281, "aseq": [-20.0, 20.0, 0.5], "base_airfoil": "naca0012_unit.csv",
          "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"},
 }
 DEFAULT_CASE_FILE = "Hossain_sqwing_case.run"
@@ -62,7 +68,7 @@ CONFIG_CLASS_IDENTIFIERS = {"HossainWingRec_Creation": "rec", "HossainWingFlat_C
                             "HossainWing60DEG_Creation": "60DEG"}
 
 
-def find_dataset_log(dataset_num: int):
+def find_dataset_log(dataset_num: str):
     logs = sorted((PROJECT_ROOT / "data" / "logs").glob(f"Dataset_{dataset_num}_*_data_points.log"))
     return logs[-1] if logs else None
 
@@ -185,7 +191,11 @@ def print_properties(values: dict, sources: dict, args) -> None:
         print(f"  {label:<44} {str(value):<40} [{sources.get(name, '-')}]")
     print("-" * 100)
     print(f"  {'Pipeline variant':<44} sweep = {args.sweep}, key-point seed = {args.kp_seed}")
-    print(f"  {'Outlier rule':<44} |E - neighbour median| > {args.threshold}, >= {args.min_neighbours} neighbours")
+    rule = (f"|E - neighbour median| > max({args.robust_k:g} x 1.4826 x neighbour MAD, {args.min_deviation:g})"
+            if args.rule == "robust" else f"|E - neighbour median| > {args.threshold:g}")
+    print(f"  {'Outlier rule':<44} {args.rule}: {rule}, >= {args.min_neighbours} neighbours")
+    if args.mode == "rectify":
+        print(f"  {'Failed simulations':<44} {'row kept with its dataset E' if args.keep_failed else 'row dropped from the CSV'}")
     print(f"  {'Decision':<44} strict majority of {args.runs} runs, agreement tolerance {args.tolerance:.1%}")
     workers = "1 (single process)" if args.single_process else str(args.workers)
     print(f"  {'Workers':<44} {workers}")
@@ -238,7 +248,7 @@ def support_file(name: str, *subdirs: str) -> Path:
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     data = common.add_argument_group("dataset")
-    data.add_argument("--dataset", type=int, required=True, help="Dataset number, e.g. 17.")
+    data.add_argument("--dataset", type=dataset_number_arg, required=True, help="Dataset number, e.g. 17 or 17.5.")
     data.add_argument("--csv", help="Regressor CSV to process (default: data/datasets/dataset_<N>/regressor_dataset_<N>.csv).")
     data.add_argument("--work-dir", help="Folder for the evaluation store and reports (default: data/datasets/dataset_<N>/rectification).")
 
@@ -260,7 +270,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Seed for the Gaussian-process key-point fit; 'none' reproduces the legacy unseeded fit.")
 
     rule = common.add_argument_group("outlier rule and decision")
-    rule.add_argument("--threshold", type=float, default=15.0, help="Flag rows with |E - neighbour median| above this value.")
+    rule.add_argument("--rule", choices=("robust", "absolute"), default="robust",
+                      help="'robust': flag rows more than --robust-k robust standard deviations (1.4826 x MAD) from their "
+                           "neighbour median, at least --min-deviation; 'absolute': flag rows more than --threshold from it.")
+    rule.add_argument("--robust-k", type=float, default=3.5, help="Robust rule: limit in robust standard deviations.")
+    rule.add_argument("--min-deviation", type=float, default=2.0, help="Robust rule: smallest limit, in E points.")
+    rule.add_argument("--threshold", type=float, default=15.0, help="Absolute rule: flag rows with |E - neighbour median| above this value.")
     rule.add_argument("--min-neighbours", type=int, default=3, help="Rows with fewer grid neighbours are never flagged.")
     rule.add_argument("--runs", type=int, default=None,
                       help="Independent simulations per airfoil (default: 5 for diagnose, to keep measuring "
@@ -303,6 +318,8 @@ def build_parser() -> argparse.ArgumentParser:
                                         "Writes the rectified CSV and rectification_<time>_report.txt, _rows.csv and .json.")
     rect.add_argument("--max-rounds", type=int, default=5, help="Maximum flag/simulate/decide rounds.")
     rect.add_argument("--output", help="Rectified CSV path (default: next to the dataset, *_rectified.csv).")
+    rect.add_argument("--keep-failed", action="store_true",
+                      help="Keep rows whose simulation failed (with their dataset E) instead of dropping them.")
     return parser
 
 
@@ -344,6 +361,8 @@ def main() -> None:
         csv_path=values["csv"], settings=settings, work_dir=work_dir, temp_root=temp_root(), grid_levels=grid,
         threshold=args.threshold, min_neighbours=args.min_neighbours, n_runs=args.runs, agreement_tolerance=args.tolerance,
         workers=args.workers, single_process=args.single_process, use_gui=getattr(args, "gui", None),
+        rule=args.rule, robust_k=args.robust_k, min_deviation=args.min_deviation,
+        drop_failed=not getattr(args, "keep_failed", False),
     )
     stored = len(rectifier.store["evaluations"][settings.signature_id()])
     print(f"Rows: {len(rectifier.E)} | airfoils: {len(rectifier.airfoils)} | CST values snapped to the grid: "

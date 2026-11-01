@@ -170,12 +170,43 @@ class Key_Point_Extraction:
 
         return self._critical_point_extract(CL_values, CD_values)
 
-    def process_files(self):
+    def process_file(self, file_path):
+        """
+        Key points of one polar file. Returns (result dict, None) on success or (None, error dict).
+        The result dict has the format process_files() collects.
+        """
+        try:
+            low_cl_point, high_cl_point, min_cd_point = self._interpolate_and_extract(file_path)
+            return {
+                'file_path': os.path.basename(file_path),
+                'min_cl_point': {'CL': float(low_cl_point[0]), 'CD': float(low_cl_point[1])},
+                'max_cl_point': {'CL': float(high_cl_point[0]), 'CD': float(high_cl_point[1])},
+                'min_cd_point': {'CL': float(min_cd_point[0]), 'CD': float(min_cd_point[1])}
+            }, None
+        except Exception as e:
+            return None, {'file_path': os.path.basename(file_path), 'error': str(e)}
+
+    def polar_cd_min(self, file_path):
+        """(CD, alpha, CL) of the converged polar point with the lowest CD, or None if the polar has no points."""
+        try:
+            alpha, cl, cd = self._polar_cleanup(*self._polar_extract(file_path))
+        except (OSError, ValueError):
+            return None
+        if not len(cd):
+            return None
+        i = int(np.argmin(cd))
+        return float(cd[i]), float(alpha[i]), float(cl[i])
+
+    def process_files(self, progress_callback=None):
         """
         Processes all files provided during initialization.
 
         Loops through each file path, extracts key points, and stores them.
         Errors are stored in the `self.errors` list.
+
+        Args:
+            progress_callback (callable, optional): Called once (no args) after each file. When given, the
+                caller owns the progress display and no tqdm bar is created.
 
         Returns:
             list: A list of dictionaries, where each dictionary contains the
@@ -183,22 +214,19 @@ class Key_Point_Extraction:
         """
         self.results = []
         self.errors = []
-        
-        for file_path in tqdm(self.polar_file_paths, desc="Extracting Key Points", disable=not self.verbose):
-            try:
-                low_cl_point, high_cl_point, min_cd_point = self._interpolate_and_extract(file_path)
-                
-                result_dict = {
-                    'file_path': os.path.basename(file_path),
-                    'min_cl_point': {'CL': low_cl_point[0], 'CD': low_cl_point[1]},
-                    'max_cl_point': {'CL': high_cl_point[0], 'CD': high_cl_point[1]},
-                    'min_cd_point': {'CL': min_cd_point[0], 'CD': min_cd_point[1]}
-                }
-                self.results.append(result_dict)
-                
-            except Exception as e:
-                self.errors.append({'file_path': os.path.basename(file_path), 'error': str(e)})
-        
+
+        files = self.polar_file_paths
+        if progress_callback is None:
+            files = tqdm(files, desc="Extracting Key Points", disable=not self.verbose)
+        for file_path in files:
+            result, error = self.process_file(file_path)
+            if result is not None:
+                self.results.append(result)
+            else:
+                self.errors.append(error)
+            if progress_callback is not None:
+                progress_callback()
+
         return self.results
     
     def save_error_log(self, log_path: str):

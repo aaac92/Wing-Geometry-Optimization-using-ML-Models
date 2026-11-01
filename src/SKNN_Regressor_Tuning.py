@@ -6,6 +6,7 @@ import itertools
 import pandas as pd
 from pathlib import Path
 from ai_support import SKNN_Regressor 
+from file_handling_support.model_names import pick_model_name
 
 # === Directory configuration === #
 # Get the path to the src directory.
@@ -13,7 +14,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 datasets_dir = project_root / "data" / "datasets"
 # Path to dataset
-dataset_num = 17
+dataset_num = "17.5" # text: decimal datasets are rebuilds (17.5 rebuilds 17)
 dataset_name = f"regressor_dataset_{dataset_num}"
 dataset_dir = datasets_dir / f"dataset_{dataset_num}"
 training_file_dir = dataset_dir / f"{dataset_name}.csv"
@@ -86,7 +87,8 @@ print("#"*60 + "\n")
 
 # === Final Saving and Reporting === #
 names = ["Andras", "Stolas", "Haagenti", "Amy", "Decarabia", "Hypnos", "Luonnotar"]
-best_mae_name = random.choice(names)
+# Avoids the names of models already saved for this dataset (any type, any version, old models included)
+best_mae_name = pick_model_name(names, project_root / "models" / f"dataset_{dataset_num}", kind="SKNN regressor")
 
 print("--- Saving Best Performing Model ---")
 if best_mae_info['model']:
