@@ -214,9 +214,98 @@ def _invalid_reason(log_line: str) -> str:
     reason = log_line.split("Reason:", 1)[-1].strip()
     return re.sub(r"\(.*", "", reason).strip() or "unknown"
 
+# --- Airfoil generation (process pool) --- #
+_GENESIS = {} # per-worker state: generator, filters and folders, set once by _genesis_worker_init
+
+def _genesis_worker_init(base_airfoil_path, n_cst, filters, output_dir, partial_dir, invalid_output_dir, generate_invalid):
+    _GENESIS.update(generator=Airfoil_Generator(base_airfoil_csv=base_airfoil_path, n_cst=n_cst, verbose=False),
+                    n_cst=n_cst, filters=filters, output_dir=Path(output_dir), partial_dir=Path(partial_dir),
+                    invalid_output_dir=Path(invalid_output_dir), generate_invalid=generate_invalid)
+
+def genesis_worker(task):
+    '''
+    Generates and filters one CST combination. A valid airfoil is written to the airfoil folder (through a
+    partial file renamed at the end, so an interrupted run never leaves a half-written .dat). Returns
+    (airfoil number, None) for a valid airfoil or (airfoil number, invalid-log line) for a rejected one.
+    '''
+    index, cmb = task
+    state = _GENESIS
+    f = state['filters']
+    n_cst = state['n_cst']
+    airfoil_creator = state['generator']
+    airfoil_name = f"Test_{index+1}"
+    x_mod, yu_mod, yl_mod = airfoil_creator.generate(
+        cst_coeffs=cmb,
+        show_plot=False,
+        debug=False
+        )
+
+    # Silent check_validity before creating mod airfoil
+    log_reason = None
+    validity = check_validity(x_mod, yu_mod, yl_mod, verbose=False)
+
+    if validity == True:
+        valid = 'valid'
+        try: # Wrapped in try block in case FoilGeoFeatures raises an unexpected error
+            va = Validate_Airfoil(
+                x=x_mod,
+                yu=yu_mod,
+                yl=yl_mod,
+                cst_coeffs=cmb,
+                n_cst=n_cst,
+                name=airfoil_name,
+                verbose=False
+                )
+
+            if valid == 'valid':
+                valid, log_reason = va.thickness_filters(th_t_min=f.get('threshold_min_t'), th_t_max=f.get('threshold_max_t'), th_t_x_max=f.get('threshold_t_x_max'), th_t_x_min=f.get('threshold_t_x_min'))
+            if valid == 'valid':
+                valid, log_reason = va.sharpness_filter(curv_cont=f.get('activate_curvature_cont'), th_rLE=f.get('threshold_rLE'))
+            if valid == 'valid':
+                if f.get('monotonic_activation'):
+                    valid, log_reason = va.monotonic_thickness_filter()
+            if valid == 'valid':
+                valid, log_reason = va.camber_filters(th_c_max=f.get('threshold_max_camber'), th_c_min=f.get('threshold_min_camber'))
+
+            if valid == 'invalid':
+                validity = False
+        except ValueError as e: # Validate_Airfoil formats its feature-extraction failures as a log line
+            validity = False
+            log_reason = str(e)
+
+        if validity:
+            airfoil_creator._create_dat_file(
+                output_dir=state['partial_dir'],
+                n_cst = n_cst,
+                x=x_mod,
+                yl=yl_mod,
+                yu=yu_mod,
+                file_name=airfoil_name,
+                debug=False
+                )
+            os.replace(state['partial_dir'] / f"{airfoil_name}.dat", state['output_dir'] / f"{airfoil_name}.dat")
+            return index + 1, None
+    else:
+        cmb_l = np.array(cmb[:n_cst])
+        cmb_u = np.array(cmb[n_cst:])
+        log_reason = f"{airfoil_name}.dat: cmb_l = {cmb_l}, cmb_u = {cmb_u} | Reason: Check_validity failed\n"
+
+    if state['generate_invalid']: # Optionally save the rejected airfoil
+        airfoil_creator._create_dat_file(
+            output_dir=state['invalid_output_dir'],
+            n_cst = n_cst,
+            x=x_mod,
+            yl=yl_mod,
+            yu=yu_mod,
+            file_name=airfoil_name,
+            debug=False
+        )
+    return index + 1, log_reason.rstrip()
+
 def Airfoil_Genesis(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False, **kwargs):
     '''
-    Fills a folder with generated airfoils matching the combination list and geometrically filtered for real plausible airfoils
+    Fills a folder with generated airfoils matching the combination list and geometrically filtered for real
+    plausible airfoils, using a process pool. Rejected combinations go to the invalid airfoils log.
 
     Parameters
     ----------
@@ -228,126 +317,52 @@ def Airfoil_Genesis(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=Fal
 
     cmb_datalist : np.ndarray
         A list containing rows of cst coeeffiecients, format in Airfoil_Generator
-    '''
-    # Unpack filter parameters
-    threshold_max_t = kwargs.get('threshold_max_t')
-    threshold_min_t = kwargs.get('threshold_min_t')
-    threshold_t_x_max = kwargs.get('threshold_t_x_max')
-    threshold_t_x_min = kwargs.get('threshold_t_x_min')
-    activate_curvature_cont = kwargs.get('activate_curvature_cont')
-    threshold_rLE = kwargs.get('threshold_rLE')
-    monotonic_activation = kwargs.get('monotonic_activation')
-    threshold_max_camber = kwargs.get('threshold_max_camber')
-    threshold_min_camber = kwargs.get('threshold_min_camber')
 
+    kwargs : geometric filter thresholds and activations (see geo_filt_parm)
+    '''
     # Recovery check
     if rec_Fabius.check_stage_status(stage_name=AIRFOIL_GENESIS.name, current_rar=AIRFOIL_GENESIS.archive, required_deps=None):
         return
 
     os.makedirs(airfoils_temp_dir, exist_ok=True)
     invalid_output_dir = airfoils_temp_dir / "invalid airfoils"
+    # Valid airfoils are written here first and renamed into the airfoil folder once complete
+    partial_dir = training_temp_root / "airfoils_partial"
+    shutil.rmtree(partial_dir, ignore_errors=True) # leftovers of an interrupted run are incomplete
+    partial_dir.mkdir(parents=True)
 
     # --- Recovery Logic --- #
-    # Resume after the highest airfoil number found in the valid files or in the invalid log. That last
-    # airfoil is generated again (its file or log line may be incomplete), so it is removed first.
-    valid_numbers = [_airfoil_number(f.stem) for f in airfoils_temp_dir.glob('*.dat')]
-    invalid_lines = invalid_airfoils_log.read_text().splitlines(keepends=True) if invalid_airfoils_log.exists() else []
-    invalid_numbers = [_airfoil_number(line.split(".dat", 1)[0]) for line in invalid_lines if ".dat" in line]
-    start_index = 0
-    last = max(valid_numbers + invalid_numbers, default=0)
-    if last > 0:
-        start_index = last - 1
-        (airfoils_temp_dir / f"Test_{last}.dat").unlink(missing_ok=True)
-        kept = [line for line, num in zip([l for l in invalid_lines if ".dat" in l], invalid_numbers) if num < last]
-        invalid_airfoils_log.write_text("".join(kept))
-        print(f"Resuming {AIRFOIL_GENESIS.name} from airfoil Test_{start_index + 1}")
+    # Workers finish out of order, so a resumed run skips every airfoil already decided: a .dat file in the
+    # airfoil folder (complete by construction) or a line in the invalid log (written once decided).
+    done = {_airfoil_number(f.stem) for f in airfoils_temp_dir.glob('*.dat')}
+    if invalid_airfoils_log.exists():
+        text = invalid_airfoils_log.read_text()
+        if text and not text.endswith("\n"): # the run stopped mid-line: drop the incomplete line
+            invalid_airfoils_log.write_text(text[:text.rfind("\n") + 1])
+        done |= {_airfoil_number(line.split(".dat", 1)[0]) for line in invalid_airfoils_log.read_text().splitlines() if ".dat" in line}
+    tasks = [(i, cmb_datalist[i]) for i in range(len(cmb_datalist)) if i + 1 not in done]
+    if done:
+        print(f"Resuming {AIRFOIL_GENESIS.name}: {len(done):,} airfoil(s) already decided, {len(tasks):,} to go.")
 
     # --- Generation Logic --- #
-    airfoil_creator = Airfoil_Generator(
-            base_airfoil_csv=base_airfoil_path,
-            n_cst=n_cst,
-            verbose=False
-        )
     progress_queue = queue.Queue()
+    num_workers = max(1, min(cpu_count() - 1, len(tasks)))
 
     def generate_all():
-        with open(invalid_airfoils_log, "a") as log:
-            for i in range(start_index, len(cmb_datalist)):
-                cmb = cmb_datalist[i]
-                airfoil_name = f"Test_{i+1}"
-                x_mod, yu_mod, yl_mod = airfoil_creator.generate(
-                    cst_coeffs=cmb,
-                    show_plot=False,
-                    debug=False
-                    )
-
-                # Silent check_validity before creating mod airfoil
-                log_reason = None
-                validity = check_validity(x_mod, yu_mod, yl_mod, verbose=False)
-
-                if validity == True:
-                    valid = 'valid'
-                    try: # Wrapped in try block in case FoilGeoFeatures raises an unexpected error
-                        va = Validate_Airfoil(
-                            x=x_mod,
-                            yu=yu_mod,
-                            yl=yl_mod,
-                            cst_coeffs=cmb,
-                            n_cst=n_cst,
-                            name=airfoil_name,
-                            verbose=False
-                            )
-
-                        if valid == 'valid':
-                            valid, log_reason = va.thickness_filters(th_t_min=threshold_min_t, th_t_max=threshold_max_t, th_t_x_max=threshold_t_x_max, th_t_x_min=threshold_t_x_min)
-                        if valid == 'valid':
-                            valid, log_reason = va.sharpness_filter(curv_cont=activate_curvature_cont, th_rLE=threshold_rLE)
-                        if valid == 'valid':
-                            if monotonic_activation:
-                                valid, log_reason = va.monotonic_thickness_filter()
-                        if valid == 'valid':
-                            valid, log_reason = va.camber_filters(th_c_max=threshold_max_camber, th_c_min=threshold_min_camber)
-
-                        if valid == 'invalid':
-                            validity = False
-                    except ValueError as e: # Validate_Airfoil formats its feature-extraction failures as a log line
-                        validity = False
-                        log_reason = str(e)
-
-                    if validity:
-                        airfoil_creator._create_dat_file(
-                            output_dir=airfoils_temp_dir,
-                            n_cst = n_cst,
-                            x=x_mod,
-                            yl=yl_mod,
-                            yu=yu_mod,
-                            file_name=airfoil_name,
-                            debug=False
-                            )
-                else:
-                    cmb_l = np.array(cmb[:n_cst])
-                    cmb_u = np.array(cmb[n_cst:])
-                    log_reason = f"{airfoil_name}.dat: cmb_l = {cmb_l}, cmb_u = {cmb_u} | Reason: Check_validity failed\n"
-
-                if not validity: # If validity == False then we write to log, optionally save airfoil
-                    if generate_invalid:
-                        airfoil_creator._create_dat_file(
-                            output_dir=invalid_output_dir,
-                            n_cst = n_cst,
-                            x=x_mod,
-                            yl=yl_mod,
-                            yu=yu_mod,
-                            file_name=airfoil_name,
-                            debug=False
-                        )
-                    log.write(f"{log_reason.rstrip()}\n")
+        initargs = (base_airfoil_path, n_cst, kwargs, airfoils_temp_dir, partial_dir, invalid_output_dir, generate_invalid)
+        with open(invalid_airfoils_log, "a") as log, \
+                Pool(processes=num_workers, initializer=_genesis_worker_init, initargs=initargs) as pool:
+            for number, log_line in pool.imap_unordered(genesis_worker, tasks, chunksize=64):
+                if log_line is not None:
+                    log.write(f"{log_line}\n")
                     log.flush()
                 progress_queue.put(1)
 
-    remaining = len(cmb_datalist) - start_index
-    run_with_progress(generate_all, remaining, progress_queue, title=AIRFOIL_GENESIS.name,
-                      header=f"Generating {remaining:,} of {len(cmb_datalist):,} CST combinations", details=False,
-                      use_gui=USE_GUI, console_desc="Airfoils", unit="airfoil")
+    if tasks:
+        run_with_progress(generate_all, len(tasks), progress_queue, title=AIRFOIL_GENESIS.name,
+                          header=f"Generating {len(tasks):,} of {len(cmb_datalist):,} CST combinations ({num_workers} workers)",
+                          details=False, use_gui=USE_GUI, console_desc="Airfoils", unit="airfoil")
+    shutil.rmtree(partial_dir, ignore_errors=True)
 
     # Save airfoils to main path in compressed form
     rar_Alma.compress_folder(airfoils_temp_dir, airfoils_dir, airfoil_dataset_name)
