@@ -1,0 +1,24 @@
+
+    _____  ____  __   __       _      ____     _     ___  _   _
+   |_   _||  _ \ \ \ / /      / \    / ___|   / \   |_ _|| \ | |
+     | |  | |_) | \ V /      / _ \  | |  _   / _ \   | | |  \| |
+     | |  |  _ <   | |      / ___ \ | |_| | / ___ \  | | | |\  | _  _  _
+     |_|  |_| \_\  |_|     /_/   \_\ \____|/_/   \_\|___||_| \_|(_)(_)(_)
+
+==========================================================================================
+Goal: a wing design with simulated E above the best of dataset 17.
+Target: E > 45.1120  (dataset best 45.1120)
+
+Best design found: E = 26.4636 (-41.34% vs target) | config rec | picked by edge#12
+  CST lower: [0.0304, 0.1176, 0.0, 0.0953, 0.25]
+  CST upper: [0.0883, 0.1206, 0.125, 0.136, 0.25]
+  Robustness: 8 small perturbations, E from 25.27 to 26.52 (hold rate 100%)
+
+Best simulated E of each model's own picks:
+  Agares_1.1          24.1289   -20.98 from the target
+  Odysseus_1.1        22.8308   -22.28 from the target
+  Murata_1.1          24.0169   -21.10 from the target
+
+Run: 20261031_m_seedab8359c5 | master seed 0xab8359c5 | 3:26:06
+Full details: detailed_results.txt
+==========================================================================================

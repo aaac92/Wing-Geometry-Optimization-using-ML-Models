@@ -1,0 +1,4867 @@
+{
+    "outcome": {
+        "success": false,
+        "target_E": 45.11203319502074,
+        "dataset_best_E": 45.11203319502074,
+        "reference_best_simulated_E": null,
+        "improvement_ids": [],
+        "best_per_model": {
+            "Agares_1.1": 24.12887560702279,
+            "Odysseus_1.1": 22.830809992429977,
+            "Murata_1.1": 24.016879219804952
+        }
+    },
+    "dataset_best": {
+        "E": 45.11203319502074,
+        "wing_config": "rec",
+        "cst_lower": [
+            0.0,
+            0.125,
+            0.0,
+            0.125,
+            0.125
+        ],
+        "cst_upper": [
+            0.0,
+            0.0,
+            0.0,
+            0.125,
+            0.125
+        ]
+    },
+    "rounds_completed": 10,
+    "total_time": "3:26:06",
+    "scorecard": [
+        {
+            "group": "model:Agares_1.1",
+            "picks": 15,
+            "simulated": 14,
+            "failed": 1,
+            "invalid_geometry": 0,
+            "best_simulated_E": 24.12887560702279,
+            "regret": 20.983157587997955,
+            "median_simulated_E": 21.017035042176825,
+            "hits": 0,
+            "mean_signed_error": 11.73059540986655,
+            "rank_agreement": -0.2571428571428571,
+            "scores_above_dataset_max": 0
+        },
+        {
+            "group": "model:Odysseus_1.1",
+            "picks": 14,
+            "simulated": 14,
+            "failed": 0,
+            "invalid_geometry": 0,
+            "best_simulated_E": 22.830809992429977,
+            "regret": 22.281223202590766,
+            "median_simulated_E": 21.10095936098454,
+            "hits": 0,
+            "mean_signed_error": 12.85829941710312,
+            "rank_agreement": -0.11208791208791209,
+            "scores_above_dataset_max": 0
+        },
+        {
+            "group": "model:Murata_1.1",
+            "picks": 15,
+            "simulated": 15,
+            "failed": 0,
+            "invalid_geometry": 0,
+            "best_simulated_E": 24.016879219804952,
+            "regret": 21.09515397521579,
+            "median_simulated_E": 21.090423638305445,
+            "hits": 0,
+            "mean_signed_error": 13.04382709361503,
+            "rank_agreement": -0.2607142857142857,
+            "scores_above_dataset_max": 1
+        },
+        {
+            "group": "consensus",
+            "picks": 14,
+            "simulated": 14,
+            "failed": 0,
+            "invalid_geometry": 0,
+            "best_simulated_E": 23.406674427629024,
+            "regret": 21.70535876739172,
+            "median_simulated_E": 21.017035042176825,
+            "hits": 0,
+            "mean_signed_error": 10.641387591846412,
+            "rank_agreement": -0.3362637362637363,
+            "scores_above_dataset_max": 0
+        },
+        {
+            "group": "edge",
+            "picks": 12,
+            "simulated": 12,
+            "failed": 0,
+            "invalid_geometry": 0,
+            "best_simulated_E": 26.463619648016813,
+            "regret": 18.64841354700393,
+            "median_simulated_E": 21.826300204893226,
+            "hits": 0,
+            "mean_signed_error": 8.547936081116891,
+            "rank_agreement": -0.7412587412587414,
+            "scores_above_dataset_max": 0
+        },
+        {
+            "group": "config_check",
+            "picks": 9,
+            "simulated": 9,
+            "failed": 0,
+            "invalid_geometry": 0,
+            "best_simulated_E": 24.12887560702279,
+            "regret": 20.983157587997955,
+            "median_simulated_E": 19.224364592462752,
+            "hits": 0,
+            "mean_signed_error": 15.373260289691643,
+            "rank_agreement": 0.18333333333333335,
+            "scores_above_dataset_max": 0
+        },
+        {
+            "group": "reference",
+            "picks": 5,
+            "simulated": 2,
+            "failed": 3,
+            "invalid_geometry": 0,
+            "best_simulated_E": 22.650560828300257,
+            "regret": 22.461472366720486,
+            "median_simulated_E": 20.349359734263444,
+            "hits": 0,
+            "mean_signed_error": 16.390018926345036,
+            "rank_agreement": null,
+            "scores_above_dataset_max": 0
+        }
+    ],
+    "model_table": [
+        {
+            "model": "Agares_1.1",
+            "candidates": 61,
+            "mean_signed_error": 11.440733503819754,
+            "mean_abs_error": 11.440733503819754,
+            "rank_agreement": -0.23717609730301425,
+            "predictions_above_dataset_max": 0
+        },
+        {
+            "model": "Odysseus_1.1",
+            "candidates": 61,
+            "mean_signed_error": 12.319248574442984,
+            "mean_abs_error": 12.319248574442984,
+            "rank_agreement": -0.2707562136435748,
+            "predictions_above_dataset_max": 1
+        },
+        {
+            "model": "Murata_1.1",
+            "candidates": 61,
+            "mean_signed_error": 14.041657181800822,
+            "mean_abs_error": 14.041657181800822,
+            "rank_agreement": -0.22125859333685877,
+            "predictions_above_dataset_max": 3
+        }
+    ],
+    "config_check": {
+        "dataset_order": [
+            "rec",
+            "flat",
+            "60DEG"
+        ],
+        "model_winners": [
+            {
+                "model": "Agares_1.1",
+                "candidate_id": "candidate_001",
+                "picked_config": "rec",
+                "predictions": {
+                    "rec": 44.51595135867941,
+                    "flat": 40.05185253452712,
+                    "60DEG": 38.8084955932214
+                },
+                "order_matches_dataset": true
+            },
+            {
+                "model": "Odysseus_1.1",
+                "candidate_id": "candidate_016",
+                "picked_config": "rec",
+                "predictions": {
+                    "rec": 43.59998321533203,
+                    "flat": 39.64412307739258,
+                    "60DEG": 36.07026672363281
+                },
+                "order_matches_dataset": true
+            },
+            {
+                "model": "Murata_1.1",
+                "candidate_id": "candidate_029",
+                "picked_config": "rec",
+                "predictions": {
+                    "rec": 48.743289947509766,
+                    "flat": 42.95970916748047,
+                    "60DEG": 39.93584442138672
+                },
+                "order_matches_dataset": true
+            }
+        ],
+        "simulated_shapes": [
+            {
+                "shape": 1,
+                "candidates": [
+                    "candidate_042",
+                    "candidate_056",
+                    "candidate_057"
+                ],
+                "simulated_E": {
+                    "rec": 20.49054462934947,
+                    "flat": 19.224364592462752,
+                    "60DEG": 18.544323483670297
+                },
+                "order_matches_dataset": true
+            },
+            {
+                "shape": 2,
+                "candidates": [
+                    "candidate_002",
+                    "candidate_043",
+                    "candidate_058"
+                ],
+                "simulated_E": {
+                    "rec": 24.12887560702279,
+                    "flat": 22.629213483146067,
+                    "60DEG": 21.80045871559633
+                },
+                "order_matches_dataset": true
+            },
+            {
+                "shape": 3,
+                "candidates": [
+                    "candidate_003",
+                    "candidate_059",
+                    "candidate_060"
+                ],
+                "simulated_E": {
+                    "rec": 18.41403364792778,
+                    "flat": 17.47024952015355,
+                    "60DEG": 16.86541737649063
+                },
+                "order_matches_dataset": true
+            }
+        ]
+    },
+    "candidates": [
+        {
+            "candidate_id": "candidate_001",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "on-grid",
+            "grid_distance": 0.0,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 44.51595135867941,
+                "Odysseus_1.1": 43.3668212890625,
+                "Murata_1.1": 48.704322814941406
+            },
+            "consensus": 43.3668212890625,
+            "spread": 5.337501525878906,
+            "above_dataset_max": true,
+            "status": "no_result",
+            "simulated_CL": null,
+            "simulated_CD": null,
+            "simulated_E": null,
+            "consensus_error": null,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 1,
+                    "score": 44.51595135867941
+                },
+                {
+                    "group": "reference",
+                    "rank": 1,
+                    "score": null
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_002",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.08361104130744934,
+                0.12361423671245575,
+                0.06253071129322052,
+                0.125,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.011086106300354004,
+            "nearest_dataset_E": 24.095982142857142,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 35.17817104230465,
+                "Odysseus_1.1": 31.787887573242188,
+                "Murata_1.1": 37.509361267089844
+            },
+            "consensus": 31.787887573242188,
+            "spread": 5.721473693847656,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.64593,
+            "simulated_CD": 0.02677,
+            "simulated_E": 24.12887560702279,
+            "consensus_error": 7.659011966219399,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 2,
+                    "score": 35.17817104230465
+                },
+                {
+                    "group": "config_check",
+                    "rank": 2,
+                    "score": 31.787837982177734
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_003",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                -0.0016757717821747065,
+                0.0882745161652565,
+                0.07997120171785355,
+                0.125,
+                0.125,
+                0.061138711869716644,
+                0.12440501898527145,
+                0.0025369252543896437,
+                0.0781954824924469,
+                0.004403093829751015
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.12270474777771878,
+            "nearest_dataset_E": 40.9954044117647,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 34.486029293448674,
+                "Odysseus_1.1": 37.20189666748047,
+                "Murata_1.1": 40.75657653808594
+            },
+            "consensus": 34.486029293448674,
+            "spread": 6.270547244637264,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.44875,
+            "simulated_CD": 0.02437,
+            "simulated_E": 18.41403364792778,
+            "consensus_error": 16.071995645520893,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 3,
+                    "score": 34.486029293448674
+                },
+                {
+                    "group": "consensus",
+                    "rank": 3,
+                    "score": 34.486029293448674
+                },
+                {
+                    "group": "config_check",
+                    "rank": 3,
+                    "score": 34.486029293448674
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_004",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.10417935252189636,
+                0.018541831523180008,
+                0.12119041383266449,
+                0.125,
+                0.0,
+                0.0027976667042821646,
+                0.0,
+                0.125,
+                0.1236613541841507
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.5004963336082606,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 33.46139583606385,
+                "Odysseus_1.1": 22.376422882080078,
+                "Murata_1.1": 23.459461212158203
+            },
+            "consensus": 22.376422882080078,
+            "spread": 11.084972953983772,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.54119,
+            "simulated_CD": 0.02627,
+            "simulated_E": 20.601065854586977,
+            "consensus_error": 1.7753570274931008,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 4,
+                    "score": 33.46139583606385
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_005",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.0,
+                0.0834425762295723,
+                0.125,
+                0.125,
+                0.06223655492067337,
+                0.08286502212285995,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.010456198969712727,
+            "nearest_dataset_E": 35.67233809001098,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 33.38648167317429,
+                "Odysseus_1.1": 34.86241149902344,
+                "Murata_1.1": 36.48369216918945
+            },
+            "consensus": 33.38648167317429,
+            "spread": 3.0972104960151654,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.64974,
+            "simulated_CD": 0.03096,
+            "simulated_E": 20.98643410852713,
+            "consensus_error": 12.400047564647156,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 5,
+                    "score": 33.38648167317429
+                },
+                {
+                    "group": "consensus",
+                    "rank": 4,
+                    "score": 33.38648167317429
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_006",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.04184780269861221,
+                0.0,
+                0.04134906455874443,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.008435948107105129,
+            "nearest_dataset_E": 35.41279069767442,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 33.318560877886526,
+                "Odysseus_1.1": 34.35737228393555,
+                "Murata_1.1": 34.56526184082031
+            },
+            "consensus": 33.318560877886526,
+            "spread": 1.2467009629337866,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.60894,
+            "simulated_CD": 0.02914,
+            "simulated_E": 20.897048730267674,
+            "consensus_error": 12.421512147618852,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 6,
+                    "score": 33.318560877886526
+                },
+                {
+                    "group": "consensus",
+                    "rank": 5,
+                    "score": 33.318560877886526
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_007",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.1244519054889679,
+                0.0,
+                0.0,
+                0.009546961635351181,
+                0.10415703058242798,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.5010329186916351,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 33.30691772732019,
+                "Odysseus_1.1": 23.271434783935547,
+                "Murata_1.1": 33.69075393676758
+            },
+            "consensus": 23.271434783935547,
+            "spread": 10.419319152832031,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.53363,
+            "simulated_CD": 0.02575,
+            "simulated_E": 20.72349514563107,
+            "consensus_error": 2.5479396383044772,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 7,
+                    "score": 33.30691772732019
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_008",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.04267316311597824,
+                0.04378512129187584,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.08459127694368362,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.05012310797778463,
+            "nearest_dataset_E": 35.78590425531915,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 33.23127341114481,
+                "Odysseus_1.1": 30.71799087524414,
+                "Murata_1.1": 28.227134704589844
+            },
+            "consensus": 28.227134704589844,
+            "spread": 5.0041387065549685,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26994,
+            "simulated_CD": 0.01211,
+            "simulated_E": 22.290668868703552,
+            "consensus_error": 5.936465835886292,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 8,
+                    "score": 33.23127341114481
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_009",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.012808205559849739,
+                0.10414032638072968,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.12425169348716736,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.5009693841521559,
+            "nearest_dataset_E": 19.998450213095698,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.81918246271334,
+                "Odysseus_1.1": 22.65438461303711,
+                "Murata_1.1": 29.704559326171875
+            },
+            "consensus": 22.65438461303711,
+            "spread": 10.164797849676233,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.53565,
+            "simulated_CD": 0.02643,
+            "simulated_E": 20.266742338251987,
+            "consensus_error": 2.3876422747851223,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 9,
+                    "score": 32.81918246271334
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_010",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.07884633541107178,
+                0.0037526977248489857,
+                0.125,
+                0.125,
+                0.125,
+                0.08212120831012726,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.10705924492615915,
+            "nearest_dataset_E": 23.472762645914397,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.65099410498336,
+                "Odysseus_1.1": 29.719825744628906,
+                "Murata_1.1": 27.443565368652344
+            },
+            "consensus": 27.443565368652344,
+            "spread": 5.207428736331018,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.60272,
+            "simulated_CD": 0.02596,
+            "simulated_E": 23.217257318952235,
+            "consensus_error": 4.226308049700108,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 10,
+                    "score": 32.65099410498336
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_011",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                -0.05744745582342148,
+                0.0798104852437973,
+                0.125,
+                0.125,
+                0.12362678349018097,
+                0.125,
+                0.125,
+                0.08112985640764236,
+                0.125,
+                0.12438149005174637
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.08388256625487256,
+            "nearest_dataset_E": 34.53257650542942,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.60737915927884,
+                "Odysseus_1.1": 31.960540771484375,
+                "Murata_1.1": 31.28853988647461
+            },
+            "consensus": 31.28853988647461,
+            "spread": 1.318839272804233,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.69624,
+            "simulated_CD": 0.03185,
+            "simulated_E": 21.85996860282574,
+            "consensus_error": 9.428571283648868,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 11,
+                    "score": 32.60737915927884
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_012",
+            "wing_config": "60DEG",
+            "cst_coeffs": [
+                0.0,
+                0.08326176553964615,
+                0.0,
+                0.125,
+                0.125,
+                0.0002228980156360194,
+                0.125,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.0035663682501763105,
+            "nearest_dataset_E": 34.13956310679611,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.5595289977862,
+                "Odysseus_1.1": 32.567867279052734,
+                "Murata_1.1": 34.80475997924805
+            },
+            "consensus": 32.5595289977862,
+            "spread": 2.2452309814618445,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.28133,
+            "simulated_CD": 0.01355,
+            "simulated_E": 20.76236162361624,
+            "consensus_error": 11.797167374169963,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 12,
+                    "score": 32.5595289977862
+                },
+                {
+                    "group": "consensus",
+                    "rank": 6,
+                    "score": 32.5595289977862
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_013",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.04281630739569664,
+                0.125,
+                0.04114554077386856,
+                0.125,
+                0.125,
+                0.08274238556623459,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.02683431239655376,
+            "nearest_dataset_E": 36.0899182561308,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.27358240419231,
+                "Odysseus_1.1": 35.69514465332031,
+                "Murata_1.1": 29.496543884277344
+            },
+            "consensus": 29.496543884277344,
+            "spread": 6.198600769042969,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26483,
+            "simulated_CD": 0.01183,
+            "simulated_E": 22.386306001690617,
+            "consensus_error": 7.110237882586727,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 13,
+                    "score": 32.27358240419231
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_014",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.08305782079696655,
+                0.0,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.0,
+                0.08304361999034882,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.006162981001230472,
+            "nearest_dataset_E": 35.433014354066984,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.25993971075053,
+                "Odysseus_1.1": 35.454166412353516,
+                "Murata_1.1": 34.42067337036133
+            },
+            "consensus": 32.25993971075053,
+            "spread": 3.194226701602986,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.59207,
+            "simulated_CD": 0.02813,
+            "simulated_E": 21.04763597582652,
+            "consensus_error": 11.21230373492401,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 14,
+                    "score": 32.25993971075053
+                },
+                {
+                    "group": "consensus",
+                    "rank": 7,
+                    "score": 32.25993971075053
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_015",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.0,
+                0.08299412578344345,
+                0.125,
+                0.125,
+                0.125,
+                0.08663662523031235,
+                0.08100897073745728,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.0802073372671237,
+            "nearest_dataset_E": 35.61943319838057,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.868992533582187,
+                "Odysseus_1.1": 34.790889739990234,
+                "Murata_1.1": 33.696083068847656
+            },
+            "consensus": 31.868992533582187,
+            "spread": 2.9218972064080475,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26393,
+            "simulated_CD": 0.01222,
+            "simulated_E": 21.598199672667757,
+            "consensus_error": 10.27079286091443,
+            "sources": [
+                {
+                    "group": "model:Agares_1.1",
+                    "rank": 15,
+                    "score": 31.868992533582187
+                },
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 8,
+                    "score": 34.790889739990234
+                },
+                {
+                    "group": "consensus",
+                    "rank": 8,
+                    "score": 31.868992533582187
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_016",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.002630106406286359,
+                0.0,
+                0.125,
+                0.1171499639749527
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.06322371168957594,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.47924051461212,
+                "Odysseus_1.1": 43.59999465942383,
+                "Murata_1.1": 47.3713264465332
+            },
+            "consensus": 31.47924051461212,
+            "spread": 15.892085931921084,
+            "above_dataset_max": true,
+            "status": "ok",
+            "simulated_CL": 0.53427,
+            "simulated_CD": 0.02629,
+            "simulated_E": 20.322175732217573,
+            "consensus_error": 11.157064782394546,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 1,
+                    "score": 43.59999465942383
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_017",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.0863293930888176,
+                0.08349314332008362,
+                0.125,
+                0.125,
+                0.060483112931251526,
+                0.125,
+                0.0,
+                0.08189935237169266,
+                0.0021653668954968452
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.07282194925042296,
+            "nearest_dataset_E": 40.9954044117647,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.41188678120465,
+                "Odysseus_1.1": 38.351409912109375,
+                "Murata_1.1": 40.87596130371094
+            },
+            "consensus": 32.41188678120465,
+            "spread": 8.464074522506287,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.44854,
+            "simulated_CD": 0.02465,
+            "simulated_E": 18.19634888438134,
+            "consensus_error": 14.21553789682331,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 2,
+                    "score": 38.351409912109375
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_018",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.12427841126918793,
+                0.0,
+                0.0817771703004837,
+                0.125,
+                0.06348584592342377,
+                0.125,
+                0.125,
+                0.125,
+                0.11799150705337524
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.05606794357299805,
+            "nearest_dataset_E": 37.02820874471086,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.53780423154546,
+                "Odysseus_1.1": 36.96236801147461,
+                "Murata_1.1": 37.767635345458984
+            },
+            "consensus": 31.53780423154546,
+            "spread": 6.229831113913523,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.25853,
+            "simulated_CD": 0.01152,
+            "simulated_E": 22.441840277777775,
+            "consensus_error": 9.095963953767686,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 3,
+                    "score": 36.96236801147461
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_019",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.04174261540174484,
+                0.125,
+                0.045132383704185486,
+                0.125,
+                0.125,
+                0.08282648026943207,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.08250922365830493,
+            "nearest_dataset_E": 36.0899182561308,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.96739456450972,
+                "Odysseus_1.1": 35.858436584472656,
+                "Murata_1.1": 29.374359130859375
+            },
+            "consensus": 29.374359130859375,
+            "spread": 6.484077453613281,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26583,
+            "simulated_CD": 0.01182,
+            "simulated_E": 22.48984771573604,
+            "consensus_error": 6.884511415123335,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 4,
+                    "score": 35.858436584472656
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_020",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.08250828832387924,
+                0.0017790235579013824,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.0,
+                0.08386612683534622,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.04276498937262939,
+            "nearest_dataset_E": 35.433014354066984,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.616686370620414,
+                "Odysseus_1.1": 35.52708053588867,
+                "Murata_1.1": 34.609161376953125
+            },
+            "consensus": 31.616686370620414,
+            "spread": 3.910394165268258,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.59314,
+            "simulated_CD": 0.02814,
+            "simulated_E": 21.078180525941722,
+            "consensus_error": 10.538505844678692,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 5,
+                    "score": 35.52708053588867
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_021",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.0,
+                0.08242189884185791,
+                0.125,
+                0.125,
+                0.06274693459272385,
+                0.08603485673666,
+                0.12089437246322632,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.09869296963398266,
+            "nearest_dataset_E": 35.67233809001098,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.570812138520832,
+                "Odysseus_1.1": 35.29654312133789,
+                "Murata_1.1": 36.255035400390625
+            },
+            "consensus": 31.570812138520832,
+            "spread": 4.684223261869793,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.64871,
+            "simulated_CD": 0.03071,
+            "simulated_E": 21.123738196027354,
+            "consensus_error": 10.447073942493478,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 6,
+                    "score": 35.29654312133789
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_022",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.042052146047353745,
+                0.0,
+                0.04583807289600372,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.12150374054908752,
+                0.1193121075630188
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.09947290615393567,
+            "nearest_dataset_E": 35.41279069767442,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.944950333179058,
+                "Odysseus_1.1": 34.97175216674805,
+                "Murata_1.1": 34.66083908081055
+            },
+            "consensus": 31.944950333179058,
+            "spread": 3.026801833568989,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.60242,
+            "simulated_CD": 0.0291,
+            "simulated_E": 20.701718213058417,
+            "consensus_error": 11.243232120120641,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 7,
+                    "score": 34.97175216674805
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_023",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                -0.0644083321094513,
+                0.08872155100107193,
+                0.1177041232585907,
+                0.125,
+                0.125,
+                0.125,
+                0.12487072497606277,
+                0.08267123252153397,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.17538165243772363,
+            "nearest_dataset_E": 34.53257650542942,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.617710869390017,
+                "Odysseus_1.1": 33.663246154785156,
+                "Murata_1.1": 30.267601013183594
+            },
+            "consensus": 30.267601013183594,
+            "spread": 3.3956451416015625,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.69717,
+            "simulated_CD": 0.03218,
+            "simulated_E": 21.664698570540708,
+            "consensus_error": 8.602902442642886,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 9,
+                    "score": 33.663246154785156
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_024",
+            "wing_config": "60DEG",
+            "cst_coeffs": [
+                0.0,
+                0.08299034088850021,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.125,
+                0.12455584853887558
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.007443728641821856,
+            "nearest_dataset_E": 34.13956310679611,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.659982236395592,
+                "Odysseus_1.1": 32.59193801879883,
+                "Murata_1.1": 34.85503387451172
+            },
+            "consensus": 31.659982236395592,
+            "spread": 3.1950516381161265,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.28102,
+            "simulated_CD": 0.01406,
+            "simulated_E": 19.98719772403983,
+            "consensus_error": 11.672784512355761,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 10,
+                    "score": 32.59193801879883
+                },
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 7,
+                    "score": 34.85503387451172
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_025",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.07889136672019958,
+                0.0,
+                0.125,
+                0.125,
+                0.125,
+                0.08771729469299316,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.10618496858156634,
+            "nearest_dataset_E": 23.472762645914397,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.86586431544743,
+                "Odysseus_1.1": 31.222339630126953,
+                "Murata_1.1": 28.006473541259766
+            },
+            "consensus": 28.006473541259766,
+            "spread": 3.8593907741876627,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.60319,
+            "simulated_CD": 0.02642,
+            "simulated_E": 22.830809992429977,
+            "consensus_error": 5.175663548829789,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 11,
+                    "score": 31.222339630126953
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_026",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.0408356748521328,
+                0.04383731633424759,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.0822591781616211,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.051377796496336225,
+            "nearest_dataset_E": 35.78590425531915,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.943003315975457,
+                "Odysseus_1.1": 30.847564697265625,
+                "Murata_1.1": 28.087615966796875
+            },
+            "consensus": 28.087615966796875,
+            "spread": 3.8553873491785815,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26919,
+            "simulated_CD": 0.0121,
+            "simulated_E": 22.247107438016528,
+            "consensus_error": 5.840508528780347,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 12,
+                    "score": 30.847564697265625
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_027",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.10417462885379791,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.5006098833221655,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.3017318762844,
+                "Odysseus_1.1": 26.746089935302734,
+                "Murata_1.1": 34.87388610839844
+            },
+            "consensus": 26.746089935302734,
+            "spread": 8.127796173095703,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.52976,
+            "simulated_CD": 0.02557,
+            "simulated_E": 20.718028940164256,
+            "consensus_error": 6.028060995138478,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 13,
+                    "score": 26.746089935302734
+                },
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 6,
+                    "score": 34.87388610839844
+                },
+                {
+                    "group": "consensus",
+                    "rank": 13,
+                    "score": 26.746089935302734
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_028",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.11387309432029724,
+                0.020820731297135353,
+                0.12248959392309189,
+                0.125,
+                0.0,
+                0.0002596679551061243,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.5004983484888307,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.01397933507535,
+                "Odysseus_1.1": 25.60028076171875,
+                "Murata_1.1": 29.675762176513672
+            },
+            "consensus": 25.60028076171875,
+            "spread": 6.413698573356598,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.54771,
+            "simulated_CD": 0.02657,
+            "simulated_E": 20.61385020700038,
+            "consensus_error": 4.986430554718371,
+            "sources": [
+                {
+                    "group": "model:Odysseus_1.1",
+                    "rank": 14,
+                    "score": 25.60028076171875
+                },
+                {
+                    "group": "consensus",
+                    "rank": 14,
+                    "score": 25.60028076171875
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_029",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0017350763082504272,
+                0.0,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.027761220932006836,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 38.08400381062335,
+                "Odysseus_1.1": 43.30157470703125,
+                "Murata_1.1": 48.74330520629883
+            },
+            "consensus": 38.08400381062335,
+            "spread": 10.659301395675477,
+            "above_dataset_max": true,
+            "status": "ok",
+            "simulated_CL": 0.54421,
+            "simulated_CD": 0.02624,
+            "simulated_E": 20.739710365853657,
+            "consensus_error": 17.344293444769693,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 1,
+                    "score": 48.74330520629883
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_030",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.08982601016759872,
+                0.08128271996974945,
+                0.125,
+                0.125,
+                0.05854802951216698,
+                0.125,
+                0.0,
+                0.08217142522335052,
+                0.003986854571849108
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.1568752444134307,
+            "nearest_dataset_E": 40.9954044117647,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.2824801405394,
+                "Odysseus_1.1": 37.290245056152344,
+                "Murata_1.1": 41.02715301513672
+            },
+            "consensus": 31.2824801405394,
+            "spread": 9.74467287459732,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.45084,
+            "simulated_CD": 0.02382,
+            "simulated_E": 18.926952141057935,
+            "consensus_error": 12.355527999481463,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 2,
+                    "score": 41.02715301513672
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_031",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.005540743935853243,
+                0.08029595017433167,
+                0.125,
+                0.05941445007920265,
+                0.125,
+                0.125,
+                0.125,
+                0.11961378902196884
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.13319095999647218,
+            "nearest_dataset_E": 24.095982142857142,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.513548701139104,
+                "Odysseus_1.1": 32.82023620605469,
+                "Murata_1.1": 39.559967041015625
+            },
+            "consensus": 31.513548701139104,
+            "spread": 8.04641833987652,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.64029,
+            "simulated_CD": 0.02666,
+            "simulated_E": 24.016879219804952,
+            "consensus_error": 7.496669481334152,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 3,
+                    "score": 39.559967041015625
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_032",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.0,
+                0.08426011353731155,
+                0.12265699356794357,
+                0.125,
+                0.06596207618713379,
+                0.08176012337207794,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.05632227000135659,
+            "nearest_dataset_E": 35.67233809001098,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.8328433681473,
+                "Odysseus_1.1": 34.77262878417969,
+                "Murata_1.1": 36.54603958129883
+            },
+            "consensus": 31.8328433681473,
+            "spread": 4.713196213151527,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.64957,
+            "simulated_CD": 0.03076,
+            "simulated_E": 21.11736020806242,
+            "consensus_error": 10.715483160084883,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 4,
+                    "score": 36.54603958129883
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_033",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.044087234884500504,
+                0.0,
+                0.04481518268585205,
+                0.125,
+                0.125,
+                0.123139888048172,
+                0.125,
+                0.12187444418668747,
+                0.12478810548782349
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.075133553204628,
+            "nearest_dataset_E": 35.41279069767442,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.23472610510112,
+                "Odysseus_1.1": 34.60781478881836,
+                "Murata_1.1": 35.31370162963867
+            },
+            "consensus": 31.23472610510112,
+            "spread": 4.078975524537551,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.60931,
+            "simulated_CD": 0.02905,
+            "simulated_E": 20.974526678141135,
+            "consensus_error": 10.260199426959986,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 5,
+                    "score": 35.31370162963867
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_034",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.08300530165433884,
+                0.0,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.0,
+                0.08376892656087875,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.011272273098046792,
+            "nearest_dataset_E": 35.433014354066984,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.22019060925922,
+                "Odysseus_1.1": 35.5097541809082,
+                "Murata_1.1": 34.75553894042969
+            },
+            "consensus": 31.22019060925922,
+            "spread": 4.2895635716489835,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.59243,
+            "simulated_CD": 0.02809,
+            "simulated_E": 21.090423638305445,
+            "consensus_error": 10.129766970953774,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 8,
+                    "score": 34.75553894042969
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_035",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.0,
+                0.08370421826839447,
+                0.125,
+                0.125,
+                0.12454277276992798,
+                0.08956460654735565,
+                0.07772649824619293,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.15059150354220296,
+            "nearest_dataset_E": 35.61943319838057,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.742532659496824,
+                "Odysseus_1.1": 34.256404876708984,
+                "Murata_1.1": 33.93107986450195
+            },
+            "consensus": 31.742532659496824,
+            "spread": 2.5138722172121604,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26383,
+            "simulated_CD": 0.0122,
+            "simulated_E": 21.62540983606557,
+            "consensus_error": 10.117122823431252,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 9,
+                    "score": 33.93107986450195
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_036",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                -0.058984458446502686,
+                0.0813726931810379,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.08399130403995514,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.05624866485595703,
+            "nearest_dataset_E": 34.53257650542942,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.815008952887563,
+                "Odysseus_1.1": 32.907440185546875,
+                "Murata_1.1": 32.01976776123047
+            },
+            "consensus": 31.815008952887563,
+            "spread": 1.0924312326593117,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.70035,
+            "simulated_CD": 0.03204,
+            "simulated_E": 21.85861423220974,
+            "consensus_error": 9.956394720677824,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 10,
+                    "score": 32.01976776123047
+                },
+                {
+                    "group": "consensus",
+                    "rank": 9,
+                    "score": 31.815008952887563
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_037",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.12485938519239426,
+                0.006800399161875248,
+                0.10345634818077087,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.12227219343185425,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.4845276004993,
+            "nearest_dataset_E": 19.998450213095698,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.67197381943707,
+                "Odysseus_1.1": 23.112476348876953,
+                "Murata_1.1": 31.289405822753906
+            },
+            "consensus": 23.112476348876953,
+            "spread": 9.559497470560117,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.53078,
+            "simulated_CD": 0.02641,
+            "simulated_E": 20.097690268837564,
+            "consensus_error": 3.0147860800393893,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 11,
+                    "score": 31.289405822753906
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_038",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.04302741587162018,
+                0.125,
+                0.041340600699186325,
+                0.125,
+                0.125,
+                0.08336219191551208,
+                0.125,
+                0.125,
+                0.1247023269534111
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.03190903537548495,
+            "nearest_dataset_E": 36.0899182561308,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.76743066770184,
+                "Odysseus_1.1": 35.682594299316406,
+                "Murata_1.1": 29.50554656982422
+            },
+            "consensus": 29.50554656982422,
+            "spread": 6.1770477294921875,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.2649,
+            "simulated_CD": 0.01185,
+            "simulated_E": 22.354430379746837,
+            "consensus_error": 7.151116190077381,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 12,
+                    "score": 29.50554656982422
+                },
+                {
+                    "group": "consensus",
+                    "rank": 10,
+                    "score": 29.50554656982422
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_039",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.04309282451868057,
+                0.042943552136421204,
+                0.125,
+                0.125,
+                0.125,
+                0.125,
+                0.0844063013792038,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.0334813586221292,
+            "nearest_dataset_E": 35.78590425531915,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.653359670257785,
+                "Odysseus_1.1": 30.660842895507812,
+                "Murata_1.1": 28.254955291748047
+            },
+            "consensus": 28.254955291748047,
+            "spread": 4.398404378509738,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26981,
+            "simulated_CD": 0.0121,
+            "simulated_E": 22.298347107438016,
+            "consensus_error": 5.956608184310031,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 13,
+                    "score": 28.254955291748047
+                },
+                {
+                    "group": "consensus",
+                    "rank": 11,
+                    "score": 28.254955291748047
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_040",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.08247018605470657,
+                0.0,
+                0.125,
+                0.125,
+                0.125,
+                0.08407330513000488,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.01994745060801506,
+            "nearest_dataset_E": 23.472762645914397,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.953616120818683,
+                "Odysseus_1.1": 31.030681610107422,
+                "Murata_1.1": 28.166080474853516
+            },
+            "consensus": 28.166080474853516,
+            "spread": 3.7875356459651677,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.60319,
+            "simulated_CD": 0.02577,
+            "simulated_E": 23.406674427629024,
+            "consensus_error": 4.759406047224491,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 14,
+                    "score": 28.166080474853516
+                },
+                {
+                    "group": "consensus",
+                    "rank": 12,
+                    "score": 28.166080474853516
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_041",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.10347087681293488,
+                0.012890368700027466,
+                0.125,
+                0.125,
+                0.0,
+                0.001323181320913136,
+                0.0,
+                0.1215665340423584,
+                0.12479829788208008
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.4848768464647808,
+            "nearest_dataset_E": 20.44125630089182,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.76180034640573,
+                "Odysseus_1.1": 23.466205596923828,
+                "Murata_1.1": 26.622692108154297
+            },
+            "consensus": 23.466205596923828,
+            "spread": 8.295594749481904,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.53937,
+            "simulated_CD": 0.02619,
+            "simulated_E": 20.594501718213056,
+            "consensus_error": 2.871703878710772,
+            "sources": [
+                {
+                    "group": "model:Murata_1.1",
+                    "rank": 15,
+                    "score": 26.622692108154297
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_042",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.125,
+                0.12368213385343552
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.01054292917251587,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 43.41127363039278,
+                "Odysseus_1.1": 43.4215202331543,
+                "Murata_1.1": 48.65569305419922
+            },
+            "consensus": 43.41127363039278,
+            "spread": 5.244419423806441,
+            "above_dataset_max": true,
+            "status": "ok",
+            "simulated_CL": 0.54177,
+            "simulated_CD": 0.02644,
+            "simulated_E": 20.49054462934947,
+            "consensus_error": 22.92072900104331,
+            "sources": [
+                {
+                    "group": "consensus",
+                    "rank": 1,
+                    "score": 43.41127363039278
+                },
+                {
+                    "group": "config_check",
+                    "rank": 1,
+                    "score": 43.41127363039278
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_043",
+            "wing_config": "60DEG",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.08361104130744934,
+                0.12361423671245575,
+                0.06253071129322052,
+                0.125,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.011086106300354004,
+            "nearest_dataset_E": 36.1010101010101,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 34.84731998046093,
+                "Odysseus_1.1": 36.08460998535156,
+                "Murata_1.1": 37.05535125732422
+            },
+            "consensus": 34.84731998046093,
+            "spread": 2.208031276863288,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.28515,
+            "simulated_CD": 0.01308,
+            "simulated_E": 21.80045871559633,
+            "consensus_error": 13.0468612648646,
+            "sources": [
+                {
+                    "group": "consensus",
+                    "rank": 2,
+                    "score": 34.84731998046093
+                },
+                {
+                    "group": "config_check",
+                    "rank": 2,
+                    "score": 34.84731998046093
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_044",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.004502229858189821,
+                0.12286334484815598,
+                0.001059080590493977,
+                0.12513305246829987,
+                0.1476442515850067,
+                0.0,
+                0.00025265300064347684,
+                0.0,
+                0.1198466569185257,
+                0.12476471811532974
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.1811540126800537,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 35.6981486137817,
+                "Odysseus_1.1": 36.14990997314453,
+                "Murata_1.1": 43.72624206542969
+            },
+            "consensus": 35.6981486137817,
+            "spread": 8.02809345164799,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.57102,
+            "simulated_CD": 0.02639,
+            "simulated_E": 21.63774156877605,
+            "consensus_error": 14.060407045005647,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 1,
+                    "score": 35.6981486137817
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_045",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.005599176976829767,
+                0.12377089262008667,
+                0.0,
+                0.14390957355499268,
+                0.13416391611099243,
+                0.0006448443746194243,
+                0.0,
+                0.0,
+                0.14406715333461761,
+                0.11938890814781189
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.45834503208215427,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.14030686627415,
+                "Odysseus_1.1": 45.53589630126953,
+                "Murata_1.1": 42.88108825683594
+            },
+            "consensus": 32.14030686627415,
+            "spread": 13.39558943499538,
+            "above_dataset_max": true,
+            "status": "ok",
+            "simulated_CL": 0.575,
+            "simulated_CD": 0.02729,
+            "simulated_E": 21.069989006962256,
+            "consensus_error": 11.070317859311896,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 2,
+                    "score": 32.14030686627415
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_046",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.036081425845623016,
+                0.12458069622516632,
+                0.002737648319453001,
+                0.1188482791185379,
+                0.1339792013168335,
+                0.006871477235108614,
+                0.0,
+                0.0,
+                0.12536442279815674,
+                0.1137290820479393
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.5773028135299683,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.213898085349854,
+                "Odysseus_1.1": 35.638572692871094,
+                "Murata_1.1": 35.19594955444336
+            },
+            "consensus": 31.213898085349854,
+            "spread": 4.42467460752124,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.55253,
+            "simulated_CD": 0.02779,
+            "simulated_E": 19.88233177401943,
+            "consensus_error": 11.331566311330423,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 3,
+                    "score": 31.213898085349854
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_047",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.002599777653813362,
+                0.125,
+                0.0,
+                0.16660000383853912,
+                0.12540815770626068,
+                0.0,
+                0.0,
+                0.010686817578971386,
+                0.14699116349220276,
+                0.12128090858459473
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 1.0000000922725754,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.85321873857452,
+                "Odysseus_1.1": 37.71873474121094,
+                "Murata_1.1": 34.91050338745117
+            },
+            "consensus": 30.85321873857452,
+            "spread": 6.865516002636419,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.58743,
+            "simulated_CD": 0.02781,
+            "simulated_E": 21.122977346278315,
+            "consensus_error": 9.730241392296204,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 4,
+                    "score": 30.85321873857452
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_048",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.004917127545922995,
+                0.12457351386547089,
+                0.0,
+                0.10923073440790176,
+                0.13099108636379242,
+                0.0,
+                0.0,
+                0.0,
+                0.14878049492835999,
+                0.11967481672763824
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.5716465127009611,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.959265458466646,
+                "Odysseus_1.1": 35.17708206176758,
+                "Murata_1.1": 30.556591033935547
+            },
+            "consensus": 30.556591033935547,
+            "spread": 4.620491027832031,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.55115,
+            "simulated_CD": 0.02742,
+            "simulated_E": 20.100291757840992,
+            "consensus_error": 10.456299276094555,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 5,
+                    "score": 30.556591033935547
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_049",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.006118568126112223,
+                0.1243700161576271,
+                0.0,
+                0.1469220370054245,
+                0.12072429060935974,
+                0.0,
+                0.0,
+                0.0,
+                0.11313807964324951,
+                0.13180968165397644
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.5269720433996272,
+            "nearest_dataset_E": 45.11203319502074,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.525304540935213,
+                "Odysseus_1.1": 33.382965087890625,
+                "Murata_1.1": 43.2232780456543
+            },
+            "consensus": 30.525304540935213,
+            "spread": 12.697973504719084,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.55527,
+            "simulated_CD": 0.02635,
+            "simulated_E": 21.072865275142316,
+            "consensus_error": 9.452439265792897,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 6,
+                    "score": 30.525304540935213
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_050",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.06022512912750244,
+                0.11737684160470963,
+                0.014719128608703613,
+                0.07386722415685654,
+                0.23706278204917908,
+                0.012545652687549591,
+                0.125,
+                0.125,
+                0.09560433775186539,
+                0.25
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 1.0,
+            "nearest_dataset_E": 22.52726588943212,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.423429856181603,
+                "Odysseus_1.1": 31.41530990600586,
+                "Murata_1.1": 38.31116485595703
+            },
+            "consensus": 30.423429856181603,
+            "spread": 7.887734999775429,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.94267,
+            "simulated_CD": 0.03715,
+            "simulated_E": 25.374697173620458,
+            "consensus_error": 5.048732682561145,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 7,
+                    "score": 30.423429856181603
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_051",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.05137073993682861,
+                0.11970842629671097,
+                0.007651275489479303,
+                0.10585720837116241,
+                0.18698613345623016,
+                0.02634430304169655,
+                0.125,
+                0.125,
+                0.10163567960262299,
+                0.24864360690116882
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.9891488552093506,
+            "nearest_dataset_E": 23.44852115312617,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.269999827344773,
+                "Odysseus_1.1": 31.286170959472656,
+                "Murata_1.1": 35.24166488647461
+            },
+            "consensus": 30.269999827344773,
+            "spread": 4.971665059129837,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.89919,
+            "simulated_CD": 0.03484,
+            "simulated_E": 25.809127439724453,
+            "consensus_error": 4.46087238762032,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 8,
+                    "score": 30.269999827344773
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_052",
+            "wing_config": "60DEG",
+            "cst_coeffs": [
+                0.011581908911466599,
+                0.125,
+                0.0,
+                0.07945426553487778,
+                0.13223566114902496,
+                0.052584223449230194,
+                0.125,
+                0.125,
+                0.13449741899967194,
+                0.13227537274360657
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.2283033413382678,
+            "nearest_dataset_E": 36.1010101010101,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.209289958775766,
+                "Odysseus_1.1": 30.87114715576172,
+                "Murata_1.1": 36.63291549682617
+            },
+            "consensus": 30.209289958775766,
+            "spread": 6.4236255380504055,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.29632,
+            "simulated_CD": 0.01346,
+            "simulated_E": 22.0148588410104,
+            "consensus_error": 8.194431117765365,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 9,
+                    "score": 30.209289958775766
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_053",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                -0.04769154638051987,
+                0.084848552942276,
+                0.12404638528823853,
+                0.13474279642105103,
+                0.12098923325538635,
+                0.14548291265964508,
+                0.125,
+                0.08549701422452927,
+                0.12432225048542023,
+                0.13478770852088928
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 0.3277266025543213,
+            "nearest_dataset_E": 34.53257650542942,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.120709548566168,
+                "Odysseus_1.1": 31.058773040771484,
+                "Murata_1.1": 32.35055923461914
+            },
+            "consensus": 30.120709548566168,
+            "spread": 2.2298496860529724,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.72675,
+            "simulated_CD": 0.03277,
+            "simulated_E": 22.177296307598414,
+            "consensus_error": 7.943413240967754,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 10,
+                    "score": 30.120709548566168
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_054",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0625,
+                0.125,
+                0.009357547387480736,
+                0.10622717440128326,
+                0.18344104290008545,
+                0.02517184615135193,
+                0.125,
+                0.125,
+                0.13130299746990204,
+                0.25
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 1.0,
+            "nearest_dataset_E": 23.44852115312617,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 30.84076521755174,
+                "Odysseus_1.1": 30.006423950195312,
+                "Murata_1.1": 35.86692428588867
+            },
+            "consensus": 30.006423950195312,
+            "spread": 5.860500335693359,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.92221,
+            "simulated_CD": 0.04087,
+            "simulated_E": 22.564472718375338,
+            "consensus_error": 7.441951231819974,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 11,
+                    "score": 30.006423950195312
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_055",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.03035493567585945,
+                0.1175539642572403,
+                0.0,
+                0.09534889459609985,
+                0.25,
+                0.08825595676898956,
+                0.12062382698059082,
+                0.125,
+                0.13598202168941498,
+                0.25
+            ],
+            "origin": "edge",
+            "region": "outside",
+            "grid_distance": 1.0,
+            "nearest_dataset_E": 22.681997844053186,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 29.84818081085332,
+                "Odysseus_1.1": 30.093189239501953,
+                "Murata_1.1": 40.83894729614258
+            },
+            "consensus": 29.84818081085332,
+            "spread": 10.990766485289257,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 1.00747,
+            "simulated_CD": 0.03807,
+            "simulated_E": 26.463619648016813,
+            "consensus_error": 3.3845611628365084,
+            "sources": [
+                {
+                    "group": "edge",
+                    "rank": 12,
+                    "score": 29.84818081085332
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_056",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.125,
+                0.12368213385343552
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.01054292917251587,
+            "nearest_dataset_E": 39.584532374100725,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 39.103732449091645,
+                "Odysseus_1.1": 39.77302932739258,
+                "Murata_1.1": 42.850250244140625
+            },
+            "consensus": 39.103732449091645,
+            "spread": 3.7465177950489803,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.21935,
+            "simulated_CD": 0.01141,
+            "simulated_E": 19.224364592462752,
+            "consensus_error": 19.879367856628892,
+            "sources": [
+                {
+                    "group": "config_check",
+                    "rank": 1,
+                    "score": 39.103732449091645
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_057",
+            "wing_config": "60DEG",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.125,
+                0.12368213385343552
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.01054292917251587,
+            "nearest_dataset_E": 38.16267942583732,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 37.88267888798171,
+                "Odysseus_1.1": 36.38031005859375,
+                "Murata_1.1": 39.83072280883789
+            },
+            "consensus": 36.38031005859375,
+            "spread": 3.4504127502441406,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.23848,
+            "simulated_CD": 0.01286,
+            "simulated_E": 18.544323483670297,
+            "consensus_error": 17.835986574923453,
+            "sources": [
+                {
+                    "group": "config_check",
+                    "rank": 1,
+                    "score": 36.38031005859375
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_058",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.08361104130744934,
+                0.12361423671245575,
+                0.06253071129322052,
+                0.125,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.011086106300354004,
+            "nearest_dataset_E": 37.02820874471086,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 34.18864917333653,
+                "Odysseus_1.1": 36.06032180786133,
+                "Murata_1.1": 38.2579231262207
+            },
+            "consensus": 34.18864917333653,
+            "spread": 4.069273952884174,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26182,
+            "simulated_CD": 0.01157,
+            "simulated_E": 22.629213483146067,
+            "consensus_error": 11.559435690190462,
+            "sources": [
+                {
+                    "group": "config_check",
+                    "rank": 2,
+                    "score": 34.18864917333653
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_059",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                -0.0016757717821747065,
+                0.0882745161652565,
+                0.07997120171785355,
+                0.125,
+                0.125,
+                0.061138711869716644,
+                0.12440501898527145,
+                0.0025369252543896437,
+                0.0781954824924469,
+                0.004403093829751015
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.12270474777771878,
+            "nearest_dataset_E": 36.77642276422764,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 32.17559166388491,
+                "Odysseus_1.1": 35.17778778076172,
+                "Murata_1.1": 37.564395904541016
+            },
+            "consensus": 32.17559166388491,
+            "spread": 5.388804240656107,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.18204,
+            "simulated_CD": 0.01042,
+            "simulated_E": 17.47024952015355,
+            "consensus_error": 14.705342143731357,
+            "sources": [
+                {
+                    "group": "config_check",
+                    "rank": 3,
+                    "score": 32.17559166388491
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_060",
+            "wing_config": "60DEG",
+            "cst_coeffs": [
+                -0.0016757717821747065,
+                0.0882745161652565,
+                0.07997120171785355,
+                0.125,
+                0.125,
+                0.061138711869716644,
+                0.12440501898527145,
+                0.0025369252543896437,
+                0.0781954824924469,
+                0.004403093829751015
+            ],
+            "origin": "local",
+            "region": "between",
+            "grid_distance": 0.12270474777771878,
+            "nearest_dataset_E": 35.397482014388494,
+            "dataset_E": null,
+            "predictions": {
+                "Agares_1.1": 31.54602984059306,
+                "Odysseus_1.1": 33.40836715698242,
+                "Murata_1.1": 35.855594635009766
+            },
+            "consensus": 31.54602984059306,
+            "spread": 4.309564794416705,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.198,
+            "simulated_CD": 0.01174,
+            "simulated_E": 16.86541737649063,
+            "consensus_error": 14.680612464102431,
+            "sources": [
+                {
+                    "group": "config_check",
+                    "rank": 3,
+                    "score": 31.54602984059306
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_061",
+            "wing_config": "rec",
+            "cst_coeffs": [
+                0.0,
+                0.08330000191926956,
+                0.08330000191926956,
+                0.125,
+                0.125,
+                0.0625,
+                0.125,
+                0.0,
+                0.08330000191926956,
+                0.0
+            ],
+            "origin": "dataset",
+            "region": "on-grid",
+            "grid_distance": 4.613628767913269e-08,
+            "nearest_dataset_E": 40.9954044117647,
+            "dataset_E": 40.9954044117647,
+            "predictions": {
+                "Agares_1.1": 39.581072244736056,
+                "Odysseus_1.1": 38.59515380859375,
+                "Murata_1.1": 40.29195022583008
+            },
+            "consensus": 38.59515380859375,
+            "spread": 1.6967964172363281,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.44597,
+            "simulated_CD": 0.02471,
+            "simulated_E": 18.048158640226628,
+            "consensus_error": 20.546995168367122,
+            "sources": [
+                {
+                    "group": "reference",
+                    "rank": 2,
+                    "score": null
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_062",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "dataset",
+            "region": "on-grid",
+            "grid_distance": 0.0,
+            "nearest_dataset_E": 39.584532374100725,
+            "dataset_E": 39.584532374100725,
+            "predictions": {
+                "Agares_1.1": 40.05185253452712,
+                "Odysseus_1.1": 39.81224060058594,
+                "Murata_1.1": 42.89667510986328
+            },
+            "consensus": 39.81224060058594,
+            "spread": 3.0844345092773438,
+            "above_dataset_max": false,
+            "status": "no_result",
+            "simulated_CL": null,
+            "simulated_CD": null,
+            "simulated_E": null,
+            "consensus_error": null,
+            "sources": [
+                {
+                    "group": "reference",
+                    "rank": 3,
+                    "score": null
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_063",
+            "wing_config": "60DEG",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.125,
+                0.125,
+                0.0,
+                0.0,
+                0.0,
+                0.125,
+                0.125
+            ],
+            "origin": "dataset",
+            "region": "on-grid",
+            "grid_distance": 0.0,
+            "nearest_dataset_E": 38.16267942583732,
+            "dataset_E": 38.16267942583732,
+            "predictions": {
+                "Agares_1.1": 38.8084955932214,
+                "Odysseus_1.1": 36.45917510986328,
+                "Murata_1.1": 39.886444091796875
+            },
+            "consensus": 36.45917510986328,
+            "spread": 3.4272689819335938,
+            "above_dataset_max": false,
+            "status": "no_result",
+            "simulated_CL": null,
+            "simulated_CD": null,
+            "simulated_E": null,
+            "consensus_error": null,
+            "sources": [
+                {
+                    "group": "reference",
+                    "rank": 4,
+                    "score": null
+                }
+            ]
+        },
+        {
+            "candidate_id": "candidate_064",
+            "wing_config": "flat",
+            "cst_coeffs": [
+                0.0,
+                0.125,
+                0.0,
+                0.08330000191926956,
+                0.125,
+                0.0625,
+                0.125,
+                0.125,
+                0.125,
+                0.125
+            ],
+            "origin": "dataset",
+            "region": "on-grid",
+            "grid_distance": 4.613628767913269e-08,
+            "nearest_dataset_E": 37.02820874471086,
+            "dataset_E": 37.02820874471086,
+            "predictions": {
+                "Agares_1.1": 34.88360351262321,
+                "Odysseus_1.1": 35.8734245300293,
+                "Murata_1.1": 38.19120407104492
+            },
+            "consensus": 34.88360351262321,
+            "spread": 3.3076005584217114,
+            "above_dataset_max": false,
+            "status": "ok",
+            "simulated_CL": 0.26252,
+            "simulated_CD": 0.01159,
+            "simulated_E": 22.650560828300257,
+            "consensus_error": 12.233042684322953,
+            "sources": [
+                {
+                    "group": "reference",
+                    "rank": 5,
+                    "score": null
+                }
+            ]
+        }
+    ],
+    "robustness": {
+        "status": "completed",
+        "parents": [
+            {
+                "parent": "candidate_055",
+                "parent_E": 26.463619648016813,
+                "parent_groups": "edge#12",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 25.87892854763705,
+                "min_E": 25.267681728880156,
+                "max_E": 26.516740202439657,
+                "members": [
+                    {
+                        "candidate_id": "robust_01_01",
+                        "status": "ok",
+                        "simulated_E": 26.516740202439657,
+                        "cst_coeffs": [
+                            0.03672092407941818,
+                            0.11883250623941422,
+                            -0.0015048857312649488,
+                            0.0992312803864479,
+                            0.2699919641017914,
+                            0.09109918773174286,
+                            0.1221725344657898,
+                            0.12097238749265671,
+                            0.12796609103679657,
+                            0.24156756699085236
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 23.30656587872793,
+                            "Odysseus_1.1": 29.832698822021484,
+                            "Murata_1.1": 42.15409469604492
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_01_02",
+                        "status": "ok",
+                        "simulated_E": 25.99215275961287,
+                        "cst_coeffs": [
+                            0.03151991218328476,
+                            0.11072847247123718,
+                            0.00382749130949378,
+                            0.09917173534631729,
+                            0.24215658009052277,
+                            0.08072201907634735,
+                            0.11899685859680176,
+                            0.13636471331119537,
+                            0.13975228369235992,
+                            0.24222813546657562
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.819979487200506,
+                            "Odysseus_1.1": 30.51428985595703,
+                            "Murata_1.1": 38.82225799560547
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_01_03",
+                        "status": "ok",
+                        "simulated_E": 25.958677685950413,
+                        "cst_coeffs": [
+                            0.03251805528998375,
+                            0.12307493388652802,
+                            -0.0017992696957662702,
+                            0.08628623932600021,
+                            0.24080714583396912,
+                            0.08257933706045151,
+                            0.11431062966585159,
+                            0.12216287106275558,
+                            0.1353473663330078,
+                            0.24125784635543823
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.367591044088442,
+                            "Odysseus_1.1": 29.23031234741211,
+                            "Murata_1.1": 39.503177642822266
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_01_04",
+                        "status": "ok",
+                        "simulated_E": 25.691473632331196,
+                        "cst_coeffs": [
+                            0.027371369302272797,
+                            0.11886614561080933,
+                            -0.0010237311944365501,
+                            0.09778386354446411,
+                            0.27279940247535706,
+                            0.08490978926420212,
+                            0.11699486523866653,
+                            0.12957674264907837,
+                            0.1438305526971817,
+                            0.249844491481781
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.774035659870297,
+                            "Odysseus_1.1": 28.366283416748047,
+                            "Murata_1.1": 42.563072204589844
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_01_05",
+                        "status": "ok",
+                        "simulated_E": 25.267681728880156,
+                        "cst_coeffs": [
+                            0.03502775356173515,
+                            0.1167377382516861,
+                            0.002957264892756939,
+                            0.0944434329867363,
+                            0.2676938772201538,
+                            0.09713926911354065,
+                            0.11964641511440277,
+                            0.12973444163799286,
+                            0.13331499695777893,
+                            0.24441494047641754
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.79108294691554,
+                            "Odysseus_1.1": 30.05145263671875,
+                            "Murata_1.1": 42.27202606201172
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_01_06",
+                        "status": "ok",
+                        "simulated_E": 26.398464389727298,
+                        "cst_coeffs": [
+                            0.035744745284318924,
+                            0.11237366497516632,
+                            -0.0011741667985916138,
+                            0.09438566118478775,
+                            0.24724364280700684,
+                            0.08923018723726273,
+                            0.12152625620365143,
+                            0.12913157045841217,
+                            0.1339171975851059,
+                            0.24500370025634766
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.01006356704603,
+                            "Odysseus_1.1": 30.210647583007812,
+                            "Murata_1.1": 39.95761489868164
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_01_07",
+                        "status": "ok",
+                        "simulated_E": 25.64727272727273,
+                        "cst_coeffs": [
+                            0.035592224448919296,
+                            0.11248800158500671,
+                            -0.005544409155845642,
+                            0.09882697463035583,
+                            0.25268056988716125,
+                            0.08734001219272614,
+                            0.11805884540081024,
+                            0.12260184437036514,
+                            0.14330819249153137,
+                            0.2307071089744568
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.391376470817114,
+                            "Odysseus_1.1": 28.29471206665039,
+                            "Murata_1.1": 39.061256408691406
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_01_08",
+                        "status": "ok",
+                        "simulated_E": 25.558965254882068,
+                        "cst_coeffs": [
+                            0.038807302713394165,
+                            0.12539538741111755,
+                            -0.00759704876691103,
+                            0.09623698145151138,
+                            0.2508206367492676,
+                            0.10282456129789352,
+                            0.12498556822538376,
+                            0.12762907147407532,
+                            0.12783068418502808,
+                            0.24519547820091248
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.166674305351428,
+                            "Odysseus_1.1": 30.314659118652344,
+                            "Murata_1.1": 41.30966567993164
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_051",
+                "parent_E": 25.809127439724453,
+                "parent_groups": "edge#8",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 26.28396480933685,
+                "min_E": 24.780561674008812,
+                "max_E": 27.214878573624343,
+                "members": [
+                    {
+                        "candidate_id": "robust_02_01",
+                        "status": "ok",
+                        "simulated_E": 25.70008820935019,
+                        "cst_coeffs": [
+                            0.04585564509034157,
+                            0.11491677910089493,
+                            0.010618273168802261,
+                            0.10327039659023285,
+                            0.18240417540073395,
+                            0.03131946176290512,
+                            0.12791234254837036,
+                            0.12885010242462158,
+                            0.09729211032390594,
+                            0.23589137196540833
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.702930824948933,
+                            "Odysseus_1.1": 30.61868667602539,
+                            "Murata_1.1": 33.42953872680664
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_02_02",
+                        "status": "ok",
+                        "simulated_E": 27.182557049077836,
+                        "cst_coeffs": [
+                            0.04952454939484596,
+                            0.12262722104787827,
+                            0.006519500631839037,
+                            0.09500589221715927,
+                            0.18088769912719727,
+                            0.021478023380041122,
+                            0.1252337396144867,
+                            0.12317975610494614,
+                            0.09540762007236481,
+                            0.24298419058322906
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.158309563620485,
+                            "Odysseus_1.1": 30.82113265991211,
+                            "Murata_1.1": 34.09056854248047
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_02_03",
+                        "status": "ok",
+                        "simulated_E": 24.780561674008812,
+                        "cst_coeffs": [
+                            0.05296245589852333,
+                            0.12480118870735168,
+                            0.007051869761198759,
+                            0.10789322853088379,
+                            0.18586423993110657,
+                            0.020639127120375633,
+                            0.12569604814052582,
+                            0.12182832509279251,
+                            0.10955646634101868,
+                            0.24641507863998413
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.808219566794687,
+                            "Odysseus_1.1": 31.128337860107422,
+                            "Murata_1.1": 35.434906005859375
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_02_04",
+                        "status": "ok",
+                        "simulated_E": 27.060542797494783,
+                        "cst_coeffs": [
+                            0.04595668613910675,
+                            0.11743814498186111,
+                            0.006922414992004633,
+                            0.10744450241327286,
+                            0.18464067578315735,
+                            0.01850552298128605,
+                            0.1283482164144516,
+                            0.11977487057447433,
+                            0.10463234782218933,
+                            0.26039353013038635
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.93474281991367,
+                            "Odysseus_1.1": 31.588241577148438,
+                            "Murata_1.1": 35.8100700378418
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_02_05",
+                        "status": "ok",
+                        "simulated_E": 25.816744730679154,
+                        "cst_coeffs": [
+                            0.05644356086850166,
+                            0.12263748794794083,
+                            0.0050992537289857864,
+                            0.11495660245418549,
+                            0.16825729608535767,
+                            0.02288026362657547,
+                            0.12496025860309601,
+                            0.13094837963581085,
+                            0.10680659115314484,
+                            0.24462319910526276
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.51032213429985,
+                            "Odysseus_1.1": 29.747669219970703,
+                            "Murata_1.1": 33.42599105834961
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_02_06",
+                        "status": "ok",
+                        "simulated_E": 25.684038199181447,
+                        "cst_coeffs": [
+                            0.05050594359636307,
+                            0.11573000252246857,
+                            0.0054160673171281815,
+                            0.10090643167495728,
+                            0.22749173641204834,
+                            0.014267506077885628,
+                            0.12535764276981354,
+                            0.12344375997781754,
+                            0.09230824559926987,
+                            0.2531491219997406
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.767653626572546,
+                            "Odysseus_1.1": 31.326709747314453,
+                            "Murata_1.1": 37.326637268066406
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_02_07",
+                        "status": "ok",
+                        "simulated_E": 26.832307241278215,
+                        "cst_coeffs": [
+                            0.04380233958363533,
+                            0.12142686545848846,
+                            0.007557298522442579,
+                            0.10908883810043335,
+                            0.19955912232398987,
+                            0.038072362542152405,
+                            0.12958799302577972,
+                            0.12886999547481537,
+                            0.09915558993816376,
+                            0.2435571551322937
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.880351486354325,
+                            "Odysseus_1.1": 31.782928466796875,
+                            "Murata_1.1": 35.662628173828125
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_02_08",
+                        "status": "ok",
+                        "simulated_E": 27.214878573624343,
+                        "cst_coeffs": [
+                            0.0527157299220562,
+                            0.12408734112977982,
+                            0.006844053510576487,
+                            0.11023782938718796,
+                            0.16198183596134186,
+                            0.01857065223157406,
+                            0.12731973826885223,
+                            0.12853294610977173,
+                            0.10767070949077606,
+                            0.2566748857498169
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.6710200599919,
+                            "Odysseus_1.1": 29.726886749267578,
+                            "Murata_1.1": 34.03068923950195
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_050",
+                "parent_E": 25.374697173620458,
+                "parent_groups": "edge#7",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 25.041804762333403,
+                "min_E": 23.83529411764706,
+                "max_E": 26.252411132543397,
+                "members": [
+                    {
+                        "candidate_id": "robust_03_01",
+                        "status": "ok",
+                        "simulated_E": 24.94301917364299,
+                        "cst_coeffs": [
+                            0.06052934005856514,
+                            0.11813648790121078,
+                            0.021577011793851852,
+                            0.08038857579231262,
+                            0.23694607615470886,
+                            0.01157449372112751,
+                            0.12536774575710297,
+                            0.12455552816390991,
+                            0.09612186253070831,
+                            0.22950460016727448
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.94450057298287,
+                            "Odysseus_1.1": 31.228809356689453,
+                            "Murata_1.1": 37.20440673828125
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_03_02",
+                        "status": "ok",
+                        "simulated_E": 24.57109190887667,
+                        "cst_coeffs": [
+                            0.05950452759861946,
+                            0.12463273108005524,
+                            0.010517051443457603,
+                            0.08133433759212494,
+                            0.23168441653251648,
+                            0.006180389318615198,
+                            0.11736063659191132,
+                            0.12717242538928986,
+                            0.09893865138292313,
+                            0.24934402108192444
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.75165240146509,
+                            "Odysseus_1.1": 31.426631927490234,
+                            "Murata_1.1": 38.020294189453125
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_03_03",
+                        "status": "ok",
+                        "simulated_E": 26.252411132543397,
+                        "cst_coeffs": [
+                            0.06918732821941376,
+                            0.11003092676401138,
+                            0.00896852370351553,
+                            0.07555793970823288,
+                            0.25468218326568604,
+                            0.005628056824207306,
+                            0.12348661571741104,
+                            0.12389898300170898,
+                            0.09826181083917618,
+                            0.2425476759672165
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.447854818289613,
+                            "Odysseus_1.1": 30.219661712646484,
+                            "Murata_1.1": 39.008453369140625
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_03_04",
+                        "status": "ok",
+                        "simulated_E": 25.26024536674498,
+                        "cst_coeffs": [
+                            0.05400482192635536,
+                            0.11943798512220383,
+                            0.018849091604351997,
+                            0.0740044116973877,
+                            0.2529206871986389,
+                            0.01581152342259884,
+                            0.1268574297428131,
+                            0.12631180882453918,
+                            0.09080467373132706,
+                            0.25312086939811707
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.47933850725807,
+                            "Odysseus_1.1": 31.544036865234375,
+                            "Murata_1.1": 40.12937927246094
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_03_05",
+                        "status": "ok",
+                        "simulated_E": 25.14390243902439,
+                        "cst_coeffs": [
+                            0.054178401827812195,
+                            0.1190292239189148,
+                            0.014417244121432304,
+                            0.07658805698156357,
+                            0.24429969489574432,
+                            0.015788888558745384,
+                            0.12274250388145447,
+                            0.11809726059436798,
+                            0.0917590856552124,
+                            0.23545412719249725
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.3957210425412,
+                            "Odysseus_1.1": 31.504379272460938,
+                            "Murata_1.1": 37.85475540161133
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_03_06",
+                        "status": "ok",
+                        "simulated_E": 23.83529411764706,
+                        "cst_coeffs": [
+                            0.0512307807803154,
+                            0.11215183883905411,
+                            0.013347304426133633,
+                            0.07082998752593994,
+                            0.24760213494300842,
+                            0.007206258364021778,
+                            0.11425032466650009,
+                            0.12805306911468506,
+                            0.0995483547449112,
+                            0.25400784611701965
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.95533167789938,
+                            "Odysseus_1.1": 31.069061279296875,
+                            "Murata_1.1": 38.99142074584961
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_03_07",
+                        "status": "ok",
+                        "simulated_E": 24.281337758488636,
+                        "cst_coeffs": [
+                            0.06917594373226166,
+                            0.11833572387695312,
+                            0.011582735925912857,
+                            0.08113674074411392,
+                            0.24828562140464783,
+                            0.012784892693161964,
+                            0.11765041947364807,
+                            0.13315068185329437,
+                            0.09632036089897156,
+                            0.2388954609632492
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.77327788578978,
+                            "Odysseus_1.1": 30.67041015625,
+                            "Murata_1.1": 38.89833450317383
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_03_08",
+                        "status": "ok",
+                        "simulated_E": 26.047136201699093,
+                        "cst_coeffs": [
+                            0.06699494272470474,
+                            0.1273483783006668,
+                            0.01595621556043625,
+                            0.07008959352970123,
+                            0.2273094356060028,
+                            0.0031237138900905848,
+                            0.12206026166677475,
+                            0.1212250366806984,
+                            0.1018754169344902,
+                            0.264026939868927
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 32.035639263760046,
+                            "Odysseus_1.1": 31.417953491210938,
+                            "Murata_1.1": 39.08420944213867
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_002",
+                "parent_E": 24.12887560702279,
+                "parent_groups": "Agares_1.1#2, config_check#2",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 23.90510797344853,
+                "min_E": 23.317841079460273,
+                "max_E": 24.41041979010495,
+                "members": [
+                    {
+                        "candidate_id": "robust_04_01",
+                        "status": "ok",
+                        "simulated_E": 24.039294895336027,
+                        "cst_coeffs": [
+                            -0.008140351623296738,
+                            0.12485349923372269,
+                            -0.00417288625612855,
+                            0.082424096763134,
+                            0.12457290291786194,
+                            0.06253239512443542,
+                            0.13065284490585327,
+                            0.1283015012741089,
+                            0.12769941985607147,
+                            0.13019883632659912
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.625144693105835,
+                            "Odysseus_1.1": 29.437625885009766,
+                            "Murata_1.1": 38.57014465332031
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_04_02",
+                        "status": "ok",
+                        "simulated_E": 23.317841079460273,
+                        "cst_coeffs": [
+                            -0.002954310504719615,
+                            0.13477449119091034,
+                            0.0026962251868098974,
+                            0.07634644210338593,
+                            0.10159959644079208,
+                            0.07273061573505402,
+                            0.13457626104354858,
+                            0.13260045647621155,
+                            0.11815987527370453,
+                            0.12420972436666489
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 20.453211711444137,
+                            "Odysseus_1.1": 29.512752532958984,
+                            "Murata_1.1": 33.839805603027344
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_04_03",
+                        "status": "ok",
+                        "simulated_E": 23.86711966779917,
+                        "cst_coeffs": [
+                            0.0054926564916968346,
+                            0.12606477737426758,
+                            0.0035290049854665995,
+                            0.08395592123270035,
+                            0.11305879056453705,
+                            0.06396972388029099,
+                            0.12106829136610031,
+                            0.12890572845935822,
+                            0.12491762638092041,
+                            0.12115705013275146
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.617591061552712,
+                            "Odysseus_1.1": 34.352970123291016,
+                            "Murata_1.1": 38.52521514892578
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_04_04",
+                        "status": "ok",
+                        "simulated_E": 24.045981308411214,
+                        "cst_coeffs": [
+                            -0.008035196922719479,
+                            0.12062479555606842,
+                            -5.4764721426181495e-05,
+                            0.0891939029097557,
+                            0.11800888180732727,
+                            0.059296414256095886,
+                            0.11707327514886856,
+                            0.12782564759254456,
+                            0.13055795431137085,
+                            0.12838289141654968
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.768715722182833,
+                            "Odysseus_1.1": 27.733318328857422,
+                            "Murata_1.1": 30.45669937133789
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_04_05",
+                        "status": "ok",
+                        "simulated_E": 23.937384898710867,
+                        "cst_coeffs": [
+                            -0.011130734346807003,
+                            0.1261937916278839,
+                            -0.00012285758566576988,
+                            0.08245894312858582,
+                            0.12876629829406738,
+                            0.054168909788131714,
+                            0.12088733166456223,
+                            0.1256600022315979,
+                            0.1223180890083313,
+                            0.1302114874124527
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.042892247038008,
+                            "Odysseus_1.1": 27.250621795654297,
+                            "Murata_1.1": 31.734413146972656
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_04_06",
+                        "status": "ok",
+                        "simulated_E": 23.688636363636366,
+                        "cst_coeffs": [
+                            -0.0022422373294830322,
+                            0.12641654908657074,
+                            0.0028464263305068016,
+                            0.08588789403438568,
+                            0.11947515606880188,
+                            0.06652097404003143,
+                            0.12360413372516632,
+                            0.1271958202123642,
+                            0.11994335800409317,
+                            0.11230023205280304
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 24.06222771204043,
+                            "Odysseus_1.1": 35.725284576416016,
+                            "Murata_1.1": 35.123382568359375
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_04_07",
+                        "status": "ok",
+                        "simulated_E": 23.934185784129372,
+                        "cst_coeffs": [
+                            -0.0030809466261416674,
+                            0.12651273608207703,
+                            -0.001674300990998745,
+                            0.08321677148342133,
+                            0.11944828927516937,
+                            0.05975641682744026,
+                            0.1194983497262001,
+                            0.12738074362277985,
+                            0.12293212860822678,
+                            0.12542349100112915
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.062995308998875,
+                            "Odysseus_1.1": 31.890399932861328,
+                            "Murata_1.1": 35.112762451171875
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_04_08",
+                        "status": "ok",
+                        "simulated_E": 24.41041979010495,
+                        "cst_coeffs": [
+                            -0.00665835477411747,
+                            0.12402467429637909,
+                            0.0030806693248450756,
+                            0.08303672820329666,
+                            0.11983845382928848,
+                            0.057381875813007355,
+                            0.1188988909125328,
+                            0.1268431395292282,
+                            0.11733327805995941,
+                            0.14004437625408173
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.32476906026747,
+                            "Odysseus_1.1": 25.912860870361328,
+                            "Murata_1.1": 25.57010269165039
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_031",
+                "parent_E": 24.016879219804952,
+                "parent_groups": "Murata_1.1#3",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 23.80681689814508,
+                "min_E": 23.29155206286837,
+                "max_E": 24.81313320825516,
+                "members": [
+                    {
+                        "candidate_id": "robust_05_01",
+                        "status": "ok",
+                        "simulated_E": 23.29155206286837,
+                        "cst_coeffs": [
+                            -0.002250871155411005,
+                            0.12118766456842422,
+                            0.006984788924455643,
+                            0.08244232833385468,
+                            0.10263791680335999,
+                            0.06132210046052933,
+                            0.1257646083831787,
+                            0.11582279205322266,
+                            0.12770859897136688,
+                            0.10729055851697922
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 21.881545087490526,
+                            "Odysseus_1.1": 35.990333557128906,
+                            "Murata_1.1": 36.682796478271484
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_05_02",
+                        "status": "ok",
+                        "simulated_E": 23.46182775479504,
+                        "cst_coeffs": [
+                            -0.0015688288258388638,
+                            0.13011686503887177,
+                            0.0023767375387251377,
+                            0.0809314101934433,
+                            0.12756195664405823,
+                            0.0730176493525505,
+                            0.13085290789604187,
+                            0.12097808718681335,
+                            0.1287616789340973,
+                            0.09865500032901764
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 21.436899800995644,
+                            "Odysseus_1.1": 34.3615837097168,
+                            "Murata_1.1": 30.95321273803711
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_05_03",
+                        "status": "ok",
+                        "simulated_E": 23.706315381635022,
+                        "cst_coeffs": [
+                            -0.00668306602165103,
+                            0.12938827276229858,
+                            0.012769470922648907,
+                            0.07953145354986191,
+                            0.1064811423420906,
+                            0.05285540223121643,
+                            0.11864147335290909,
+                            0.11965662986040115,
+                            0.12480489164590836,
+                            0.12031231075525284
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 20.51869680428965,
+                            "Odysseus_1.1": 30.92632293701172,
+                            "Murata_1.1": 36.03288269042969
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_05_04",
+                        "status": "ok",
+                        "simulated_E": 23.53421550094518,
+                        "cst_coeffs": [
+                            0.009019597433507442,
+                            0.13292187452316284,
+                            0.005218447186052799,
+                            0.08018674701452255,
+                            0.12698136270046234,
+                            0.06686554849147797,
+                            0.1256072223186493,
+                            0.12005873769521713,
+                            0.132930725812912,
+                            0.09526678919792175
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 19.236377071464204,
+                            "Odysseus_1.1": 35.48590087890625,
+                            "Murata_1.1": 36.011966705322266
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_05_05",
+                        "status": "ok",
+                        "simulated_E": 24.03256494694475,
+                        "cst_coeffs": [
+                            0.009622079320251942,
+                            0.11821086704730988,
+                            0.006120617967098951,
+                            0.08063211292028427,
+                            0.13264943659305573,
+                            0.05784013494849205,
+                            0.12359125167131424,
+                            0.13119202852249146,
+                            0.12833915650844574,
+                            0.12045083940029144
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.198861960429614,
+                            "Odysseus_1.1": 28.308643341064453,
+                            "Murata_1.1": 37.20016098022461
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_05_06",
+                        "status": "ok",
+                        "simulated_E": 23.494911421032793,
+                        "cst_coeffs": [
+                            0.0066758631728589535,
+                            0.12393999099731445,
+                            0.010974776931107044,
+                            0.08131309598684311,
+                            0.1148860976099968,
+                            0.05962807685136795,
+                            0.13663716614246368,
+                            0.12591087818145752,
+                            0.1265992522239685,
+                            0.10825708508491516
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 22.73617779638983,
+                            "Odysseus_1.1": 31.96331787109375,
+                            "Murata_1.1": 38.41163635253906
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_05_07",
+                        "status": "ok",
+                        "simulated_E": 24.12001490868431,
+                        "cst_coeffs": [
+                            0.01100990828126669,
+                            0.12204975634813309,
+                            0.0070250327698886395,
+                            0.07560048997402191,
+                            0.12427709251642227,
+                            0.05684436485171318,
+                            0.12144573032855988,
+                            0.12464166432619095,
+                            0.1270713210105896,
+                            0.12611253559589386
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.603808158867604,
+                            "Odysseus_1.1": 27.635459899902344,
+                            "Murata_1.1": 35.43977355957031
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_05_08",
+                        "status": "ok",
+                        "simulated_E": 24.81313320825516,
+                        "cst_coeffs": [
+                            -0.00022614006593357772,
+                            0.12483227252960205,
+                            0.0015738309593871236,
+                            0.07631045579910278,
+                            0.11594916135072708,
+                            0.05831475555896759,
+                            0.12536068260669708,
+                            0.11569082736968994,
+                            0.1252359300851822,
+                            0.1517515331506729
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.36515719046668,
+                            "Odysseus_1.1": 25.349998474121094,
+                            "Murata_1.1": 25.50631332397461
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_040",
+                "parent_E": 23.406674427629024,
+                "parent_groups": "Murata_1.1#14, consensus#12",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 23.253953418080783,
+                "min_E": 22.396403440187648,
+                "max_E": 23.815722120658137,
+                "members": [
+                    {
+                        "candidate_id": "robust_06_01",
+                        "status": "ok",
+                        "simulated_E": 23.19549477071601,
+                        "cst_coeffs": [
+                            0.02366485819220543,
+                            0.07477432489395142,
+                            0.0033748566638678312,
+                            0.12304014712572098,
+                            0.10948064923286438,
+                            0.12486883997917175,
+                            0.08537670224905014,
+                            0.004761070478707552,
+                            0.11691422760486603,
+                            0.11828440427780151
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 23.057023949126606,
+                            "Odysseus_1.1": 27.353668212890625,
+                            "Murata_1.1": 24.715194702148438
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_06_02",
+                        "status": "ok",
+                        "simulated_E": 23.076391554702496,
+                        "cst_coeffs": [
+                            -0.01241801492869854,
+                            0.07982368022203445,
+                            -0.0023806169629096985,
+                            0.11821997165679932,
+                            0.1311512440443039,
+                            0.1267901211977005,
+                            0.0767076164484024,
+                            -0.0015415380476042628,
+                            0.1294645071029663,
+                            0.12562720477581024
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 24.18279349378426,
+                            "Odysseus_1.1": 25.40325164794922,
+                            "Murata_1.1": 27.257976531982422
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_06_03",
+                        "status": "ok",
+                        "simulated_E": 23.815722120658137,
+                        "cst_coeffs": [
+                            -0.006556100677698851,
+                            0.0870484858751297,
+                            -0.0003408957563806325,
+                            0.13084366917610168,
+                            0.1351117640733719,
+                            0.13959425687789917,
+                            0.0748542845249176,
+                            0.0019249145407229662,
+                            0.12858301401138306,
+                            0.14527611434459686
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.67985857738098,
+                            "Odysseus_1.1": 24.39163589477539,
+                            "Murata_1.1": 26.369277954101562
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_06_04",
+                        "status": "ok",
+                        "simulated_E": 23.415227629513346,
+                        "cst_coeffs": [
+                            0.004344933200627565,
+                            0.0809306874871254,
+                            0.0027205627411603928,
+                            0.1225353479385376,
+                            0.1211087554693222,
+                            0.12456054240465164,
+                            0.08548777550458908,
+                            -0.0008643398759886622,
+                            0.12628376483917236,
+                            0.12291408330202103
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.759155794328358,
+                            "Odysseus_1.1": 31.505859375,
+                            "Murata_1.1": 27.62957763671875
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_06_05",
+                        "status": "ok",
+                        "simulated_E": 22.396403440187648,
+                        "cst_coeffs": [
+                            -0.0010864868527278304,
+                            0.07563512027263641,
+                            -0.006464870180934668,
+                            0.1272592395544052,
+                            0.10729993134737015,
+                            0.12374716997146606,
+                            0.08559741079807281,
+                            -0.0006443758611567318,
+                            0.12182530015707016,
+                            0.12486319988965988
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 22.914901347560573,
+                            "Odysseus_1.1": 30.157772064208984,
+                            "Murata_1.1": 27.590469360351562
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_06_06",
+                        "status": "ok",
+                        "simulated_E": 23.464096749811034,
+                        "cst_coeffs": [
+                            0.003453818615525961,
+                            0.08320380002260208,
+                            0.0035799250472337008,
+                            0.12299295514822006,
+                            0.12393219023942947,
+                            0.11456328630447388,
+                            0.08326470106840134,
+                            0.003682987065985799,
+                            0.12160753458738327,
+                            0.14147265255451202
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.40169470246164,
+                            "Odysseus_1.1": 24.590179443359375,
+                            "Murata_1.1": 25.958141326904297
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_06_07",
+                        "status": "ok",
+                        "simulated_E": 23.784024815820086,
+                        "cst_coeffs": [
+                            0.012427262030541897,
+                            0.09055274724960327,
+                            -0.0023216817062348127,
+                            0.12864519655704498,
+                            0.1448550820350647,
+                            0.12088663130998611,
+                            0.078190878033638,
+                            0.003887024475261569,
+                            0.121844582259655,
+                            0.10903944075107574
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.595800592770154,
+                            "Odysseus_1.1": 27.97106170654297,
+                            "Murata_1.1": 25.614307403564453
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_06_08",
+                        "status": "ok",
+                        "simulated_E": 22.884266263237517,
+                        "cst_coeffs": [
+                            -0.007245082873851061,
+                            0.09316142648458481,
+                            0.006913844496011734,
+                            0.12807495892047882,
+                            0.11001414060592651,
+                            0.1369217038154602,
+                            0.08726803213357925,
+                            -0.0011451945174485445,
+                            0.12930180132389069,
+                            0.13019171357154846
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 22.814118925938445,
+                            "Odysseus_1.1": 27.515640258789062,
+                            "Murata_1.1": 27.12188720703125
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_010",
+                "parent_E": 23.217257318952235,
+                "parent_groups": "Agares_1.1#10",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 23.508646273414744,
+                "min_E": 22.612374207976146,
+                "max_E": 24.22364457831325,
+                "members": [
+                    {
+                        "candidate_id": "robust_07_01",
+                        "status": "ok",
+                        "simulated_E": 24.22364457831325,
+                        "cst_coeffs": [
+                            -0.0009145881631411612,
+                            0.08100225031375885,
+                            0.004600659944117069,
+                            0.1233222708106041,
+                            0.1485476940870285,
+                            0.12937356531620026,
+                            0.08065371960401535,
+                            -0.006684125401079655,
+                            0.13299018144607544,
+                            0.1299886256456375
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.06810023756088,
+                            "Odysseus_1.1": 23.931930541992188,
+                            "Murata_1.1": 27.106258392333984
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_07_02",
+                        "status": "ok",
+                        "simulated_E": 23.85692068429238,
+                        "cst_coeffs": [
+                            -0.0053270854987204075,
+                            0.0744580626487732,
+                            0.0037528816610574722,
+                            0.12562024593353271,
+                            0.14257903397083282,
+                            0.11013778299093246,
+                            0.07824982702732086,
+                            0.00225939997471869,
+                            0.1314552277326584,
+                            0.11912818253040314
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 25.24109800150918,
+                            "Odysseus_1.1": 25.852760314941406,
+                            "Murata_1.1": 26.067371368408203
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_07_03",
+                        "status": "ok",
+                        "simulated_E": 22.77136514983352,
+                        "cst_coeffs": [
+                            -0.014427540823817253,
+                            0.0798608586192131,
+                            0.00034348643384873867,
+                            0.12646853923797607,
+                            0.13310177624225616,
+                            0.12986454367637634,
+                            0.083741694688797,
+                            -0.0020558598916977644,
+                            0.12778016924858093,
+                            0.12818047404289246
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.611385879417107,
+                            "Odysseus_1.1": 27.57959747314453,
+                            "Murata_1.1": 26.944129943847656
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_07_04",
+                        "status": "ok",
+                        "simulated_E": 23.635781544256123,
+                        "cst_coeffs": [
+                            -0.00507788872346282,
+                            0.07543087005615234,
+                            0.00017912956536747515,
+                            0.12455891072750092,
+                            0.13272914290428162,
+                            0.13021278381347656,
+                            0.09115138649940491,
+                            -0.0009497613646090031,
+                            0.12711887061595917,
+                            0.13504239916801453
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.821544656508486,
+                            "Odysseus_1.1": 27.648178100585938,
+                            "Murata_1.1": 26.93303680419922
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_07_05",
+                        "status": "ok",
+                        "simulated_E": 22.612374207976146,
+                        "cst_coeffs": [
+                            -0.004533806815743446,
+                            0.08471237123012543,
+                            0.0005799521459266543,
+                            0.13284890353679657,
+                            0.1279313713312149,
+                            0.13601483404636383,
+                            0.0870925635099411,
+                            -0.006344903260469437,
+                            0.12328420579433441,
+                            0.12055991590023041
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.595841429750838,
+                            "Odysseus_1.1": 29.866989135742188,
+                            "Murata_1.1": 25.45382308959961
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_07_06",
+                        "status": "ok",
+                        "simulated_E": 24.212807497071456,
+                        "cst_coeffs": [
+                            -0.009528107941150665,
+                            0.07456403970718384,
+                            0.008999309502542019,
+                            0.12105444073677063,
+                            0.1395581215620041,
+                            0.12323975563049316,
+                            0.07927417010068893,
+                            0.003813344519585371,
+                            0.12907887995243073,
+                            0.1253926306962967
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.22813441288134,
+                            "Odysseus_1.1": 24.32514190673828,
+                            "Murata_1.1": 25.547809600830078
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_07_07",
+                        "status": "ok",
+                        "simulated_E": 23.498100303951368,
+                        "cst_coeffs": [
+                            -0.00407222518697381,
+                            0.08679202198982239,
+                            0.010124485939741135,
+                            0.12553834915161133,
+                            0.12296786159276962,
+                            0.1262580305337906,
+                            0.0833476260304451,
+                            -0.004473899025470018,
+                            0.12151740491390228,
+                            0.13750207424163818
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.15156813129549,
+                            "Odysseus_1.1": 26.233787536621094,
+                            "Murata_1.1": 26.427013397216797
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_07_08",
+                        "status": "ok",
+                        "simulated_E": 23.258176221623703,
+                        "cst_coeffs": [
+                            0.0015951236709952354,
+                            0.07897311449050903,
+                            -4.947401612298563e-05,
+                            0.12306823581457138,
+                            0.1398012638092041,
+                            0.12297625094652176,
+                            0.07160717248916626,
+                            -0.0019256725208833814,
+                            0.12271963059902191,
+                            0.11899514496326447
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 25.592183541995382,
+                            "Odysseus_1.1": 25.257381439208984,
+                            "Murata_1.1": 25.64980697631836
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_025",
+                "parent_E": 22.830809992429977,
+                "parent_groups": "Odysseus_1.1#11",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 23.23769107052121,
+                "min_E": 22.107981220657276,
+                "max_E": 24.08980213089802,
+                "members": [
+                    {
+                        "candidate_id": "robust_08_01",
+                        "status": "ok",
+                        "simulated_E": 22.789605734767026,
+                        "cst_coeffs": [
+                            5.031710657021904e-07,
+                            0.07755127549171448,
+                            0.0038546475116163492,
+                            0.12427930533885956,
+                            0.10730400681495667,
+                            0.12935322523117065,
+                            0.08197784423828125,
+                            -0.00020313356071710587,
+                            0.1276489794254303,
+                            0.1662379503250122
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 28.076759059997347,
+                            "Odysseus_1.1": 24.152503967285156,
+                            "Murata_1.1": 25.99582290649414
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_08_02",
+                        "status": "ok",
+                        "simulated_E": 22.107981220657276,
+                        "cst_coeffs": [
+                            -0.007827794179320335,
+                            0.07868888229131699,
+                            -0.003745008260011673,
+                            0.1264326572418213,
+                            0.13103549182415009,
+                            0.13417649269104004,
+                            0.08763817697763443,
+                            -0.0024485201574862003,
+                            0.11867456138134003,
+                            0.13020609319210052
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.38442406912676,
+                            "Odysseus_1.1": 27.185710906982422,
+                            "Murata_1.1": 25.018157958984375
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_08_03",
+                        "status": "ok",
+                        "simulated_E": 24.08980213089802,
+                        "cst_coeffs": [
+                            -0.0057419463992118835,
+                            0.08375373482704163,
+                            0.0013445275835692883,
+                            0.12118225544691086,
+                            0.15151748061180115,
+                            0.12772995233535767,
+                            0.09265996515750885,
+                            0.003426476614549756,
+                            0.12160821259021759,
+                            0.12074258178472519
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.38259341171497,
+                            "Odysseus_1.1": 25.132808685302734,
+                            "Murata_1.1": 24.535350799560547
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_08_04",
+                        "status": "ok",
+                        "simulated_E": 23.44610542879622,
+                        "cst_coeffs": [
+                            0.010020527057349682,
+                            0.07647306472063065,
+                            0.0021304308902472258,
+                            0.13115432858467102,
+                            0.12716369330883026,
+                            0.12154342979192734,
+                            0.0960630550980568,
+                            -0.0029934311751276255,
+                            0.12687163054943085,
+                            0.11019143462181091
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.185161832169165,
+                            "Odysseus_1.1": 31.775829315185547,
+                            "Murata_1.1": 26.577518463134766
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_08_05",
+                        "status": "ok",
+                        "simulated_E": 23.762874711760183,
+                        "cst_coeffs": [
+                            -0.0026244178880006075,
+                            0.0790376365184784,
+                            -0.0030526798218488693,
+                            0.12330158054828644,
+                            0.14558500051498413,
+                            0.10927032679319382,
+                            0.09008248150348663,
+                            -0.0027860328555107117,
+                            0.12096631526947021,
+                            0.12474557012319565
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 24.80713194154486,
+                            "Odysseus_1.1": 25.41638946533203,
+                            "Murata_1.1": 25.79462432861328
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_08_06",
+                        "status": "ok",
+                        "simulated_E": 23.10634184068059,
+                        "cst_coeffs": [
+                            -0.0043089925311505795,
+                            0.0800943523645401,
+                            -0.0006567651871591806,
+                            0.12118656188249588,
+                            0.1281326860189438,
+                            0.12269943207502365,
+                            0.0833456739783287,
+                            0.0009729568264447153,
+                            0.12657272815704346,
+                            0.12111373990774155
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.274701653008304,
+                            "Odysseus_1.1": 29.957645416259766,
+                            "Murata_1.1": 27.592151641845703
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_08_07",
+                        "status": "ok",
+                        "simulated_E": 23.481904012588515,
+                        "cst_coeffs": [
+                            0.0009461878798902035,
+                            0.07975969463586807,
+                            0.0003927872749045491,
+                            0.12021779268980026,
+                            0.1221192255616188,
+                            0.1294248402118683,
+                            0.09159670770168304,
+                            0.001069416874088347,
+                            0.13310974836349487,
+                            0.11814600974321365
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 24.82039841639946,
+                            "Odysseus_1.1": 30.372840881347656,
+                            "Murata_1.1": 28.351356506347656
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_08_08",
+                        "status": "ok",
+                        "simulated_E": 23.116913484021826,
+                        "cst_coeffs": [
+                            0.001760972198098898,
+                            0.07225646823644638,
+                            0.0007578718941658735,
+                            0.12303397804498672,
+                            0.13607940077781677,
+                            0.12202193588018417,
+                            0.08676838874816895,
+                            0.00034211852471344173,
+                            0.1291937232017517,
+                            0.10743080079555511
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 25.92677776251673,
+                            "Odysseus_1.1": 29.918197631835938,
+                            "Murata_1.1": 25.60086441040039
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_064",
+                "parent_E": 22.650560828300257,
+                "parent_groups": "reference#5",
+                "perturbations": 8,
+                "simulated": 8,
+                "hold_rate": 1.0,
+                "mean_E": 22.42193701892637,
+                "min_E": 21.829805996472665,
+                "max_E": 23.24686192468619,
+                "members": [
+                    {
+                        "candidate_id": "robust_09_01",
+                        "status": "ok",
+                        "simulated_E": 22.953742640874687,
+                        "cst_coeffs": [
+                            0.001803486025892198,
+                            0.12333004921674728,
+                            -0.008206912316381931,
+                            0.07681883871555328,
+                            0.13746270537376404,
+                            0.06262987107038498,
+                            0.12268972396850586,
+                            0.12549443542957306,
+                            0.11948331445455551,
+                            0.14153370261192322
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.026958815577487,
+                            "Odysseus_1.1": 24.7711181640625,
+                            "Murata_1.1": 23.36910629272461
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_09_02",
+                        "status": "ok",
+                        "simulated_E": 22.23122866894198,
+                        "cst_coeffs": [
+                            -0.0028393235988914967,
+                            0.12136711925268173,
+                            0.0010568824363872409,
+                            0.085695780813694,
+                            0.13076959550380707,
+                            0.058758046478033066,
+                            0.1203952357172966,
+                            0.13041773438453674,
+                            0.13155269622802734,
+                            0.11273398995399475
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.07760630037145,
+                            "Odysseus_1.1": 35.168270111083984,
+                            "Murata_1.1": 36.617496490478516
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_09_03",
+                        "status": "ok",
+                        "simulated_E": 21.829805996472665,
+                        "cst_coeffs": [
+                            0.009464522823691368,
+                            0.12488462030887604,
+                            -0.010942007414996624,
+                            0.08242983371019363,
+                            0.10792361199855804,
+                            0.06575609743595123,
+                            0.11865631490945816,
+                            0.12863242626190186,
+                            0.1301240473985672,
+                            0.1130170151591301
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 21.122495295348575,
+                            "Odysseus_1.1": 34.20866012573242,
+                            "Murata_1.1": 36.84926223754883
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_09_04",
+                        "status": "ok",
+                        "simulated_E": 21.90078328981723,
+                        "cst_coeffs": [
+                            -0.008994081057608128,
+                            0.12420389801263809,
+                            -0.0022997730411589146,
+                            0.07853146642446518,
+                            0.12374294549226761,
+                            0.05352216586470604,
+                            0.12467645108699799,
+                            0.12681415677070618,
+                            0.1319928765296936,
+                            0.10984515398740768
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 22.770973026476323,
+                            "Odysseus_1.1": 32.752567291259766,
+                            "Murata_1.1": 35.82122802734375
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_09_05",
+                        "status": "ok",
+                        "simulated_E": 21.869955156950674,
+                        "cst_coeffs": [
+                            0.007737340871244669,
+                            0.12319982796907425,
+                            -0.0032750496175140142,
+                            0.08209498226642609,
+                            0.10723003000020981,
+                            0.054157648235559464,
+                            0.12400943040847778,
+                            0.12332256883382797,
+                            0.12336914986371994,
+                            0.1118137314915657
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 20.94750326099226,
+                            "Odysseus_1.1": 34.63523483276367,
+                            "Murata_1.1": 36.56975555419922
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_09_06",
+                        "status": "ok",
+                        "simulated_E": 22.93782837127846,
+                        "cst_coeffs": [
+                            -0.0005087362951599061,
+                            0.1247551217675209,
+                            0.0005212947144173086,
+                            0.08156310021877289,
+                            0.12052083015441895,
+                            0.06339307129383087,
+                            0.12502849102020264,
+                            0.11666028201580048,
+                            0.12200775742530823,
+                            0.13356761634349823
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 26.137464601018042,
+                            "Odysseus_1.1": 30.523540496826172,
+                            "Murata_1.1": 31.165298461914062
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_09_07",
+                        "status": "ok",
+                        "simulated_E": 22.405290102389078,
+                        "cst_coeffs": [
+                            0.00037242844700813293,
+                            0.12485235184431076,
+                            -0.0056480891071259975,
+                            0.08391592651605606,
+                            0.13896635174751282,
+                            0.060208406299352646,
+                            0.12381358444690704,
+                            0.12679794430732727,
+                            0.11896920204162598,
+                            0.11619935184717178
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.47062483806645,
+                            "Odysseus_1.1": 32.20294189453125,
+                            "Murata_1.1": 30.40374755859375
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_09_08",
+                        "status": "ok",
+                        "simulated_E": 23.24686192468619,
+                        "cst_coeffs": [
+                            -0.0008868385921232402,
+                            0.12101145088672638,
+                            -0.00042122832383029163,
+                            0.08916183561086655,
+                            0.13302120566368103,
+                            0.06910567730665207,
+                            0.12690655887126923,
+                            0.12394299358129501,
+                            0.12503820657730103,
+                            0.1421922892332077
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 27.318150168461603,
+                            "Odysseus_1.1": 24.804046630859375,
+                            "Murata_1.1": 26.239646911621094
+                        }
+                    }
+                ]
+            },
+            {
+                "parent": "candidate_054",
+                "parent_E": 22.564472718375338,
+                "parent_groups": "edge#11",
+                "perturbations": 8,
+                "simulated": 7,
+                "hold_rate": 1.0,
+                "mean_E": 22.78969705109754,
+                "min_E": 21.12518597236982,
+                "max_E": 25.831139736768414,
+                "members": [
+                    {
+                        "candidate_id": "robust_10_01",
+                        "status": "ok",
+                        "simulated_E": 25.831139736768414,
+                        "cst_coeffs": [
+                            0.056367166340351105,
+                            0.12210237234830856,
+                            0.013533693738281727,
+                            0.109998919069767,
+                            0.18805235624313354,
+                            0.004163738340139389,
+                            0.12006040662527084,
+                            0.12397342175245285,
+                            0.12648484110832214,
+                            0.25424686074256897
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 31.41974842212799,
+                            "Odysseus_1.1": 29.364334106445312,
+                            "Murata_1.1": 35.540443420410156
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_10_02",
+                        "status": "ok",
+                        "simulated_E": 22.445831370701836,
+                        "cst_coeffs": [
+                            0.0660463497042656,
+                            0.12171335518360138,
+                            0.012145470827817917,
+                            0.10508377850055695,
+                            0.18797950446605682,
+                            0.02313113585114479,
+                            0.12462988495826721,
+                            0.1262698769569397,
+                            0.12970083951950073,
+                            0.26949170231819153
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.728245574796706,
+                            "Odysseus_1.1": 29.88394546508789,
+                            "Murata_1.1": 37.81990432739258
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_10_03",
+                        "status": "ok",
+                        "simulated_E": 21.12518597236982,
+                        "cst_coeffs": [
+                            0.058375388383865356,
+                            0.12285972386598587,
+                            0.010371245443820953,
+                            0.10533368587493896,
+                            0.1977352797985077,
+                            0.03138762712478638,
+                            0.12381740659475327,
+                            0.13142918050289154,
+                            0.13814835250377655,
+                            0.28484538197517395
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 29.999577323073872,
+                            "Odysseus_1.1": 30.586437225341797,
+                            "Murata_1.1": 39.64575958251953
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_10_04",
+                        "status": "ok",
+                        "simulated_E": 22.462308908803372,
+                        "cst_coeffs": [
+                            0.05548536404967308,
+                            0.12049312889575958,
+                            0.008422586135566235,
+                            0.09916771203279495,
+                            0.15153838694095612,
+                            0.028180429711937904,
+                            0.1211169883608818,
+                            0.11578959971666336,
+                            0.13234272599220276,
+                            0.23923620581626892
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.11464533945155,
+                            "Odysseus_1.1": 28.192588806152344,
+                            "Murata_1.1": 32.59420394897461
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_10_05",
+                        "status": "ok",
+                        "simulated_E": 21.826382153249273,
+                        "cst_coeffs": [
+                            0.057347483932971954,
+                            0.13102497160434723,
+                            0.014293685555458069,
+                            0.10255241394042969,
+                            0.18799500167369843,
+                            0.015973715111613274,
+                            0.12296755611896515,
+                            0.1188681349158287,
+                            0.1316322237253189,
+                            0.2334156185388565
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 31.15269493739249,
+                            "Odysseus_1.1": 29.957706451416016,
+                            "Murata_1.1": 34.81935119628906
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_10_06",
+                        "status": "ok",
+                        "simulated_E": 22.301353597720254,
+                        "cst_coeffs": [
+                            0.060694530606269836,
+                            0.1262241154909134,
+                            0.00436427490785718,
+                            0.1050427258014679,
+                            0.18367093801498413,
+                            0.020981386303901672,
+                            0.12769640982151031,
+                            0.12453504651784897,
+                            0.13151240348815918,
+                            0.26544931530952454
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.730247812510292,
+                            "Odysseus_1.1": 30.33254623413086,
+                            "Murata_1.1": 37.09882354736328
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_10_07",
+                        "status": "no_result",
+                        "simulated_E": null,
+                        "cst_coeffs": [
+                            0.0642704889178276,
+                            0.12361939996480942,
+                            0.004782780073583126,
+                            0.0975382849574089,
+                            0.16295172274112701,
+                            0.03238281235098839,
+                            0.11662273854017258,
+                            0.1255059838294983,
+                            0.12891431152820587,
+                            0.227810800075531
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.83365007191955,
+                            "Odysseus_1.1": 27.608200073242188,
+                            "Murata_1.1": 32.64990997314453
+                        }
+                    },
+                    {
+                        "candidate_id": "robust_10_08",
+                        "status": "ok",
+                        "simulated_E": 23.535677618069816,
+                        "cst_coeffs": [
+                            0.0540752150118351,
+                            0.12008696794509888,
+                            0.010737522505223751,
+                            0.10825419425964355,
+                            0.18272310495376587,
+                            0.02840108424425125,
+                            0.13093963265419006,
+                            0.12993700802326202,
+                            0.1334320455789566,
+                            0.24327613413333893
+                        ],
+                        "predictions": {
+                            "Agares_1.1": 30.279614708261455,
+                            "Odysseus_1.1": 30.23015594482422,
+                            "Murata_1.1": 34.61808776855469
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

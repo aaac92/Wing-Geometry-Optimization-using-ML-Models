@@ -2,8 +2,8 @@
     "name": "Agares_1.1",
     "base_name": "Agares",
     "version": "1.1",
-    "mode": "update",
-    "previous_model": "Agares",
+    "mode": "retrain",
+    "previous_model": null,
     "model_type": "lgbm",
     "feature_mode": "sum_station",
     "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17/regressor_dataset_17_rectified.csv",
@@ -23,12 +23,12 @@
         "seed": 42
     },
     "test_metrics": {
-        "MAE": 0.8035611196320129,
-        "R2_Score": 0.9068006949760331
+        "MAE": 0.33437635147321976,
+        "R2_Score": 0.9716002452497534
     },
-    "started": "2026-10-29 11:23:01",
-    "duration_s": 417.5,
+    "started": "2026-10-31 16:52:13",
+    "duration_s": 443.1,
     "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
     "device": "NVIDIA GeForce GTX 1050 Ti",
-    "command": "src/utilities/ml_gym.py update --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv --select Agares Odysseus Murata"
+    "command": "src/utilities/ml_gym.py retrain --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv --select Agares_1.1 Odysseus_1.1 Murata_1.1"
 }

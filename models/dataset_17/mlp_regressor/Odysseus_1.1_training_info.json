@@ -2,8 +2,8 @@
     "name": "Odysseus_1.1",
     "base_name": "Odysseus",
     "version": "1.1",
-    "mode": "update",
-    "previous_model": "Odysseus",
+    "mode": "retrain",
+    "previous_model": null,
     "model_type": "mlp",
     "feature_mode": "raw",
     "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17/regressor_dataset_17_rectified.csv",
@@ -29,12 +29,12 @@
         "seed": 42
     },
     "test_metrics": {
-        "MAE": 0.5141162344970107,
-        "R2_Score": 0.9084117129670243
+        "MAE": 0.2863004264062582,
+        "R2_Score": 0.97277001493464
     },
-    "started": "2026-10-29 11:29:59",
-    "duration_s": 3315.3,
+    "started": "2026-10-31 16:59:36",
+    "duration_s": 2826.0,
     "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
     "device": "NVIDIA GeForce GTX 1050 Ti",
-    "command": "src/utilities/ml_gym.py update --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv --select Agares Odysseus Murata"
+    "command": "src/utilities/ml_gym.py retrain --target models/dataset_17 --dataset 17 --csv data/datasets/dataset_17/regressor_dataset_17_rectified.csv --select Agares_1.1 Odysseus_1.1 Murata_1.1"
 }
