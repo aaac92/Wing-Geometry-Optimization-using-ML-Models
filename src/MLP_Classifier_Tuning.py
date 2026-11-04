@@ -71,13 +71,15 @@ def objective(trial):
         patience=patience
     )
 
-    final_metrics = classifier.train(data_path=training_file_dir)
+    # refit=False: a trial only needs its cross-validation scores, not a saved model
+    final_metrics = classifier.train(data_path=training_file_dir, refit=False)
 
-    # Optimize for F1-Score
-    f1_score = final_metrics.get('F1-Score', 0)
-    
-    trial.set_user_attr('F2-Score', final_metrics.get('F2-Score', 0))
-    trial.set_user_attr('Accuracy', final_metrics.get('Accuracy', 0))
+    # Optimize for the mean F1-Score of the 5 cross-validation folds (the test split stays untouched until
+    # the best configuration is retrained and saved below)
+    f1_score = final_metrics.get('CV_F1', 0)
+
+    trial.set_user_attr('CV Recall', final_metrics.get('CV_Recall', 0))
+    trial.set_user_attr('CV Accuracy', final_metrics.get('CV_Accuracy', 0))
 
     return f1_score
 
@@ -103,7 +105,7 @@ print("\n" + "#"*60)
 print("Optimization Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
-print(f"Best F1-Score: {study.best_value:.4f}")
+print(f"Best CV F1-Score: {study.best_value:.4f}")
 print("Best parameters found:")
 best_params = study.best_params
 for key, value in best_params.items():

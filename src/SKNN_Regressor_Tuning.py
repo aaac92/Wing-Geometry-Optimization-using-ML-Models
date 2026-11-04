@@ -62,9 +62,9 @@ for i, params in enumerate(parameter_combinations):
     # Train the model using the correct data_path string
     final_metrics = regressor.train(data_path=str(training_file_dir))
     
-    # Check if the current model is a new "best" and capture it
-    current_mae = final_metrics.get('MAE', float('inf'))
-    current_r2 = final_metrics.get('R2_Score', float('-inf'))
+    # Check if the current model is a new "best" and capture it (ranked on the 5-fold cross-validation mean)
+    current_mae = final_metrics.get('CV_MAE', float('inf'))
+    current_r2 = final_metrics.get('CV_R2', float('-inf'))
 
     if current_mae < best_mae_info['score']:
         best_mae_info['score'] = current_mae

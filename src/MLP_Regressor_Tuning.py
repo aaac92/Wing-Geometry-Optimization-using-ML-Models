@@ -101,12 +101,14 @@ def objective(trial):
         feature_mode=FEATURE_MODE
     )
 
-    final_metrics = regressor.train(data_path=training_file_dir)
+    # refit=False: a trial only needs its cross-validation scores, not a saved model
+    final_metrics = regressor.train(data_path=training_file_dir, refit=False)
 
-    # Optimize for MAE
-    mae = final_metrics.get('MAE', 0)
-    
-    trial.set_user_attr('R2-Score', final_metrics.get('R2_Score', 0))
+    # Optimize for the mean MAE of the 5 cross-validation folds (the test split stays untouched until the
+    # best configuration is retrained and saved below)
+    mae = final_metrics.get('CV_MAE', float('inf'))
+
+    trial.set_user_attr('CV R2-Score', final_metrics.get('CV_R2', float('-inf')))
 
     return mae
 
@@ -131,7 +133,7 @@ print("\n" + "#"*60)
 print("Optimization Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
-print(f"Best MAE: {study.best_value:.4f}")
+print(f"Best CV MAE: {study.best_value:.4f}")
 print("Best parameters found:")
 best_params = study.best_params
 for key, value in best_params.items():

@@ -93,7 +93,7 @@ def objective(trial):
     # Dynamically build hyperparameter space
     # Ceiling raised from 4000. Early stopping (patience 100) ends converged trials early,
     # so the ceiling mainly matters for low-learning-rate trials, which need many rounds.
-    n_estimators = trial.suggest_int('n_estimators', 1000, 10000, step=1000)
+    n_estimators = trial.suggest_int('n_estimators', 7500, 15000, step=500)
     lr = trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
     # lr_decay is intentionally NOT searched: LGBM_Regressor defaults to a
     # constant learning rate (lr_decay=None).
@@ -130,14 +130,14 @@ def objective(trial):
         feature_mode=FEATURE_MODE
     )
 
-    final_metrics = regressor.train(data_path=training_file_dir)
+    # refit=False: a trial only needs its cross-validation scores, not a saved model
+    final_metrics = regressor.train(data_path=training_file_dir, refit=False)
 
-    # Optimize for MAE. NOTE: this is the held-out TEST-set MAE of the last CV
-    # fold's model (same protocol as MLP_Regressor), NOT the CV-mean MAE that
-    # train() also prints as 'Average MAE'. Optuna ranks trials on this value.
-    mae = final_metrics.get('MAE', float('inf'))
-    
-    trial.set_user_attr('R2-Score', final_metrics.get('R2_Score', float('-inf')))
+    # Optimize for the mean MAE of the 5 cross-validation folds (the test split stays untouched until the
+    # best configuration is retrained and saved below)
+    mae = final_metrics.get('CV_MAE', float('inf'))
+
+    trial.set_user_attr('CV R2-Score', final_metrics.get('CV_R2', float('-inf')))
 
     return mae
 
@@ -157,8 +157,8 @@ def report_trial(study, trial):
         return
     best = study.best_trial
     n_done = len(study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,)))
-    print(f"\nTrial {trial.number + 1} finished ({n_done}/{N_TRIALS} complete) | Test MAE (ranked): {trial.value:.4f}")
-    print(f"Best so far: Trial {best.number + 1} | Test MAE (ranked): {best.value:.4f}")
+    print(f"\nTrial {trial.number + 1} finished ({n_done}/{N_TRIALS} complete) | CV MAE (ranked): {trial.value:.4f}")
+    print(f"Best so far: Trial {best.number + 1} | CV MAE (ranked): {best.value:.4f}")
 
 storage = f"sqlite:///{recovery_dir / f'optuna_study{mode_suffix}.db'}"
 study = optuna.create_study(study_name=dataset_name, storage=storage, direction='minimize', load_if_exists=True)
@@ -180,7 +180,7 @@ print("\n" + "#"*60)
 print("Optimization Complete. Analyzing Results...")
 print("#"*60 + "\n")
 
-print(f"Best MAE: {study.best_value:.4f} (Trial {study.best_trial.number + 1})")
+print(f"Best CV MAE: {study.best_value:.4f} (Trial {study.best_trial.number + 1})")
 print("Best parameters found:")
 best_params = study.best_params
 for key, value in best_params.items():

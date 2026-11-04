@@ -35,6 +35,9 @@ update and major-update also take:
 Every trained model also gets '<name>_training_info.json' (dataset, configuration, test metrics and,
 for updates, the model it replaced).
 
+Training protocol: one final fit on the training split (10% of it early-stops the model), scored on the test
+split. --folds 0 (default) skips cross-validation; --folds 5 adds it (CV_* metrics), like the tuning scripts.
+
 Examples
 --------
     python src/utilities/ml_gym.py train --model mlp --features sum_station --dataset 17 --layers 364 424 242 474 395 --log-trans
@@ -389,6 +392,11 @@ def confirm(args, prompt: str = "Start training? [y/n]: ") -> None:
         raise SystemExit("Cancelled.")
 
 
+def protocol_text(args) -> str:
+    cv = f"{args.folds}-fold cross-validation + final fit" if args.folds >= 2 else "final fit only (no cross-validation)"
+    return f"{cv}, test split {args.test_split}, seed {args.seed}"
+
+
 def describe(hyper: dict) -> str:
     return ", ".join(f"{k} = {v}" for k, v in hyper.items())
 
@@ -425,7 +433,7 @@ def run_train(args) -> None:
     print("=" * 100)
     print(f"  Dataset CSV    {csv_path}")
     print(f"  Output folder  {folder}")
-    print(f"  Protocol       {args.folds} folds, test split {args.test_split}, seed {args.seed}")
+    print(f"  Protocol       {protocol_text(args)}")
     for key, value in hyper.items():
         print(f"  {key:<15}{str(value):<40} [{sources[key]}]")
     print("=" * 100)
@@ -520,7 +528,7 @@ def run_update(args, mode: str) -> None:
             change += f" in '{job['destination']}'"
         print(f"  {job['name']} {change} | {job['type']}, features: {job['features']} | {csv_paths[job['name']].name}")
         print(f"      {describe(job['hyper'])}")
-    print(f"  Protocol: {args.folds} folds, test split {args.test_split}, seed {args.seed}")
+    print(f"  Protocol: {protocol_text(args)}")
     if in_place:
         print("  The current files of these models are overwritten; no copy is kept.")
     elif all(job["destination"] != job["folder"] for job in jobs):
@@ -564,7 +572,9 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Dataset number (e.g. 17 or 17.5); selects data/datasets/dataset_<N>/<regressor|classifier>_dataset_<N>.csv.")
     data.add_argument("--csv", help="Explicit training CSV (e.g. a rectified dataset); overrides the file chosen by --dataset.")
     proto = common.add_argument_group("training protocol")
-    proto.add_argument("--folds", type=int, default=5, help="Cross-validation folds.")
+    proto.add_argument("--folds", type=int, default=0,
+                       help="Cross-validation folds before the final fit; 0 trains only the final model (fast). "
+                            "Use 5 to also report cross-validation scores, as the tuning scripts do.")
     proto.add_argument("--test-split", type=float, default=0.2, help="Held-out test fraction.")
     proto.add_argument("--seed", type=int, default=42, help="Random state of the split and folds.")
     run = common.add_argument_group("execution")

@@ -1,3 +1,4 @@
+import copy
 import pandas as pd
 import numpy as np
 import os
@@ -14,6 +15,28 @@ from torch.utils.data import DataLoader, Subset, TensorDataset
 import joblib
 import json
 from math import comb
+
+# Training protocol shared by every model class (see each train()):
+#   k >= 2 (default 5): k-fold cross-validation on the training split measures the configuration; the mean
+#       fold scores are returned as CV_* metrics (the tuning scripts rank on them).
+#   Final fit: one model trained on the whole training split except FINAL_VALIDATION_SHARE of it, which only
+#       early-stops it. That model is the one saved and the one scored on the test split.
+#   k = 0 or 1: no cross-validation, only the final fit (about k + 1 times faster; ml_gym's default).
+# Before 2026-11-04 the saved model was simply the last fold's model (64% of the data) and the other folds
+# were thrown away.
+FINAL_VALIDATION_SHARE = 0.1
+
+
+def _final_split(n, random_state, stratify=None):
+    """(train indices, early-stopping indices) of the final fit."""
+    return train_test_split(np.arange(n), test_size=FINAL_VALIDATION_SHARE, random_state=random_state, stratify=stratify)
+
+
+def _print_cv(k, scores):
+    """Cross-validation summary: mean of every fold score, then the fold values."""
+    print(f"\n==== Cross-validation ({k} folds) ====")
+    for name, values in scores.items():
+        print(f"{name:<10} mean {np.mean(values):.4f} | per fold: " + ", ".join(f"{v:.4f}" for v in values))
 
 class CSTFeatureEngineer:
     """
@@ -304,17 +327,21 @@ class MLP_Regressor:
                     
         raise RuntimeError("Could not find a batch size that fits in GPU VRAM.")
 
-    def train(self, data_path):
+    def train(self, data_path, refit=True):
         """
-        Executes the full training pipeline for the regressor.
-        Returns a dictionary of performance metrics on the test set.
+        Trains the regressor and returns metrics (protocol at the top of this module).
+
+        Returns the test-split 'MAE' and 'R2_Score' of the final model and, with k >= 2, the cross-validation
+        means 'CV_MAE' and 'CV_R2'. refit=False skips the final fit and returns only the CV scores (used by
+        Optuna trials, which never keep the model).
 
         PARAMETERS:
         - data_path: Same data path used for the CSV in _load_and_prepare_data()
+        - refit: Train the final model after cross-validation (default True)
         """
 
         # Load data
-        X, y, X_test, y_test = self._load_and_prepare_data(data_path) 
+        X, y, X_test, y_test = self._load_and_prepare_data(data_path)
 
         # Obtain weights for some features
         if self.weight == 'instance':
@@ -323,90 +350,75 @@ class MLP_Regressor:
             weights_train = weights*(len(y)/weights.sum())
         elif self.weight == 'frequency':
             # This uses bin-based inverse frequency weighting.
-            # Creates bins and counts data inside of them to assign a weight value to that bin of data. 
+            # Creates bins and counts data inside of them to assign a weight value to that bin of data.
             # Bins that are less dense will have a higher weight value.
             num_bins = 20
-            y_flat = y.flatten() 
+            y_flat = y.flatten()
             y_min, y_max = y_flat.min().item(), y_flat.max().item()
             edges = torch.linspace(y_min, y_max, steps=num_bins + 1, device=self.device)
             bin_idx = torch.bucketize(y_flat, edges, right=False) - 1
             bin_idx = torch.clamp(bin_idx, min=0, max=num_bins-1).to(torch.long)
             bin_counts = torch.bincount(bin_idx, minlength=num_bins).float()
-            inv_freq = torch.where(bin_counts == 0, 
-                       torch.tensor(1.0, device=bin_counts.device), 
-                       1.0 / bin_counts) 
+            inv_freq = torch.where(bin_counts == 0,
+                       torch.tensor(1.0, device=bin_counts.device),
+                       1.0 / bin_counts)
             weights = inv_freq[bin_idx]
             weights_train = weights*(len(y_flat)/weights.sum())
-        else: 
+        else:
             weights_train = torch.ones(len(y), dtype=torch.float32)
-
-        best_model_state = None
 
         # Create dataset from tensors
         train_dataset = TensorDataset(X, y, weights_train)
-        kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state) 
-        all_scores_mae = []
-        all_scores_r2 = []
 
-        print(f"Starting regressor training using {self.k} folds with batch size {self.batch_size}...")
-        for fold, (train_i, val_i) in enumerate(kf.split(train_dataset)):
-            print(f"Processing fold: {fold + 1}/{self.k}")
-
-            # Creating subsets
-            train_subset = Subset(train_dataset, train_i)
-            val_subset = Subset(train_dataset, val_i)
-
-            # Create dataloaders using the selected mini-batch size
-            train_loader = DataLoader(train_subset, batch_size=self.batch_size, shuffle=True, drop_last=True)
-            val_loader = DataLoader(val_subset, batch_size=self.batch_size, shuffle=False)
-
-            # Initialize model
+        def run(train_i, val_i):
+            """Trains a fresh model on train_i, early-stopped on val_i. Returns (val MAE, val R2, best epoch)."""
+            train_loader = DataLoader(Subset(train_dataset, train_i), batch_size=self.batch_size, shuffle=True, drop_last=True)
+            val_loader = DataLoader(Subset(train_dataset, val_i), batch_size=self.batch_size, shuffle=False)
             self.model = _PyTorchMLPRegressor(
                 input_dim=self.input_dim,
                 hidden_layer_sizes=self.hidden_layer_sizes,
                 dropout_rate=self.dropout_rate
             ).to(self.device)
+            best_epoch = self._fit(train_loader, val_loader)
+            mae, r2 = self._loader_metrics(val_loader)
+            return mae, r2, best_epoch
 
-            # Fit model for this fold
-            self._fit(train_loader, val_loader)
+        metrics = {}
+        if self.k >= 2:
+            kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
+            scores = {"MAE": [], "R2": []}
+            print(f"Starting regressor cross-validation: {self.k} folds, batch size {self.batch_size}...")
+            for fold, (train_i, val_i) in enumerate(kf.split(np.arange(len(y))), start=1):
+                mae, r2, best_epoch = run(train_i, val_i)
+                print(f"Fold {fold}/{self.k}: MAE {mae:.4f}, R^2 {r2:.4f}, best epoch {best_epoch}")
+                scores["MAE"].append(mae)
+                scores["R2"].append(r2)
+            _print_cv(self.k, scores)
+            metrics = {"CV_MAE": float(np.mean(scores["MAE"])), "CV_R2": float(np.mean(scores["R2"]))}
+            if not refit:
+                return metrics
 
-            self.model.eval()
-            pred, target = [], []
-            with torch.no_grad():
-                for features, targets, _ in val_loader:
-                    features, targets = features.to(self.device), targets.to(self.device)
+        train_i, val_i = _final_split(len(y), self.random_state)
+        print(f"\nFinal fit on {len(train_i):,} rows (early stopping on {len(val_i):,})...")
+        _, _, best_epoch = run(train_i, val_i)
+        print(f"Final model: best epoch {best_epoch}")
+        return {**self._evaluate(X_test, y_test), **metrics}
 
-                    preds = self.model(features)
+    def _loader_metrics(self, loader):
+        """(MAE, R2) of the current model on a DataLoader of (features, targets, weights), in E units."""
+        self.model.eval()
+        pred, target = [], []
+        with torch.no_grad():
+            for features, targets, _ in loader:
+                preds = self.model(features.to(self.device)).cpu().numpy()
+                targets = targets.cpu().numpy()
+                if self.log_transform:
+                    targets = (np.expm1(targets) + self.y_min).astype(np.float32)
+                    preds = (np.expm1(preds) + self.y_min).astype(np.float32)
+                pred.extend(preds)
+                target.extend(targets)
+        return mean_absolute_error(target, pred), r2_score(target, pred)
 
-                    preds = preds.cpu().numpy()
-                    targets = targets.cpu().numpy()
-
-                    if self.log_transform:
-                        targets = (np.expm1(targets) + self.y_min).astype(np.float32)
-                        preds = (np.expm1(preds) + self.y_min).astype(np.float32)
-
-                    pred.extend(preds)
-                    target.extend(targets)
-
-            r2 = r2_score(target, pred)
-            mae = mean_absolute_error(target, pred)
-            print(f"Fold {fold + 1} MAE: {mae:.4f}, R^2: {r2:.4f}")
-            all_scores_mae.append(mae)
-            all_scores_r2.append(r2)
-
-        print("\n==== Cross-validation results ====")
-        print("MAE per fold:", all_scores_mae)
-        print("R^2 per fold:", all_scores_r2)
-        print("Average MAE:", np.mean(all_scores_mae))
-        print("Average R^2:", np.mean(all_scores_r2))
-        
-        print("\nTraining complete.")
-        # Load the best model state found during training
-        if best_model_state:
-            self.model.load_state_dict(best_model_state)
-
-        return self._evaluate(X_test, y_test)
-    
     def _fit(self, train_loader, val_loader):
         '''
         Trains model on a given dataset, this method is for internal use.
@@ -416,6 +428,8 @@ class MLP_Regressor:
         - model: model object initialized each fold
         - train_loader: DataLoader with the shuffled folds
         - loss_fn: Loss function to be used in this training cycle
+
+        Returns the epoch (1-based) with the lowest validation loss; the model ends with those weights.
         '''
         # Custom weighted loss function
         def make_weighted_mse(power: float = 1.0, mode: str = "linear"):
@@ -461,8 +475,11 @@ class MLP_Regressor:
         best_val_loss = float('inf')
         early_stop_counter = 0
         best_model_state = None
+        best_epoch = 0
 
         for epoch in range(self.epochs):
+            # Validation below switches to eval mode; without this, dropout would only act in the first epoch
+            self.model.train()
 
             for features, targets, weights in train_loader:
                 features, targets, weights = features.to(self.device), targets.to(self.device), weights.to(self.device)
@@ -529,7 +546,9 @@ class MLP_Regressor:
             if average_val_loss < best_val_loss:
                 best_val_loss = average_val_loss
                 early_stop_counter = 0
-                best_model_state = self.model.state_dict() # Save the best model
+                best_epoch = epoch + 1
+                # A copy: state_dict() returns the live tensors, which later epochs keep changing
+                best_model_state = copy.deepcopy(self.model.state_dict())
             else:
                 early_stop_counter += 1
                 if early_stop_counter >= self.patience:
@@ -542,6 +561,7 @@ class MLP_Regressor:
         # Restore the weights from the best validation-loss epoch
         if best_model_state:
             self.model.load_state_dict(best_model_state)
+        return best_epoch
 
     def _evaluate(self, X_test, y_test):
         '''
@@ -553,6 +573,7 @@ class MLP_Regressor:
         '''
         if not all([self.model, self.scaler]):
             raise RuntimeError("Model is not trained. Please call train() first.")
+        self.model.eval()
 
         test_dataset = TensorDataset(X_test, y_test)
         test_loader = DataLoader(test_dataset, batch_size=len(X_test), shuffle=False)
@@ -761,13 +782,22 @@ class LGBM_Regressor:
 
         return train_data, train_targets, test_data, test_targets
 
-    def train(self, data_path):
+    def train(self, data_path, refit=True):
         """
-        Executes the full training pipeline for the LGBM regressor.
-        Returns a dictionary of performance metrics on the test set.
+        Trains the LGBM regressor and returns metrics (protocol at the top of this module).
+
+        Returns the test-split 'MAE' and 'R2_Score' of the final model and, with k >= 2, the cross-validation
+        means 'CV_MAE' and 'CV_R2'. refit=False skips the final fit and returns only the CV scores (used by
+        Optuna trials, which never keep the model).
+
+        LightGBM's own messages are silenced (verbosity -1): its frequent "No further splits with positive
+        gain, best gain: -inf" only means a tree stopped below num_leaves because no leaf could be split any
+        more (min_child_samples); the tree is still used. Each fit reports its best tree count instead, and
+        says when early stopping never triggered (all n_estimators used: the cap, not convergence, ended it).
 
         PARAMETERS:
         - data_path: Same path to csv file as _load_and_prepare_data()
+        - refit: Train the final model after cross-validation (default True)
         """
         
         def custom_combo_objective(y_true, y_pred):
@@ -891,61 +921,65 @@ class LGBM_Regressor:
             else:
                 eval_metric = 'mae'
 
-        kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
-        all_scores_mae = []
-        all_scores_r2 = []
-
-        print(f"Starting LGBM training using {self.k} folds for up to {self.n_estimators} estimators...")
-        
-        for fold, (train_i, val_i) in enumerate(kf.split(X)):
-            print(f"Processing fold: {fold + 1}/{self.k}")
-            X_train_fold, X_val_fold = X[train_i], X[val_i]
-            y_train_fold, y_val_fold = y[train_i], y[val_i]
-            
-            weights_train_fold = weights_train[train_i] if weights_train is not None else None
-
-            # Initialize Model
-            self.model = lgb.LGBMRegressor(
+        def fit_one(train_i, val_i):
+            """A fresh model trained on train_i, early-stopped on val_i. Returns (model, best tree count, ran all trees)."""
+            model = lgb.LGBMRegressor(
                 objective=lgbm_objective,
                 n_estimators=self.n_estimators,
                 learning_rate=self.learning_rate,
                 num_leaves=self.num_leaves,
                 max_depth=self.max_depth,
                 random_state=self.random_state,
-                n_jobs=-1
+                n_jobs=-1,
+                verbosity=-1
             )
-            
-            # Callbacks are built per fold (early_stopping holds per-run state).
+            # Callbacks are built per fit (early_stopping holds per-run state).
             # The learning-rate decay callback is only attached when lr_decay is set.
             callbacks = [lgb.early_stopping(self.stopping_rounds, verbose=False)]
             if self.lr_decay is not None:
                 callbacks.append(lgb.reset_parameter(learning_rate=lambda iter: self.learning_rate * (self.lr_decay ** iter)))
-
-            self.model.fit(
-                X_train_fold, y_train_fold,
-                sample_weight=weights_train_fold,
-                eval_X=X_val_fold,
-                eval_y=y_val_fold,
+            model.fit(
+                X[train_i], y[train_i],
+                sample_weight=weights_train[train_i] if weights_train is not None else None,
+                eval_set=[(X[val_i], y[val_i])],
                 eval_metric=eval_metric,
                 callbacks=callbacks
             )
+            best = int(model.best_iteration_ or self.n_estimators)
+            ran_all = model.booster_.current_iteration() >= self.n_estimators
+            return model, best, ran_all
 
-            y_preds_fold = self.model.predict(X_val_fold)
-            mae = mean_absolute_error(y_val_fold, y_preds_fold)
-            r2 = r2_score(y_val_fold, y_preds_fold)
-            
-            print(f"Fold {fold + 1} MAE: {mae:.4f}, R^2: {r2:.4f}")
-            all_scores_mae.append(mae)
-            all_scores_r2.append(r2)
+        def tree_note(best, ran_all):
+            return f"best tree count {best}" + (" (all trees used: early stopping did not trigger)" if ran_all else "")
 
-        print("\n==== Cross-validation results ====")
-        print(f"MAE per fold: {all_scores_mae}")
-        print(f"R^2 per fold: {all_scores_r2}")
-        print(f"Average MAE: {np.mean(all_scores_mae):.4f}")
-        print(f"Average R^2: {np.mean(all_scores_r2):.4f}")
-        print("Training complete.")
+        metrics = {}
+        if self.k >= 2:
+            kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
+            scores = {"MAE": [], "R2": []}
+            capped = 0
+            print(f"Starting LGBM cross-validation: {self.k} folds, up to {self.n_estimators} trees...")
+            for fold, (train_i, val_i) in enumerate(kf.split(X), start=1):
+                model, best, ran_all = fit_one(train_i, val_i)
+                y_preds_fold = model.predict(X[val_i])
+                mae = mean_absolute_error(y[val_i], y_preds_fold)
+                r2 = r2_score(y[val_i], y_preds_fold)
+                print(f"Fold {fold}/{self.k}: MAE {mae:.4f}, R^2 {r2:.4f}, {tree_note(best, ran_all)}")
+                scores["MAE"].append(mae)
+                scores["R2"].append(r2)
+                capped += ran_all
+            _print_cv(self.k, scores)
+            if capped:
+                print(f"[NOTE] {capped} of {self.k} folds used all {self.n_estimators} trees: a larger n_estimators "
+                      f"would keep improving the model (and make it slower to predict).")
+            metrics = {"CV_MAE": float(np.mean(scores["MAE"])), "CV_R2": float(np.mean(scores["R2"]))}
+            if not refit:
+                return metrics
 
-        return self._evaluate(X_test, y_test)
+        train_i, val_i = _final_split(len(y), self.random_state)
+        print(f"\nFinal fit on {len(train_i):,} rows (early stopping on {len(val_i):,})...")
+        self.model, best, ran_all = fit_one(train_i, val_i)
+        print(f"Final model: {tree_note(best, ran_all)}")
+        return {**self._evaluate(X_test, y_test), **metrics}
 
     def _evaluate(self, X_test, y_test):
         '''
@@ -1096,13 +1130,16 @@ class SKNN_Regressor:
 
         return train_data, train_targets, test_data, test_targets
     
-    def train(self, data_path):
+    def train(self, data_path, refit=True):
         """
-        Executes the full training pipeline for the SKNN regressor.
-        Returns a dictionary of performance metrics on the test set.
+        Trains the SKNN regressor and returns metrics (protocol at the top of this module; with no early
+        stopping, the final fit uses the whole training split).
+
+        Returns the test-split 'MAE' and 'R2_Score' of the final model and, with k >= 2, 'CV_MAE' and 'CV_R2'.
 
         PARAMETERS:
         - data_path: Same path to csv file as _load_and_prepare_data()
+        - refit: Train the final model after cross-validation (default True)
         """
         # Load data
         X, y, X_test, y_test = self._load_and_prepare_data(data_path)
@@ -1151,48 +1188,35 @@ class SKNN_Regressor:
         else:
             weights_train = None
 
-        kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
-        all_scores_mae = []
-        all_scores_r2 = []
-
-        print(f"Starting SKNN training using {self.k} folds for degree={self.degree} polynomial...")
-        
-        for fold, (train_i, val_i) in enumerate(kf.split(X)):
-            print(f"Processing fold: {fold + 1}/{self.k}")
-            X_train_fold, X_val_fold = X[train_i], X[val_i]
-            y_train_fold, y_val_fold = y[train_i], y[val_i]
-            
-            weights_train_fold = weights_train[train_i] if weights_train is not None else None
-
-            # Initialize the Scikit-learn pipeline
-            self.model = make_pipeline(
-                StandardScaler(),
-                PolynomialFeatures(degree=self.degree),
-                LinearRegression()
-            )
-            
-            if weights_train_fold is not None:
-                self.model.fit(X_train_fold, y_train_fold, linearregression__sample_weight=weights_train_fold)
+        def fit_one(train_i):
+            model = make_pipeline(StandardScaler(), PolynomialFeatures(degree=self.degree), LinearRegression())
+            if weights_train is not None:
+                model.fit(X[train_i], y[train_i], linearregression__sample_weight=weights_train[train_i])
             else:
-                self.model.fit(X_train_fold, y_train_fold)
+                model.fit(X[train_i], y[train_i])
+            return model
 
-            y_preds_fold = self.model.predict(X_val_fold)
-            mae = mean_absolute_error(y_val_fold, y_preds_fold)
-            r2 = r2_score(y_val_fold, y_preds_fold)
-            
-            print(f"Fold {fold + 1} MAE: {mae:.4f}, R^2: {r2:.4f}")
-            all_scores_mae.append(mae)
-            all_scores_r2.append(r2)
-        
-        print("\n==== Cross-validation results ====")
-        print(f"MAE per fold: {all_scores_mae}")
-        print(f"R^2 per fold: {all_scores_r2}")
-        print(f"Average MAE: {np.mean(all_scores_mae):.4f}")
-        print(f"Average R^2: {np.mean(all_scores_r2):.4f}")
-        print("Training complete.")
+        metrics = {}
+        if self.k >= 2:
+            kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
+            scores = {"MAE": [], "R2": []}
+            print(f"Starting SKNN cross-validation: {self.k} folds, degree {self.degree} polynomial...")
+            for fold, (train_i, val_i) in enumerate(kf.split(X), start=1):
+                model = fit_one(train_i)
+                y_preds_fold = model.predict(X[val_i])
+                mae = mean_absolute_error(y[val_i], y_preds_fold)
+                r2 = r2_score(y[val_i], y_preds_fold)
+                print(f"Fold {fold}/{self.k}: MAE {mae:.4f}, R^2 {r2:.4f}")
+                scores["MAE"].append(mae)
+                scores["R2"].append(r2)
+            _print_cv(self.k, scores)
+            metrics = {"CV_MAE": float(np.mean(scores["MAE"])), "CV_R2": float(np.mean(scores["R2"]))}
+            if not refit:
+                return metrics
 
-        return self._evaluate(X_test, y_test)
-    
+        self.model = fit_one(np.arange(len(y)))
+        return {**self._evaluate(X_test, y_test), **metrics}
+
     def _evaluate(self, X_test, y_test):
         """
         Calculates and returns performance metrics on the test set.
@@ -1418,12 +1442,18 @@ class Classifier:
                     
         raise RuntimeError("Could not find a batch size that fits in GPU VRAM.")
 
-    def train(self, data_path):
+    def train(self, data_path, refit=True):
         """
-        Executes the full training pipeline using a single data file.
+        Trains the classifier and returns metrics (protocol at the top of this module; folds and the final
+        early-stopping slice are stratified by class).
+
+        Returns the test-split metrics of the final model and, with k >= 2, the cross-validation means
+        'CV_Accuracy', 'CV_Precision', 'CV_Recall' and 'CV_F1'. refit=False skips the final fit and returns
+        only the CV scores (used by Optuna trials, which never keep the model).
 
         PARAMETERS:
         - data_path: Same data path used for the CSV in _load_and_prepare_data()
+        - refit: Train the final model after cross-validation (default True)
         """
         # Load data
         X, y, X_test, y_test = self._load_and_prepare_data(data_path)
@@ -1432,26 +1462,17 @@ class Classifier:
         # --- DYNAMIC BATCH SIZE INTEGRATION ---
         calculated_batch_size = self._find_max_batch_size(X, y)
 
-        skf = StratifiedKFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
-        
         # Detach tensors for Stratified K-Fold logic
         X_np, y_np = X.cpu().numpy(), y.cpu().numpy().flatten()
-        
-        all_acc, all_prec, all_rec, all_f1 = [], [], [], []
 
-        print(f"Starting classifier training using {self.k} folds...")
-        for fold, (train_i, val_i) in enumerate(skf.split(X_np, y_np)):
-            print(f"Processing fold: {fold + 1}/{self.k}")
-            
+        def run(train_i, val_i, label):
+            """Trains a fresh model on train_i, early-stopped on val_i. Returns (validation metrics, best epoch)."""
             X_train_fold, X_val_fold = X[train_i], X[val_i]
             y_train_fold, y_val_fold = y[train_i], y[val_i]
 
             # Create dataloaders using the dynamically calculated batch size
-            train_dataset = TensorDataset(X_train_fold, y_train_fold)
-            val_dataset = TensorDataset(X_val_fold, y_val_fold)
-            
-            train_loader = DataLoader(train_dataset, batch_size=calculated_batch_size, shuffle=True)
-            val_loader = DataLoader(val_dataset, batch_size=calculated_batch_size, shuffle=False)
+            train_loader = DataLoader(TensorDataset(X_train_fold, y_train_fold), batch_size=calculated_batch_size, shuffle=True)
+            val_loader = DataLoader(TensorDataset(X_val_fold, y_val_fold), batch_size=calculated_batch_size, shuffle=False)
 
             # Initialize model, optimizer, and scheduler
             self.model = _PyTorchMLPClassifier(input_dim=self.input_dim, hidden_layer_sizes=self.hidden_layer_sizes).to(self.device)
@@ -1465,7 +1486,7 @@ class Classifier:
             else:
                 weight_val = 1.0
             weight = torch.tensor([weight_val], device=self.device, dtype=torch.float32)
-            
+
             # Loss for training (weighted) and validation (unweighted)
             loss_fn = nn.BCEWithLogitsLoss(pos_weight=weight)
             loss_fn_eval = nn.BCEWithLogitsLoss()
@@ -1473,12 +1494,13 @@ class Classifier:
             best_val_loss = float('inf')
             early_stop_counter = 0
             best_model_state = None
+            best_epoch = 0
 
             # Training loop
             for epoch in range(self.epochs):
                 self.model.train()
                 epoch_train_loss = 0.0
-                
+
                 for X_batch, y_batch in train_loader:
                     optimizer.zero_grad()
                     pred = self.model(X_batch)
@@ -1486,7 +1508,7 @@ class Classifier:
                     loss.backward()
                     optimizer.step()
                     epoch_train_loss += loss.item()
-                
+
                 # Validation phase
                 self.model.eval()
                 val_loss_cum = 0.0
@@ -1495,7 +1517,7 @@ class Classifier:
                         val_pred = self.model(X_val_batch)
                         val_loss = loss_fn_eval(val_pred, y_val_batch)
                         val_loss_cum += val_loss.item()
-                
+
                 avg_val_loss = val_loss_cum / len(val_loader)
                 scheduler.step(avg_val_loss)
 
@@ -1503,7 +1525,9 @@ class Classifier:
                 if avg_val_loss < best_val_loss:
                     best_val_loss = avg_val_loss
                     early_stop_counter = 0
-                    best_model_state = self.model.state_dict()
+                    best_epoch = epoch + 1
+                    # A copy: state_dict() returns the live tensors, which later epochs keep changing
+                    best_model_state = copy.deepcopy(self.model.state_dict())
                 else:
                     early_stop_counter += 1
                     if early_stop_counter >= self.patience:
@@ -1513,45 +1537,49 @@ class Classifier:
                 if (epoch + 1) % 100 == 0:
                     current_lr = optimizer.param_groups[0]['lr']
                     avg_train_loss = epoch_train_loss / len(train_loader)
-                    print(f'Fold {fold + 1}, Epoch [{epoch+1}/{self.epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, LR: {current_lr:.6f}')
+                    print(f'{label}, Epoch [{epoch+1}/{self.epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, LR: {current_lr:.6f}')
 
-            # Restore best model weights for this fold's evaluation
+            # Restore best model weights
             if best_model_state:
                 self.model.load_state_dict(best_model_state)
 
-            # Fold validation metrics
+            # Validation metrics
             self.model.eval()
             val_pred_labels_list = []
             y_val_true_list = []
-            
             with torch.no_grad():
                 for X_val_batch, y_val_batch in val_loader:
-                    val_pred_logits = self.model(X_val_batch)
-                    val_pred_probs = torch.sigmoid(val_pred_logits)
+                    val_pred_probs = torch.sigmoid(self.model(X_val_batch))
                     val_pred_labels_list.extend((val_pred_probs > 0.5).cpu().numpy())
                     y_val_true_list.extend(y_val_batch.cpu().numpy())
-            
             y_true = np.array(y_val_true_list)
             val_pred_labels = np.array(val_pred_labels_list)
-            
-            acc = accuracy_score(y_true, val_pred_labels)
-            prec = precision_score(y_true, val_pred_labels, zero_division=0)
-            rec = recall_score(y_true, val_pred_labels, zero_division=0)
-            f1 = f1_score(y_true, val_pred_labels, zero_division=0)
-            
-            all_acc.append(acc)
-            all_prec.append(prec)
-            all_rec.append(rec)
-            all_f1.append(f1)
-        
-        print("\n==== Cross-validation results ====")
-        print(f"Average Accuracy: {np.mean(all_acc):.4f}")
-        print(f"Average Precision: {np.mean(all_prec):.4f}")
-        print(f"Average Recall: {np.mean(all_rec):.4f}")
-        print(f"Average F1-Score: {np.mean(all_f1):.4f}")
-        print("Classifier training complete.")
+            scores = {"Accuracy": accuracy_score(y_true, val_pred_labels),
+                      "Precision": precision_score(y_true, val_pred_labels, zero_division=0),
+                      "Recall": recall_score(y_true, val_pred_labels, zero_division=0),
+                      "F1": f1_score(y_true, val_pred_labels, zero_division=0)}
+            return scores, best_epoch
 
-        return self._evaluate(X_test, y_test)
+        metrics = {}
+        if self.k >= 2:
+            skf = StratifiedKFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
+            scores = {"Accuracy": [], "Precision": [], "Recall": [], "F1": []}
+            print(f"Starting classifier cross-validation: {self.k} folds...")
+            for fold, (train_i, val_i) in enumerate(skf.split(X_np, y_np), start=1):
+                fold_scores, best_epoch = run(train_i, val_i, f"Fold {fold}")
+                print(f"Fold {fold}/{self.k}: " + ", ".join(f"{k} {v:.4f}" for k, v in fold_scores.items()) + f", best epoch {best_epoch}")
+                for name, value in fold_scores.items():
+                    scores[name].append(value)
+            _print_cv(self.k, scores)
+            metrics = {f"CV_{name}": float(np.mean(values)) for name, values in scores.items()}
+            if not refit:
+                return metrics
+
+        train_i, val_i = _final_split(len(y_np), self.random_state, stratify=y_np)
+        print(f"\nFinal fit on {len(train_i):,} rows (early stopping on {len(val_i):,})...")
+        _, best_epoch = run(train_i, val_i, "Final fit")
+        print(f"Final model: best epoch {best_epoch}")
+        return {**self._evaluate(X_test, y_test), **metrics}
 
     def _evaluate(self, X_test, y_test):
         """
