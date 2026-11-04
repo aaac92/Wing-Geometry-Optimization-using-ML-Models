@@ -32,6 +32,15 @@ def _final_split(n, random_state, stratify=None):
     return train_test_split(np.arange(n), test_size=FINAL_VALIDATION_SHARE, random_state=random_state, stratify=stratify)
 
 
+def _lgbm_eval_kwargs(X_val, y_val):
+    """Early-stopping data for LGBMRegressor.fit: eval_X/eval_y (eval_set is deprecated); eval_set only on
+    LightGBM versions older than the eval_X argument (e.g. 4.6.0)."""
+    import inspect
+    if "eval_X" in inspect.signature(lgb.LGBMRegressor.fit).parameters:
+        return {"eval_X": X_val, "eval_y": y_val}
+    return {"eval_set": [(X_val, y_val)]}
+
+
 def _print_cv(k, scores):
     """Cross-validation summary: mean of every fold score, then the fold values."""
     print(f"\n==== Cross-validation ({k} folds) ====")
@@ -941,7 +950,7 @@ class LGBM_Regressor:
             model.fit(
                 X[train_i], y[train_i],
                 sample_weight=weights_train[train_i] if weights_train is not None else None,
-                eval_set=[(X[val_i], y[val_i])],
+                **_lgbm_eval_kwargs(X[val_i], y[val_i]),
                 eval_metric=eval_metric,
                 callbacks=callbacks
             )
