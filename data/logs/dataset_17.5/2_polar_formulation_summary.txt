@@ -1,0 +1,17 @@
+================================================================================
+Polar Formulation - summary (2026-11-03 00:46:02)
+================================================================================
+Airfoils:                     134,765
+Complete polars:              134,765  (100.0%)
+Missing or incomplete:              0  (listed in failed_airfoils.csv at the end)
+XFOIL angle retries:            2,738
+Angles skipped after retry:        80  in 78 airfoil(s)
+XFOIL restarts that failed:         0  (the pass stopped at that angle)
+XFOIL runner errors:                0
+Corrupt polar files reset:         36
+Sweep: zero_out | ASEQ: [-20, 20, 0.5] | Re = 250000 | Mach = 0.09281
+
+Files:
+  data/dataset_build_data/polars/polars_dataset_17.5.rar
+  data/logs/dataset_17.5/xfoil_failed_angles.csv
+================================================================================

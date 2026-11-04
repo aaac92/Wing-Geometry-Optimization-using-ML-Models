@@ -1,0 +1,40 @@
+==============================================================================================================
+Dataset rectification: regressor_dataset_17.5.csv
+==============================================================================================================
+Pipeline: {"n_cst": 5, "aseq": [-20, 20, 0.5], "reynolds": 250000.0, "mach": 0.09281, "base_airfoil": "naca0012_unit.csv", "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt", "case_file": "Hossain_sqwing_case.run", "sweep_mode": "zero_out", "kp_seed": 42, "xfoil_iter": 200, "sweep_revision": 3}
+Signature: c60225b01939 | runs per airfoil: 1 | agreement tolerance: 5.0%
+Flag rule: |E - neighbour median| > max(3.5 x 1.4826 x neighbour MAD, 2)
+
+Round Flagged rows New airfoils Reused Confirmed Corrected Unresolved Failed
+    1         1701          572      0      1716         0          0      0
+
+Flagged rows before: 1701 | after: 1701 (the remaining ones were confirmed, unresolved or failed)
+Rows changed: 0 | failed rows dropped from the CSV: 0
+Simulated airfoils with polar CDmin below the laminar limit (0.0053): 2 of 572 (reported, not excluded)
+Dataset best E before: 26.6368 | after: 26.6368
+
+E distribution (rows)    before     after
+E >= 50                       0         0
+45 <= E < 50                  0         0
+40 <= E < 45                  0         0
+30 <= E < 40                  0         0
+E < 30                   404040    404040
+
+--- Top 15 rows after rectification -------------------------------------------------------------------------
+    Row Cfg    Dataset E Rectified  Status
+ 128916 rec      26.6368   26.6368  not flagged
+ 128884 rec      26.5760   26.5760  not flagged
+ 128794 rec      26.5328   26.5328  not flagged
+ 129103 rec      26.4836   26.4836  not flagged
+ 128616 rec      26.4080   26.4080  not flagged
+ 128733 rec      26.3798   26.3798  not flagged
+ 128708 rec      26.3588   26.3588  not flagged
+ 128721 rec      26.2851   26.2851  not flagged
+ 128844 rec      26.2851   26.2851  not flagged
+ 129007 rec      26.2728   26.2728  not flagged
+ 128891 rec      26.2236   26.2236  not flagged
+ 128128 rec      26.1521   26.1521  not flagged
+ 128448 rec      26.1088   26.1088  not flagged
+ 128568 rec      26.0970   26.0970  not flagged
+ 131775 rec      26.0917   26.0917  not flagged
+==============================================================================================================

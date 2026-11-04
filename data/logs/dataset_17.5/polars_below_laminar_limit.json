@@ -1,0 +1,29 @@
+{
+  "laminar_cd_limit": 0.005312,
+  "reynolds": 250000.0,
+  "rule": "polar CDmin < 2 x 1.328 / sqrt(Re) (laminar flat plate, both surfaces)",
+  "polars_checked": 134765,
+  "polars": [
+    {
+      "airfoil": "Test_20094",
+      "polar": "polar_Test_20094.txt",
+      "CD": 0.00504,
+      "alpha": 6.0,
+      "CL": 0.9737
+    },
+    {
+      "airfoil": "Test_92960",
+      "polar": "polar_Test_92960.txt",
+      "CD": 0.00318,
+      "alpha": 3.5,
+      "CL": 0.8165
+    },
+    {
+      "airfoil": "Test_97559",
+      "polar": "polar_Test_97559.txt",
+      "CD": 0.00505,
+      "alpha": 5.0,
+      "CL": 0.7929
+    }
+  ]
+}

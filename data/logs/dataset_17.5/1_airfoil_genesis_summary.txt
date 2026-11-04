@@ -1,0 +1,12 @@
+================================================================================
+Airfoil Genesis - summary (2026-11-01 17:11:08)
+================================================================================
+CST combinations:     147,456
+Valid airfoils:       134,765  (91.4%)
+Rejected airfoils:     12,691  (8.6%), by reason:
+      12,675  Maximum thickness location found further front than 0.18
+          16  Maximum thickness location found further back than 0.45
+
+Files:
+  data/dataset_build_data/airfoils/airfoils_dataset_17.5.rar
+================================================================================

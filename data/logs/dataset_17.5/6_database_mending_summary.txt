@@ -1,0 +1,20 @@
+================================================================================
+Database Mending - summary (2026-11-03 18:13:53)
+================================================================================
+Flag rule: |E - neighbour median| > max(3.5 x 1.4826 x neighbour MAD, 2)
+Rows:                        404,040
+Flagged in the first scan:     1,701  rows in 572 airfoils
+Re-simulated rows:             1,716  (every configuration of the flagged airfoils)
+    corrected           0
+    confirmed       1,716
+    failed              0  (dropped from the CSV)
+Rounds: 1 | rows changed: 0 | rows dropped: 0
+Dataset best E: 26.64 -> 26.64
+Re-simulated airfoils below the laminar CD limit: 2
+
+Files:
+  data/datasets/dataset_17.5/regressor_dataset_17.5.csv
+  data/datasets/dataset_17.5/classifier_dataset_17.5.csv
+  data/datasets/dataset_17.5/mending/rectification_20261103_181351_report.txt
+  data/datasets/dataset_17.5/mending/rectification_20261103_181351_below_laminar_limit.json
+================================================================================

@@ -1,0 +1,14 @@
+================================================================================
+Training Files Integration - summary (2026-11-03 17:24:18)
+================================================================================
+Regressor rows:              404,040  (airfoil x wing configuration)
+Classifier rows:             416,731  (404,040 valid, 12,691 invalid)
+Force files left out:              9
+Valid airfoils with a failure: 85 of 134,765, by first failed stage:
+          82  AVL Geometric File Formation
+           9  Training Files Integration
+
+Files:
+  data/datasets/dataset_17.5/training_files_dataset_17.5.rar
+  data/logs/dataset_17.5/failed_airfoils.csv
+================================================================================

@@ -1,0 +1,23 @@
+================================================================================
+AVL Geometric File Formation - summary (2026-11-03 02:21:42)
+================================================================================
+Polar files:              134,765
+Key points extracted:     134,683  (99.9%)
+Key point failures:            82, most common:
+          51  Poor data point distribution. Missing: N point between [-N, -N].
+          26  Poor data point distribution. Missing: N point between [N, N].
+           3  Poor data point distribution. Missing: N point between [-N, -N]; N point between [-N, -N].
+           1  Poor data point distribution. Missing: N points between (N, N]; N point between [N, N].
+           1  Poor data point distribution. Missing: N points between (N, N].
+Polars below the laminar CD limit (0.00531 at Re = 250000): 3 (reported, not excluded)
+Geometry files:
+    rec      134,683  (0 error(s) besides missing key points)
+    flat     134,683  (0 error(s) besides missing key points)
+    60DEG    134,683  (0 error(s) besides missing key points)
+
+Files:
+  data/dataset_build_data/geometry files/geo_files_dataset_17.5.rar
+  data/logs/dataset_17.5/key_point_errors.csv
+  data/logs/dataset_17.5/polars_below_laminar_limit.json
+  data/logs/dataset_17.5/geometry_errors.csv
+================================================================================

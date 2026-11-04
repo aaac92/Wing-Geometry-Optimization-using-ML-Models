@@ -1,0 +1,37 @@
+Dataset 17.5 Generation Parameters
+==============================
+CST Order (n_cst): 5
+
+Geometric Filters:
+  thickness_filters: threshold_max_t = 0.25, threshold_min_t = 0.03, threshold_t_x_max = 0.45, threshold_t_x_min = 0.18
+  sharpness_filters: activate_curvature_cont = True, threshold_rLE = 0.01
+  monotonic_thickness_filter: True
+  camber_filters: threshold_max_camber = 0.12, threshold_min_camber = -0.02
+
+CST Coefficient Ranges:
+
+Lower surface:
+  {'LE': (-0.125, 0, 0.0625), 'inter': (0, 0.125, 0.041666666666666664), 'TE': (0, 0.125, 0.125)}
+
+Upper surface:
+  {'LE': (0, 0.125, 0.0625), 'inter': (0, 0.125, 0.041666666666666664), 'TE': (0, 0.125, 0.125)}
+
+Using the following wing configurations:
+ - HossainWingRec_Creation
+ - HossainWingFlat_Creation
+ - HossainWing60DEG_Creation
+
+Flow regime:
+  Re = 250000.0
+  Mach = 0.09281
+  ASEQ = [-20, 20, 0.5]
+  Base airfoil = naca0012_unit.csv
+  NACA key point file = naca_0012_M0-9281_RE250k_M0-093_RE250000.txt
+  Sweep mode = zero_out
+  Key point seed = 42
+
+Database mending:
+  {'rule': 'robust', 'robust_k': 3.5, 'min_deviation': 2.0, 'threshold': 15.0, 'drop_failed': True}
+
+Execution start: 2026-11-01 19:55:01 | Execution end: 2026-11-03 18:14:29
+Total execution time: 1 day, 22:19:28.104052
