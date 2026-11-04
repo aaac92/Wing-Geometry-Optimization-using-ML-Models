@@ -23,15 +23,22 @@ NOTE ON 'sequential' (NOT RECOMMENDED, LEGACY ONLY)
     inwards; deep-stall angles agree between both sweeps, and rows from the zero_out branches always take
     priority. Branch files are written to a sibling '<polar folder>_branches' directory (see
     branch_directory) and merged into the requested polar file, sorted by alpha.
+
+'cold' (diagnostic only)
+    Every angle is solved by its own fresh XFOIL process, so no angle inherits a boundary layer solution from
+    another: the protocol-independent reference. About 80 process starts per polar, so it is too slow for
+    dataset generation; src/utilities/sweep_protocol_check.py uses it to check that 'zero_out' polars do not
+    depend on their sweep history (a laminar separation bubble can make XFOIL's solution bistable, and a
+    warm start then decides which branch it returns).
 """
 from pathlib import Path
 
-SWEEP_MODES = ("zero_out", "sequential")
+SWEEP_MODES = ("zero_out", "sequential", "cold")
 DEFAULT_SWEEP_MODE = "zero_out"
 # Revision of each mode's output. Bump it when a mode's polars change, so stored rectification runs of an
 # older revision are not reused (zero_out 2 = tail fill added; zero_out 3 = XFOIL file names kept short: on Linux
 # revision 2 wrote its branch files under names longer than XFOIL reads, so it produced no polars at all).
-SWEEP_REVISIONS = {"sequential": 1, "zero_out": 3}
+SWEEP_REVISIONS = {"sequential": 1, "zero_out": 3, "cold": 1}
 COMPLETION_FLAG = "XFOIL process completed successfully"
 
 
@@ -45,6 +52,8 @@ def run_sweep(runner, airfoil_file_path, polar_file_path, alfa_sequence, visc, m
         return run_zero_out_sweep(runner, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter)
     if mode == "sequential":
         return run_sequential_sweep(runner, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter)
+    if mode == "cold":
+        return run_cold_sweep(runner, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter)
     raise ValueError(f"Unknown sweep_mode '{sweep_mode}'. Options: {SWEEP_MODES}")
 
 
@@ -156,6 +165,34 @@ def run_zero_out_sweep(runner, airfoil_file_path, polar_file_path, alfa_sequence
         merged = merge_polar_files(branch_paths, polar_file_path)
     finally:
         for path in branch_paths:
+            if path.exists():
+                path.unlink()
+    if merged:
+        runner.completion_flag(str(polar_file_path))
+    return merged
+
+
+# --- Cold (diagnostic) --- #
+
+def run_cold_sweep(runner, airfoil_file_path, polar_file_path, alfa_sequence, visc, mach, iter):
+    """
+    One fresh XFOIL process per angle (no warm start anywhere), merged into polar_file_path with the
+    completion flag. Returns True if any angle converged.
+    """
+    polar_file_path = Path(polar_file_path)
+    work_dir = branch_directory(polar_file_path)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    angle_paths = []
+    try:
+        for i, alfa in enumerate(sorted(set(float(a) for a in alfa_sequence))):
+            path = work_dir / f"{polar_file_path.stem}_c{i}{polar_file_path.suffix}"
+            if path.exists():
+                path.unlink()
+            runner.alpha_pass(airfoil_file_path, str(path), [alfa], visc, mach, iter)
+            angle_paths.append(path)
+        merged = merge_polar_files(angle_paths, polar_file_path)
+    finally:
+        for path in angle_paths:
             if path.exists():
                 path.unlink()
     if merged:

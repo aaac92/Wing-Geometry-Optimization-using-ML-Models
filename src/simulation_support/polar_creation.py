@@ -238,9 +238,10 @@ class Xfoil_Polar_Creator:
         Raises ValueError before running anything if XFOIL could not be given the file names in full.
         """
         os.makedirs(os.path.dirname(polar_file_path), exist_ok=True)
-        # Every pass of a sweep writes either the polar itself or a branch file (<stem>_b0 etc.) next to the polar folder
+        # Every pass of a sweep writes either the polar itself or a branch file next to the polar folder:
+        # <stem>_b0 etc. for zero_out, <stem>_c<angle index> for cold (the longest name is checked)
         polar = Path(polar_file_path)
-        branch = branch_directory(polar) / f"{polar.stem}_b0{polar.suffix}"
+        branch = branch_directory(polar) / f"{polar.stem}_c{max(len(alfa_sequence) - 1, 0)}{polar.suffix}"
         for pass_file in (polar, branch):
             self.xfoil_file_names(airfoil_file_path, pass_file)
         return run_sweep(self, airfoil_file_path, polar_file_path, alfa_sequence, visc=visc, mach=mach, iter=iter, sweep_mode=sweep_mode)

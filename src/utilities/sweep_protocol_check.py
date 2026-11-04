@@ -45,6 +45,7 @@ sys.path.insert(0, str(SRC_DIR))
 
 import file_handling_support.database_correction as dc  # noqa: E402
 from file_handling_support.dataset_names import dataset_number_arg  # noqa: E402
+from simulation_support.alpha_sweep import SWEEP_MODES  # noqa: E402
 from ux_support.progress import run_with_progress  # noqa: E402
 
 PROTOCOLS = ("cold", "zero_out", "sequential")
@@ -53,9 +54,30 @@ REFERENCE = "cold"
 CD_TOLERANCE = 0.05
 # Two E values agree when they differ by at most this fraction
 E_TOLERANCE = 0.05
+# Angles up to this |alpha| count as before stall (operating range); beyond it XFOIL solutions are
+# history-dependent for every protocol, so only this range decides whether a protocol picks the right branch
+PRE_STALL = 8.0
 NACA_KP_FILE = "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"
 CASE_FILE = "Hossain_sqwing_case.run"
 CONFIGS = ["rec", "flat", "60DEG"]
+# CST generation grid of datasets 17 and 17.5 (Hossain_DB_Gen.py). The CSVs store CST values with 4 decimals
+# (1/24 -> 0.0417), so every sampled airfoil is snapped back to the exact grid value it was generated with:
+# on bistable shapes even that small difference can move XFOIL to the other branch.
+RANGES_LOWER = {'LE': (-0.125, 0, 0.0625), 'inter': (0, 0.125, 1/24), 'TE': (0, 0.125, 0.125)}
+RANGES_UPPER = {'LE': (0, 0.125, 0.0625), 'inter': (0, 0.125, 1/24), 'TE': (0, 0.125, 0.125)}
+GRID = dc.grid_levels_from_ranges(5, RANGES_LOWER, RANGES_UPPER)
+
+
+def snap_to_grid(cst) -> list:
+    """Exact generation-grid values of a CST vector read from a CSV; refuses values that are not on the grid."""
+    snapped = []
+    for value, levels in zip(cst, GRID):
+        level = levels[np.abs(levels - float(value)).argmin()]
+        if abs(level - float(value)) > 1e-3:
+            raise ValueError(f"CST value {value} is not on the generation grid {levels.tolist()}; "
+                             f"update RANGES_LOWER/RANGES_UPPER in this script.")
+        snapped.append(float(level))
+    return snapped
 
 
 def temp_root() -> Path:
@@ -98,6 +120,7 @@ def choose_airfoils(args) -> dict:
     chosen = {}
 
     def add(cst, group, dataset_E=None):
+        cst = snap_to_grid(cst)
         key = airfoil_key(cst)
         entry = chosen.setdefault(key, {"cst": [float(v) for v in cst], "groups": set(), "dataset_E": {},
                                         "id": "a" + hashlib.sha1(key.encode()).hexdigest()[:8]})
@@ -232,6 +255,11 @@ def summary_lines(chosen, results, rows: pd.DataFrame, angles: pd.DataFrame, pro
         ok = sum(1 for r in runs if any(v is not None for v in r.get("E", {}).values()))
         below = sum(1 for r in runs if r.get("cd_min") is not None and r["cd_min"] < cd_limit)
         lines.append(f"{p:<11} simulated {ok:>4} of {len(runs)} | polar CDmin below the laminar limit ({cd_limit:.5f}): {below}")
+    if "E_zero_out" in rows and rows["dataset_E"].notna().any():
+        both = rows.dropna(subset=["dataset_E", "E_zero_out"])
+        same = (abs(both["E_zero_out"] / both["dataset_E"] - 1) <= E_TOLERANCE)
+        lines.append(f"Label check: zero_out reproduces the dataset E in {int(same.sum())} of {len(both)} rows "
+                     f"({same.mean():.1%}); the dataset was built with zero_out, so this should be ~100%.")
     verdicts = {}
     for p in others:
         ratio = rows[f"E_{p}_vs_{REFERENCE}"].dropna()
@@ -250,14 +278,39 @@ def summary_lines(chosen, results, rows: pd.DataFrame, angles: pd.DataFrame, pro
                 lines.append(f"    {group:<8} E agree {(abs(g - 1) <= E_TOLERANCE).mean():>6.1%} of {len(g)} rows, median ratio {g.median():.3f}")
         if len(off) and off.any():
             hit = sub.loc[off, "alpha"]
-            lines.append(f"    different-branch angles span {hit.min():g} to {hit.max():g} deg")
-        verdicts[p] = agree.mean() if len(ratio) else None
-    zo = verdicts.get("zero_out")
-    if zo is not None:
-        lines += ["", ("RESULT: zero_out labels match the history-free reference; the sweep protocol does not decide them."
-                       if zo >= 0.95 else
-                       f"[WARNING] zero_out disagrees with the history-free reference on {1 - zo:.0%} of rows: "
-                       "the labels still depend on the sweep history (see the rows and angles CSVs).")]
+            lines.append(f"    different-branch angles: {int((hit.abs() <= 5).sum())} within +-5 deg, "
+                         f"{int(((hit.abs() > 5) & (hit.abs() <= 10)).sum())} at 5-10 deg, {int((hit.abs() > 10).sum())} beyond 10 deg")
+        # E reaches AVL only through the six key points: name the one that moved most where E disagrees
+        moved = []
+        for key, entry in chosen.items():
+            kp_p, kp_ref = (results.get((key, q), {}).get("key_points") for q in (p, REFERENCE))
+            rel = rows.loc[rows["airfoil"] == entry["id"], f"E_{p}_vs_{REFERENCE}"].dropna()
+            if kp_p and kp_ref and len(rel) and (abs(rel - 1) > E_TOLERANCE).any():
+                change = [abs(a - b) / max(abs(b), 1e-9) for a, b in zip(kp_p, kp_ref)]
+                moved.append(dc.KEY_POINT_NAMES[int(np.argmax(change))])
+        if moved:
+            counts = pd.Series(moved).value_counts()
+            lines.append(f"    key point that moved most where E disagrees: "
+                         + ", ".join(f"{name} ({n})" for name, n in counts.items())
+                         + "  [CLneg/CDneg: negative-stall point, CLpos/CDpos: positive-stall point]")
+        pre_stall = sub[sub["alpha"].abs() <= PRE_STALL] if len(sub) else sub
+        same_branch = float((abs(pre_stall["ratio"] - 1) <= CD_TOLERANCE).mean()) if len(pre_stall) else None
+        if same_branch is not None:
+            lines.append(f"    pre-stall polar (|alpha| <= {PRE_STALL:g} deg): same CD branch at {same_branch:.1%} of "
+                         f"{len(pre_stall)} angles")
+        verdicts[p] = (same_branch, agree.mean() if len(ratio) else None)
+    if "zero_out" in verdicts:
+        polar_ok, e_ok = verdicts["zero_out"]
+        lines.append("")
+        if polar_ok is not None:
+            lines.append(f"RESULT: before stall, zero_out polars match the history-free reference ({polar_ok:.1%} of angles)."
+                         if polar_ok >= 0.99 else
+                         f"[WARNING] Before stall, zero_out polars leave the history-free branch at {1 - polar_ok:.1%} of "
+                         f"angles: the sweep history still decides the labels (see the angles CSV).")
+        if e_ok is not None and e_ok < 0.95:
+            lines.append(f"[NOTE] E differs by more than {E_TOLERANCE:.0%} in {1 - e_ok:.0%} of rows. When the pre-stall polars "
+                         f"agree, the difference enters through the key points, which are fitted over the whole polar, "
+                         f"including the post-stall angles where every protocol is history-dependent (key point line above).")
     return lines
 
 
@@ -280,6 +333,12 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=max(1, multiprocessing.cpu_count() - 1), help="Parallel processes.")
     args = parser.parse_args()
     protocols = [REFERENCE] + [p for p in args.protocols if p != REFERENCE]
+    missing = [p for p in protocols if p not in SWEEP_MODES]
+    if missing:
+        sys.exit(f"[ERROR] This copy of src/simulation_support/alpha_sweep.py has no {', '.join(missing)} sweep "
+                 f"(it offers {', '.join(SWEEP_MODES)}).\n"
+                 f"        Update src/simulation_support/alpha_sweep.py and src/simulation_support/polar_creation.py "
+                 f"from the commit that added this tool, then run it again.")
 
     chosen, csv_path, rows_path = choose_airfoils(args)
     print(f"Dataset CSV: {csv_path.relative_to(PROJECT_ROOT) if csv_path.is_relative_to(PROJECT_ROOT) else csv_path}")
@@ -289,6 +348,11 @@ def main() -> None:
           f"(a cold polar takes about one XFOIL start per angle, so it is the slow one).")
 
     results = simulate(chosen, protocols, args.workers)
+    reference_ok = sum(1 for k in chosen if any(v is not None for v in results.get((k, REFERENCE), {}).get("E", {}).values()))
+    if reference_ok == 0:
+        errors = sorted({str(results.get((k, REFERENCE), {}).get("error")) for k in chosen})
+        sys.exit(f"[ERROR] Every {REFERENCE} (reference) simulation failed, so nothing can be compared. No files written.\n"
+                 + "\n".join(f"        {e[:160]}" for e in errors[:3]))
     rows, angles = compare(chosen, results, protocols)
     cd_limit = dc.laminar_cd_limit(2.5e5)
     lines = summary_lines(chosen, results, rows, angles, protocols, cd_limit)
