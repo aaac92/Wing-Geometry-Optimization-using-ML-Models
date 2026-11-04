@@ -1,0 +1,26 @@
+================================================================================
+SWEEP PROTOCOL CHECK (2026-11-03 20:38)
+================================================================================
+Airfoils: 50 (flagged 20, top 10, control 20)
+Reference: cold (fresh XFOIL process per angle) | E agree within 5% | CD on a different branch when off by more than 5%
+
+cold        simulated    0 of 50 | polar CDmin below the laminar limit (0.00531): 0
+zero_out    simulated   50 of 50 | polar CDmin below the laminar limit (0.00531): 0
+sequential  simulated   47 of 50 | polar CDmin below the laminar limit (0.00531): 11
+
+--- zero_out vs cold ------------------------------------------------------------
+E rows agreeing: -
+
+Angles compared: 0
+
+--- sequential vs cold ------------------------------------------------------------
+E rows agreeing: -
+
+Angles compared: 0
+
+Files:
+  data/datasets/dataset_17.5/sweep_check/sweep_check_20261103_203809_report.txt
+  data/datasets/dataset_17.5/sweep_check/sweep_check_20261103_203809_rows.csv
+  data/datasets/dataset_17.5/sweep_check/sweep_check_20261103_203809_angles.csv
+  data/datasets/dataset_17.5/sweep_check/sweep_check_20261103_203809.json
+================================================================================
