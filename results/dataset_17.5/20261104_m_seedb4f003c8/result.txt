@@ -1,0 +1,35 @@
+
+    ____   _   _   ____   ____  _____  ____   ____   _  _
+   / ___| | | | | / ___| / ___|| ____|/ ___| / ___| | || |
+   \___ \ | | | || |    | |    |  _|  \___ \ \___ \ | || |
+    ___) || |_| || |___ | |___ | |___  ___) | ___) ||_||_|
+   |____/  \___/  \____| \____||_____||____/ |____/ (_)(_)
+
+==========================================================================================
+Goal: a wing design with simulated E above the best of dataset 17.5.
+Target: E > 26.6587  (dataset best 26.6368, re-simulated 26.6587)
+
+Best design found: E = 28.2137 (+5.83% vs target) | config rec | picked by edge#1
+  CST lower: [0.0305, 0.1475, 0.0469, 0.1355, 0.25]
+  CST upper: [0.1114, 0.0926, 0.0646, 0.125, 0.1248]
+  Robustness: 8 small perturbations, E from 24.79 to 28.32 (hold rate 75%)
+
+Designs above the target: 9
+  candidate_081  E = 28.2137  rec    edge#1
+  candidate_092  E = 27.6338  rec    edge#12
+  candidate_084  E = 27.6335  rec    edge#4
+  candidate_089  E = 27.5914  rec    edge#9
+  candidate_086  E = 27.5675  rec    edge#6
+  candidate_088  E = 27.5471  rec    edge#8
+  candidate_091  E = 26.9958  rec    edge#11
+  candidate_087  E = 26.7708  rec    edge#7
+  candidate_008  E = 26.6749  rec    Agares_1.5#8
+
+Best simulated E of each model's own picks:
+  Agares_1.5          26.6749   beats the target
+  Odysseus_1.5        26.6084   -0.05 from the target
+  Murata_1.5          26.5980   -0.06 from the target
+
+Run: 20261104_m_seedb4f003c8 | master seed 0xb4f003c8 | 3:48:08
+Full details: detailed_results.txt
+==========================================================================================

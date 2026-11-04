@@ -1,0 +1,40 @@
+{
+    "name": "Odysseus_1.5",
+    "base_name": "Odysseus",
+    "version": "1.5",
+    "mode": "update",
+    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/mlp_regressor/Odysseus_1.1",
+    "model_type": "mlp",
+    "feature_mode": "raw",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv",
+    "hyperparameters": {
+        "layers": [
+            223,
+            383,
+            360,
+            423,
+            408
+        ],
+        "dropout_rate": 0.02115941846760873,
+        "learning_rate": 0.0010405415346508645,
+        "batch_size": 2048,
+        "epochs": 500,
+        "patience": 35,
+        "weight": "instance",
+        "log_trans": true
+    },
+    "protocol": {
+        "folds": 5,
+        "test_split": 0.2,
+        "seed": 42
+    },
+    "test_metrics": {
+        "MAE": 0.16208270316064483,
+        "R2_Score": 0.9954338378330353
+    },
+    "started": "2026-11-03 21:45:33",
+    "duration_s": 4274.3,
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti",
+    "command": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/utilities/ml_gym.py update --target /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17 --dataset 17.5 --version 1.5 --select Agares_1.1 Odysseus_1.1 Murata_1.1 Calipso"
+}

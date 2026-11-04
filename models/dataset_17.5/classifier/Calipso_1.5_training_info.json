@@ -1,0 +1,37 @@
+{
+    "name": "Calipso_1.5",
+    "base_name": "Calipso",
+    "version": "1.5",
+    "mode": "update",
+    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/classifier/Calipso",
+    "model_type": "classifier",
+    "feature_mode": "raw",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/classifier_dataset_17.5.csv",
+    "hyperparameters": {
+        "layers": [
+            372,
+            302,
+            297
+        ],
+        "learning_rate": 0.036909210564138255,
+        "epochs": 522,
+        "patience": 24
+    },
+    "protocol": {
+        "folds": 5,
+        "test_split": 0.2,
+        "seed": 42
+    },
+    "test_metrics": {
+        "Accuracy": 0.9999760039353546,
+        "Precision": 0.999987625140764,
+        "Recall": 0.999987625140764,
+        "F1-Score": 0.999987625140764,
+        "F2-Score": 0.999987625140764
+    },
+    "started": "2026-11-03 20:44:35",
+    "duration_s": 3209.8,
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti",
+    "command": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/utilities/ml_gym.py update --target /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17 --dataset 17.5 --version 1.5 --select Agares_1.1 Odysseus_1.1 Murata_1.1 Calipso"
+}

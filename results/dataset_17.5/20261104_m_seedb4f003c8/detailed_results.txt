@@ -1,0 +1,154 @@
+======================================================================================================================================================
+Aerodynamic Efficiency (E) Validation Report for Dataset 17.5
+======================================================================================================================================================
+Dataset best: E = 26.6368 | config = rec
+  CST lower: [0.0, 0.125, 0.0417, 0.125, 0.125]
+  CST upper: [0.125, 0.0417, 0.0833, 0.0833, 0.125]
+Hit = simulated E >= 90% of the dataset best (23.97). Signed error = prediction - simulation (positive = the model was too optimistic).
+Outcome: SUCCESS!! | target E > 26.6587 | designs above it: 9
+Inference rounds completed: 10 | Total time: 3:48:08
+
+--- Scorecard per selection group (each group judged with the score it ranked by) ------------------------------------------------------------
+Group              Picks  Sim Fail Inval   Best E  Regret  Median E Hits Signed err Rank agr. Score>max
+Agares_1.5            20   20    0     0    26.67   -0.04     26.11   19       0.55      0.14         5
+Odysseus_1.5          20   20    0     0    26.61    0.03     26.41   20      -0.06      0.16         0
+Murata_1.5            20   20    0     0    26.60    0.04     26.42   20      -0.05      0.02         0
+consensus             20   20    0     0    26.56    0.08     26.36   20      -0.14     -0.08         0
+edge                  12   12    0     0    28.21   -1.58     27.27   12       0.38     -0.12        12
+config_check           9    9    0     0    26.46    0.18     24.45    6       0.03      0.80         0
+reference              5    5    0     0    26.66   -0.02     26.47    5      -0.37      0.70         0
+
+--- Every model on every simulated main-stage candidate ----------------------------------------------------------------------------------------------
+Model                 N Signed err  Abs err Rank agr. Pred>max
+Agares_1.5          103      -0.18     0.61      0.10       17
+Odysseus_1.5        103       0.14     0.40      0.53       12
+Murata_1.5          103      -0.00     0.34      0.48       12
+
+--- Configuration check (dataset order: rec > flat > 60DEG) --------------------------------------------------------------------------------
+Agares_1.5         winner candidate_001 (rec): rec=26.74  flat=24.77  60DEG=23.82  -> matches dataset order
+Odysseus_1.5       winner candidate_021 (rec): rec=26.55  flat=24.67  60DEG=23.75  -> matches dataset order
+Murata_1.5         winner candidate_041 (rec): rec=26.40  flat=24.59  60DEG=23.66  -> matches dataset order
+Consensus shape #1 simulated: rec=26.02  flat=24.10  60DEG=23.22  -> matches dataset order
+Consensus shape #2 simulated: rec=26.37  flat=24.45  60DEG=23.56  -> matches dataset order
+Consensus shape #3 simulated: rec=26.46  flat=24.53  60DEG=23.64  -> matches dataset order
+
+--- Candidates (sorted by simulated E) ----------------------------------------------------------------------------------------------------------------
+Candidate      Cfg    Region          Agares_1 Odysseus Murata_1 Spread   Sim E Err(cons)  Near E  Flags      Picked by
+candidate_081  rec    outside 1.00       27.38    29.51    28.21   2.13   28.21     -0.84   25.97  pred>max   edge#1
+candidate_092  rec    outside 0.76       27.14    28.28    27.07   1.22   27.63     -0.57   25.05  pred>max   edge#12
+candidate_084  rec    outside 0.73       27.28    28.23    27.27   0.96   27.63     -0.36   26.15  pred>max   edge#4
+candidate_089  rec    outside 0.67       27.09    28.95    27.54   1.85   27.59     -0.50   26.29  pred>max   edge#9
+candidate_086  rec    outside 0.43       27.19    27.33    27.36   0.17   27.57     -0.38   26.58  pred>max   edge#6
+candidate_088  rec    outside 0.83       27.15    30.99    29.51   3.84   27.55     -0.40   26.29  pred>max   edge#8
+candidate_091  rec    outside 1.00       27.07    27.59    27.09   0.53   27.00      0.07   18.22  pred>max   edge#11
+candidate_087  rec    outside 1.00       27.18    29.02    27.87   1.84   26.77      0.41   25.07  pred>max   edge#7
+candidate_008  rec    between 0.24       26.56    25.97    26.03   0.59   26.67     -0.71   26.58             Agares_1.5#8
+candidate_099  rec    on-grid 0.00       26.63    26.49    26.33   0.31   26.66     -0.33   26.64             reference#1
+candidate_026  rec    between 0.46       25.82    26.37    26.19   0.55   26.61     -0.79   26.15             Odysseus_1.5#6
+candidate_011  rec    between 0.34       26.48    26.22    26.17   0.31   26.60     -0.44   26.15             Agares_1.5#11
+candidate_060  rec    between 0.34       24.94    26.15    26.24   1.29   26.60     -1.66   26.22             Murata_1.5#20
+candidate_042  rec    between 0.28       25.47    26.42    26.39   0.95   26.59     -1.11   26.64             Murata_1.5#2
+candidate_044  rec    between 0.49       25.80    26.41    26.36   0.62   26.58     -0.78   26.64             Murata_1.5#4
+candidate_076  rec    between 0.29       26.14    26.23    26.09   0.14   26.56     -0.47   26.48             consensus#16
+candidate_068  rec    between 0.21       26.23    26.20    26.19   0.04   26.56     -0.36   26.27             consensus#8
+candidate_025  rec    between 0.47       25.47    26.38    26.29   0.91   26.55     -1.08   25.81             Odysseus_1.5#5
+candidate_031  rec    between 0.21       26.16    26.32    26.29   0.15   26.54     -0.37   26.48             Odysseus_1.5#11
+candidate_022  rec    between 0.24       25.88    26.52    26.26   0.64   26.53     -0.66   26.64             Odysseus_1.5#2
+candidate_023  rec    between 0.46       25.50    26.42    26.08   0.91   26.53     -1.03   26.29             Odysseus_1.5#3
+candidate_055  rec    between 0.28       25.29    26.04    26.26   0.96   26.52     -1.22   26.09             Murata_1.5#15
+candidate_027  rec    between 0.50       25.50    26.36    26.35   0.86   26.52     -1.02   26.27             Odysseus_1.5#7
+candidate_049  rec    between 0.43       25.75    26.14    26.28   0.53   26.51     -0.76   26.36             Murata_1.5#9
+candidate_040  rec    between 0.47       26.00    26.25    25.98   0.27   26.51     -0.53   25.55             Odysseus_1.5#20
+candidate_058  rec    between 0.48       25.02    26.19    26.24   1.23   26.49     -1.47   25.13             Murata_1.5#18
+candidate_032  rec    between 0.39       25.57    26.31    26.35   0.78   26.49     -0.92   26.53             Odysseus_1.5#12
+candidate_102  rec    on-grid 0.00       26.47    26.28    26.23   0.24   26.49     -0.25   26.48             reference#4
+candidate_007  rec    between 0.01       26.57    26.28    26.23   0.34   26.48     -0.25   26.48             Agares_1.5#7
+candidate_078  rec    between 0.35       26.24    26.22    26.08   0.17   26.47     -0.40   26.29             consensus#18
+candidate_101  rec    on-grid 0.00       25.89    26.09    26.12   0.23   26.47     -0.58   26.53             reference#3
+candidate_033  rec    between 0.43       26.00    26.30    26.15   0.30   26.46     -0.46   25.97             Odysseus_1.5#13
+candidate_063  rec    between 0.37       26.23    26.35    26.24   0.12   26.46     -0.23   26.11             consensus#3, config_check#3
+candidate_046  rec    between 0.37       24.75    26.29    26.29   1.54   26.45     -1.70   24.93             Murata_1.5#6
+candidate_056  rec    between 0.27       26.07    26.34    26.25   0.27   26.44     -0.38   26.64             Murata_1.5#16
+candidate_047  rec    between 0.31       25.27    26.23    26.29   1.02   26.44     -1.17   26.27             Murata_1.5#7
+candidate_070  rec    between 0.26       26.25    26.16    26.16   0.09   26.43     -0.27   26.48             consensus#10
+candidate_043  rec    between 0.40       25.34    26.28    26.36   1.02   26.43     -1.09   26.48             Murata_1.5#3
+candidate_037  rec    between 0.19       26.02    26.26    26.21   0.24   26.43     -0.41   26.36             Odysseus_1.5#17
+candidate_103  rec    on-grid 0.00       26.26    25.50    25.87   0.76   26.42     -0.91   26.41             reference#5
+candidate_051  rec    between 0.35       25.88    26.05    26.27   0.39   26.42     -0.54   26.29             Murata_1.5#11
+candidate_073  rec    between 0.45       26.41    26.21    26.13   0.28   26.40     -0.27   26.58             consensus#13
+candidate_072  rec    between 0.23       26.14    26.22    26.13   0.09   26.40     -0.26   26.36             consensus#12
+candidate_039  rec    between 0.46       25.44    26.25    26.28   0.83   26.39     -0.95   25.84             Odysseus_1.5#19
+candidate_066  rec    between 0.31       26.21    26.30    26.21   0.09   26.39     -0.17   26.64             consensus#6
+candidate_052  rec    between 0.44       25.46    26.24    26.26   0.81   26.38     -0.92   26.36             Murata_1.5#12
+candidate_029  rec    between 0.46       25.21    26.36    26.10   1.15   26.38     -1.17   26.64             Odysseus_1.5#9
+candidate_030  rec    between 0.36       25.01    26.35    26.07   1.34   26.38     -1.37   24.93             Odysseus_1.5#10
+candidate_017  rec    between 0.32       26.41    26.14    26.22   0.27   26.38     -0.23   26.36             Agares_1.5#17
+candidate_034  rec    between 0.24       26.00    26.30    26.07   0.30   26.38     -0.38   26.11             Odysseus_1.5#14
+candidate_004  rec    between 0.30       26.69    26.32    25.97   0.72   26.38     -0.41   26.29  pred>max   Agares_1.5#4
+candidate_062  rec    between 0.26       26.35    26.30    26.30   0.06   26.37     -0.07   26.48             consensus#2, config_check#2
+candidate_075  rec    between 0.28       26.09    26.11    26.16   0.07   26.36     -0.27   26.22             consensus#15
+candidate_067  rec    between 0.32       26.21    26.25    26.32   0.11   26.35     -0.15   26.29             consensus#7
+candidate_038  rec    between 0.42       24.57    26.26    26.27   1.70   26.34     -1.77   25.30             Odysseus_1.5#18
+candidate_054  rec    between 0.16       25.74    26.23    26.26   0.52   26.32     -0.58   26.48             Murata_1.5#14
+candidate_003  rec    between 0.28       26.69    26.32    26.20   0.49   26.30     -0.10   26.64  pred>max   Agares_1.5#3
+candidate_080  rec    between 0.27       26.08    26.07    26.07   0.01   26.29     -0.22   25.99             consensus#20
+candidate_035  rec    between 0.40       26.27    26.27    26.11   0.16   26.28     -0.18   26.64             Odysseus_1.5#15
+candidate_009  rec    between 0.40       26.52    26.18    26.14   0.37   26.28     -0.13   26.64             Agares_1.5#9
+candidate_041  rec    between 0.44       25.66    26.27    26.40   0.74   26.28     -0.61   26.53             Murata_1.5#1
+candidate_065  rec    between 0.35       26.23    26.22    26.22   0.01   26.26     -0.04   26.36             consensus#5
+candidate_059  rec    between 0.43       25.32    26.24    26.24   0.92   26.25     -0.93   26.53             Murata_1.5#19
+candidate_036  rec    between 0.20       26.08    26.26    25.89   0.37   26.25     -0.36   26.29             Odysseus_1.5#16
+candidate_021  rec    between 0.35       25.48    26.55    26.27   1.08   26.24     -0.77   26.64             Odysseus_1.5#1
+candidate_077  rec    between 0.49       26.08    26.35    26.13   0.27   26.24     -0.16   26.64             consensus#17
+candidate_064  rec    between 0.34       26.27    26.25    26.22   0.04   26.22      0.00   25.97             consensus#4
+candidate_028  rec    between 0.42       24.51    26.36    26.26   1.85   26.20     -1.69   26.64             Odysseus_1.5#8
+candidate_012  rec    between 0.19       26.46    25.98    26.03   0.48   26.20     -0.23   26.05             Agares_1.5#12
+candidate_079  rec    between 0.42       26.13    26.07    26.12   0.06   26.20     -0.13   26.29             consensus#19
+candidate_069  rec    between 0.37       26.19    26.17    26.19   0.03   26.20     -0.03   26.58             consensus#9
+candidate_005  rec    between 0.28       26.69    25.63    25.55   1.13   26.18     -0.63   26.38  pred>max   Agares_1.5#5
+candidate_074  rec    between 0.35       26.14    26.22    26.12   0.10   26.16     -0.04   26.38             consensus#14
+candidate_050  rec    between 0.45       25.79    26.18    26.27   0.48   26.14     -0.35   25.97             Murata_1.5#10
+candidate_045  rec    between 0.42       24.79    26.14    26.30   1.50   26.13     -1.34   25.16             Murata_1.5#5
+candidate_019  rec    between 0.44       26.38    26.15    25.78   0.60   26.12     -0.34   25.70             Agares_1.5#19
+candidate_020  rec    between 0.42       26.37    25.93    25.95   0.44   26.09     -0.16   25.94             Agares_1.5#20
+candidate_057  rec    between 0.48       25.59    26.19    26.25   0.66   26.06     -0.46   25.81             Murata_1.5#17
+candidate_061  rec    between 0.21       26.49    26.43    26.36   0.13   26.02      0.34   26.64             consensus#1, config_check#1
+candidate_016  rec    between 0.10       26.41    25.93    25.93   0.49   26.00     -0.07   26.27             Agares_1.5#16
+candidate_024  rec    between 0.29       25.22    26.41    26.15   1.19   26.00     -0.78   26.11             Odysseus_1.5#4
+candidate_001  rec    between 0.40       26.74    25.60    25.72   1.14   25.99     -0.39   26.36  pred>max   Agares_1.5#1
+candidate_006  rec    between 0.39       26.61    26.01    25.67   0.93   25.93     -0.26   26.29             Agares_1.5#6
+candidate_053  rec    between 0.50       25.29    26.26    26.26   0.97   25.93     -0.63   26.64             Murata_1.5#13
+candidate_015  rec    between 0.47       26.41    25.96    25.76   0.66   25.91     -0.15   26.36             Agares_1.5#15
+candidate_013  rec    between 0.40       26.46    25.69    25.89   0.77   25.90     -0.22   26.36             Agares_1.5#13
+candidate_083  rec    outside 0.86       27.28    28.55    27.30   1.27   25.89      1.38   24.06  pred>max   edge#3
+candidate_090  rec    outside 1.00       27.08    28.87    27.88   1.79   25.88      1.20   24.20  pred>max   edge#10
+candidate_048  rec    between 0.30       25.86    26.00    26.28   0.42   25.86      0.00   26.58             Murata_1.5#8
+candidate_018  rec    between 0.45       26.38    25.83    25.70   0.68   25.83     -0.13   26.64             Agares_1.5#18
+candidate_100  rec    on-grid 0.00       26.57    25.91    26.11   0.65   25.68      0.24   26.58             reference#2
+candidate_002  rec    between 0.43       26.71    25.44    25.31   1.41   25.64     -0.34   26.29  pred>max   Agares_1.5#2
+candidate_071  rec    between 0.43       26.16    26.15    26.14   0.03   25.64      0.50   26.15             consensus#11
+candidate_085  rec    outside 0.51       27.24    27.35    27.41   0.17   25.46      1.78   26.01  pred>max   edge#5
+candidate_014  rec    between 0.48       26.43    25.51    25.60   0.92   25.32      0.19   26.58             Agares_1.5#14
+candidate_097  flat   between 0.37       24.48    24.50    24.36   0.14   24.53     -0.18   24.28             config_check#3
+candidate_082  rec    outside 0.89       27.75    27.91    27.29   0.61   24.48      2.81   23.70  pred>max   edge#2
+candidate_095  flat   between 0.26       24.40    24.46    24.48   0.08   24.45     -0.05   24.53             config_check#2
+candidate_093  flat   between 0.21       24.56    24.60    24.50   0.10   24.10      0.40   24.66             config_check#1
+candidate_098  60DEG  between 0.37       23.56    23.60    23.43   0.17   23.64     -0.20   23.38             config_check#3
+candidate_096  60DEG  between 0.26       23.47    23.61    23.60   0.14   23.56     -0.09   23.64             config_check#2
+candidate_010  rec    between 0.42       26.49    25.92    25.48   1.01   23.32      2.17   26.15             Agares_1.5#10
+candidate_094  60DEG  between 0.21       23.75    23.69    23.61   0.13   23.22      0.39   23.76             config_check#1
+
+--- Robustness (small perturbations of the best simulated designs) -----------------------------------------------------------------------------------
+Perturbation std dev: 0.1 grid steps. A perturbation holds if it simulates at >= 90% of its parent's E.
+Parent         Parent E Pert.  Sim Hold rate  Mean E   Min E   Max E
+candidate_099     26.66     8    8      1.00   26.22   25.62   26.98
+candidate_081     28.21     8    8      0.75   26.76   24.79   28.32
+candidate_092     27.63     8    8      1.00   27.17   25.23   27.66
+candidate_084     27.63     8    8      1.00   27.16   25.60   27.81
+candidate_089     27.59     8    8      1.00   26.95   24.94   27.90
+candidate_086     27.57     8    8      1.00   27.33   27.02   27.60
+candidate_088     27.55     8    8      0.62   25.26   23.12   27.71
+candidate_091     27.00     8    8      1.00   27.07   26.76   27.46
+candidate_087     26.77     8    8      1.00   27.35   26.61   28.47
+candidate_008     26.67     8    8      1.00   26.21   25.36   27.57
+======================================================================================================================================================
