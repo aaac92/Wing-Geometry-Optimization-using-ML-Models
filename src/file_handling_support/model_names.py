@@ -1,14 +1,30 @@
 """
 Model names. Every saved model owns files named '<name>_<suffix>' (e.g. Murata_1.5_model.pth), where the name
-is a pool name plus an optional version (Murata, Murata_1.5). Inference finds models by name inside
-models/dataset_<N>, so two models of one dataset must not share a pool name.
+is a pool name plus an optional version (Murata, Murata_1.5, or Murata_1.5.3 for a model fine-tuned by a
+3-iteration inference run). Inference finds models by name inside models/dataset_<N>, so two models of one
+dataset must not share a pool name.
 """
 import random
 import re
 from pathlib import Path
 
 MODEL_FILE_SUFFIXES = ("model.pth", "model.joblib", "meta.json", "parameters.json", "regressor_model_parameters.json")
-_VERSION = re.compile(r"_\d+\.\d+$")
+_VERSION = re.compile(r"_\d+\.\d+(\.\d+)?$")
+
+
+def model_version(name: str):
+    """Murata_1.5 -> '1.5', Murata_1.5.3 -> '1.5.3', Murata -> None."""
+    match = _VERSION.search(name)
+    return match.group(0)[1:] if match else None
+
+
+def expanded_model_name(name: str, iterations: int) -> str:
+    """Name of a model fine-tuned by an inference run of `iterations` iterations: Murata_1.5 -> Murata_1.5.3
+    (an unversioned model counts as 1.0: Murata -> Murata_1.0.3)."""
+    version = model_version(name)
+    if version and version.count(".") == 2:
+        raise ValueError(f"Model {name} is already fine-tuned by an inference run; start from its parent version.")
+    return f"{base_name(name)}_{version or '1.0'}.{int(iterations)}"
 
 
 def saved_models(models_root: Path) -> dict:

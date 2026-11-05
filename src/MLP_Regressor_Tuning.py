@@ -9,6 +9,7 @@ from pathlib import Path
 from ai_support import MLP_Regressor, CSTFeatureEngineer
 from ux_support import recovery_json
 from file_handling_support.model_names import pick_model_name
+from file_handling_support.dataset_names import dataset_folder, models_folder
 
 # === Mandatory GPU Check === #
 if not torch.cuda.is_available():
@@ -47,9 +48,9 @@ datasets_dir = project_root / "data" / "datasets"
 # Path to dataset
 dataset_num = "17.5" # text: decimal datasets are rebuilds (17.5 rebuilds 17)
 dataset_name = f"regressor_dataset_{dataset_num}"
-dataset_dir = datasets_dir / f"dataset_{dataset_num}"
+dataset_dir = dataset_folder(dataset_num, project_root)  # expansions (17.5.3) sit inside their parent
 training_file_dir = dataset_dir / f"{dataset_name}.csv"
-model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / f"mlp_regressor{mode_suffix}"
+model_save_dir = models_folder(dataset_num, project_root) / f"mlp_regressor{mode_suffix}"
 os.makedirs(model_save_dir, exist_ok=True)
 # Verify that dataset exists
 if not os.path.exists(training_file_dir):
@@ -142,7 +143,7 @@ for key, value in best_params.items():
 names = ["Murata", "Beelzebul", "Buer", "Odysseus", "Paimon", "Ronove", "Columbina"]
 if 'best_mae_name' not in status:
     # Avoids the names of models already saved for this dataset (any type, any version, old models included)
-    status['best_mae_name'] = pick_model_name(names, project_root / "models" / f"dataset_{dataset_num}", kind="MLP regressor")
+    status['best_mae_name'] = pick_model_name(names, models_folder(dataset_num, project_root), kind="MLP regressor")
     rec_json.save_recovery_status(status)
 best_mae_name = status['best_mae_name']
 

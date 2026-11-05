@@ -64,7 +64,7 @@ sys.path.insert(0, str(SRC_DIR))
 
 import torch  # noqa: E402
 from ai_support import MLP_Regressor, LGBM_Regressor, Classifier, CSTFeatureEngineer  # noqa: E402
-from file_handling_support.dataset_names import dataset_number_arg  # noqa: E402
+from file_handling_support.dataset_names import dataset_csv, dataset_number_arg, models_folder, parent_dataset  # noqa: E402
 
 # =============================================================================================== #
 # === Model types === #
@@ -342,7 +342,7 @@ def resolve_csv(args, model_type: str) -> Path:
         path = Path(explicit)
     elif args.dataset is not None:
         kind = "classifier" if model_type == "classifier" else "regressor"
-        path = PROJECT_ROOT / "data" / "datasets" / f"dataset_{args.dataset}" / f"{kind}_dataset_{args.dataset}.csv"
+        path = dataset_csv(args.dataset, PROJECT_ROOT, kind)  # expansions (17.5.3) sit inside their parent's folder
     else:
         raise SystemExit("[ERROR] Give --dataset, --csv or both.")
     path = path if path.is_absolute() else (Path.cwd() / path)
@@ -354,14 +354,14 @@ def resolve_csv(args, model_type: str) -> Path:
 def dataset_number(args, csv_path: Path):
     if args.dataset is not None:
         return args.dataset
-    match = re.search(r"dataset_(\d+(?:\.\d+)?)", csv_path.name)
+    match = re.search(r"dataset_(\d+(?:\.\d+){0,2})", csv_path.name)
     return match.group(1) if match else None
 
 
 def folder_dataset(folder: Path):
     """Dataset number of a model folder (the 'dataset_<N>' part of its path), or None."""
     for part in reversed(folder.parts):
-        match = re.fullmatch(r"dataset_(\d+(?:\.\d+)?)", part)
+        match = re.fullmatch(r"dataset_(\d+(?:\.\d+){0,2})", part)
         if match:
             return match.group(1)
     return None
@@ -373,6 +373,8 @@ def destination_folder(model_folder: Path, dataset):
     if dataset is None or source is None or source == dataset:
         return model_folder
     root = next(p for p in [model_folder, *model_folder.parents] if p.name == f"dataset_{source}")
+    if parent_dataset(dataset) or parent_dataset(source):  # expansions live inside their parent dataset's folder
+        return models_folder(dataset, PROJECT_ROOT) / model_folder.relative_to(root)
     return root.parent / f"dataset_{dataset}" / model_folder.relative_to(root)
 
 
@@ -421,7 +423,7 @@ def run_train(args) -> None:
         number = dataset_number(args, csv_path)
         if number is None:
             raise SystemExit("[ERROR] Cannot infer the dataset number from the CSV name; give --dataset or --output-dir.")
-        folder = PROJECT_ROOT / "models" / f"dataset_{number}" / folder_name(model_type, feature_mode)
+        folder = models_folder(number, PROJECT_ROOT) / folder_name(model_type, feature_mode)
     folder = folder.resolve()
     if name_taken(folder, name):
         raise SystemExit(f"[ERROR] A model named '{name}' already exists in '{folder}' (or its old models). "
@@ -569,7 +571,8 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     data = common.add_argument_group("dataset")
     data.add_argument("--dataset", type=dataset_number_arg,
-                      help="Dataset number (e.g. 17 or 17.5); selects data/datasets/dataset_<N>/<regressor|classifier>_dataset_<N>.csv.")
+                      help="Dataset number (e.g. 17, 17.5 or an inference expansion such as 17.5.3); selects "
+                           "data/datasets/dataset_<N>/<regressor|classifier>_dataset_<N>.csv (expansions: inside dataset_<parent>).")
     data.add_argument("--csv", help="Explicit training CSV (e.g. a rectified dataset); overrides the file chosen by --dataset.")
     proto = common.add_argument_group("training protocol")
     proto.add_argument("--folds", type=int, default=0,

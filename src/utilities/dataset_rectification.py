@@ -47,8 +47,9 @@ PROJECT_ROOT = SRC_DIR.parent
 sys.path.insert(0, str(SRC_DIR))
 
 from file_handling_support.database_correction import (  # noqa: E402
-    Dataset_Rectifier, Simulation_Settings, display_available, grid_levels_from_ranges,
+    Dataset_Rectifier, display_available, grid_levels_from_ranges,
 )
+from simulation_support.airfoil_simulation import Simulation_Settings  # noqa: E402
 from file_handling_support.dataset_names import dataset_number_arg  # noqa: E402
 from simulation_support.alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_MODES  # noqa: E402
 

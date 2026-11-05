@@ -27,7 +27,7 @@ NOTE ON 'sequential' (NOT RECOMMENDED, LEGACY ONLY)
 'cold' (diagnostic only)
     Every angle is solved by its own fresh XFOIL process, so no angle inherits a boundary layer solution from
     another: the protocol-independent reference. About 80 process starts per polar, so it is too slow for
-    dataset generation; src/utilities/sweep_protocol_check.py uses it to check that 'zero_out' polars do not
+    dataset generation; src/simulation_support/sweep_protocol_check.py uses it to check that 'zero_out' polars do not
     depend on their sweep history (a laminar separation bubble can make XFOIL's solution bistable, and a
     warm start then decides which branch it returns).
 """

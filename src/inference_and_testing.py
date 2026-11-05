@@ -1,66 +1,85 @@
 """
-Inference + validation pipeline for the trained airfoil/wing AI models.
+Iterative inference and simulation-based validation of the trained AI models (trust-region search).
 
 Usage:
     python inference_and_testing.py --classifier <name> --models <name1> [<name2> ...]
-                                    [--dataset 17] [--wing-mode Hossain_config|single_configuration]
-                                    [--seed HEX [--decimal]] [--csv PATH]
-    python inference_and_testing.py --resume <run folder> [--dataset 17]
+                                    [--dataset 17.5] [--lane NAME] [--no-update] [--hours 24] [--workers N]
+                                    [--wing-mode Hossain_config] [--seed HEX [--decimal]] [--csv PATH]
+    python inference_and_testing.py --resume <run folder> [--dataset 17.5] [--hours H] [--workers N]
+
+Lanes (searches that run side by side, each with its own copies of the models, its own tracks and its own data):
+    one lane per regressor given (e.g. Agares = LGBM, Odysseus = MLP raw, Murata = MLP sum_station), 'consensus'
+    (all regressors, ranked by their most pessimistic prediction) and 'random' (the control: random picks inside the
+    same trust regions, no models). --lane NAME runs a single lane. --no-update freezes the models for the whole run
+    (the ablation that shows what the fine-tuning adds; such a run writes no new dataset/model versions).
 
 Flow:
-    1. Candidate pool. For each seeded inference round: uniform CST samples, local samples around the best
-       dataset designs and edge-probe samples just past the window edges where the best designs sit
-       -> classifier validity filter -> pairing with every wing configuration -> EVERY regressor scores
-       EVERY row. Only an elite subset of each round (best rows per model and by consensus) is kept.
-    2. Region tagging. Each elite row gets its distance (in dataset grid steps) to the nearest dataset design
-       of the same configuration, that design's E, and a label: on-grid / between / outside (the window).
-    3. Shortlist. Diverse top-K per model, diverse top-K by consensus (lowest prediction across models),
-       a few edge-probe designs, the other wing configurations of the best consensus shapes, and the top
-       dataset designs as a reproducibility reference.
-    4. Main simulation of the shortlist (XFOIL -> key points -> .avl geometry -> AVL).
-    5. Robustness: small perturbations of the best simulated designs are simulated as well.
-    6. Reports. result.txt: did any model find a design that beats the best dataset E (SUCCESS!! / Try again...),
-       with the bare minimum around it. detailed_results.txt / .json: scorecard per selection group and per
-       model, configuration check, candidate table and robustness table. Plus a parity plot.
+    Iteration 0 (shared by every lane): seeded rounds of uniform, local (around the best dataset designs) and edge-probe
+        (just past the window edges where the best designs sit) samples; every regressor scores every shape in every
+        wing configuration. Each lane shortlists its own best shapes; the top dataset shapes and the dataset peaks
+        are re-simulated as references. Every shortlisted shape is simulated in all wing configurations.
+    Tracks: every lane starts one track (trust region) at each dataset peak (ai_support.trust_region.Dataset_Peaks);
+        iteration-0 finds move a track or open a new one. After iteration 0 each lane fine-tunes its models.
+    Iterations 1, 2, ...: per lane and track, sample the trust region, score with the lane's current models, pick
+        diverse candidates (check_validity gate), simulate them all in one parallel batch, update every track (move /
+        resize, ai_support.trust_region.Trust_Region), drop or merge tracks, fine-tune the lane's models with all of
+        its simulations so far. A lane stops when its best E gains less than 0.5% for 2 iterations in a row.
+    Time ceiling (--hours, default 24): checked only between iterations, so an iteration is never cut (the run may
+        overshoot); the report says whether another iteration was still needed, or how much earlier the run finished.
+    Final validation per lane: cold-start sweep check of the best designs (history-free XFOIL, SUCCESS needs it to
+        agree), robustness perturbations, geometric filter status (information only), window status, models' view.
+    Versions (not with --no-update): after i loop iterations the dataset and the models get a third version part:
+        data/datasets/dataset_17.5/dataset_17.5.i/regressor_dataset_17.5.i.csv  (dataset + every valid new simulation
+        of every lane that passes the laminar CD limit; no geometric filters, no classifier CSV) and
+        models/dataset_17.5/dataset_17.5.i/<type folders>/<Name>_1.5.i_* (one final fine-tune of each model on it).
 
-Resuming (--resume): a stopped or failed run continues in its own folder with the settings in its metadata. The
-saved inference results (inference_checkpoint.json) are reused, so the inference rounds are not repeated, and so
-are the polars archived by a simulation stage; only what is missing runs again. Nothing is reused if the dataset
-CSV or a model changed since the run started (file fingerprints in the metadata).
+Recovery (power cuts, accidental shutdowns): every finished simulation is appended to simulations.jsonl and forced
+to disk at once; the run state (lanes, tracks, picks, stop counters) is written atomically at every phase of every
+iteration (recovery_status.json). --resume continues where the run stopped: finished simulations are reused, the
+interrupted batch simulates only what is missing, and fine-tuned models are rebuilt from the saved simulations.
 
-No multiprocessing is used anywhere in this script.
+Outputs (results/dataset_<N>/<date>_m_seed<seed>): result.txt (SUCCESS!! / Try again..., per lane), detailed_results.txt
+and .json, iterations.csv, simulations.csv, simulations.jsonl (every simulation with its polar, key points, .avl and
+force files), convergence and parity plots, run metadata.
+
+Simulations run in a process pool (simulation_support.simulate_shapes, --workers, default CPU threads - 1).
 """
 import argparse
+import contextlib
+import io
 import hashlib
-import os
-import sys
 import json
-import shutil
-import re
 import math
-import secrets
-import time
+import multiprocessing
+import os
 import platform
+import re
+import secrets
+import shutil
+import sys
+import time
+import warnings
 from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from datetime import datetime, timedelta
-from tqdm import tqdm
 import torch
 from scipy.spatial import cKDTree
-from scipy.stats import spearmanr
 from cst_modeling.foil import check_validity
 
-# Import custom support modules (Ensure these are accessible in your project root)
-from simulation_support import Xfoil_Polar_Creator as XPR
-from simulation_support.alpha_sweep import COMPLETION_FLAG
-from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossainWingFlat_Creation, HossainWing60DEG_Creation, AVL_Run_Case
-from geometric_support import Airfoil_Generator
-from file_handling_support import compression_Alma, get_all_files_from
-from file_handling_support.dataset_names import dataset_number_arg
-from ai_support import Classifier, MLP_Regressor, LGBM_Regressor
+from simulation_support import Simulation_Settings, simulate_shapes, compare_runs, laminar_cd_limit, jsonable
+from geometric_support import Airfoil_Generator, check_airfoil
+from file_handling_support.dataset_names import (dataset_number_arg, dataset_csv, models_folder, parent_dataset,
+                                                 expansion_number, dataset_folder)
+from file_handling_support.model_names import base_name, expanded_model_name, model_version
+from ai_support import Classifier, MLP_Regressor, LGBM_Regressor, Dataset_Peaks, Trust_Region, Lane_Monitor, diverse_top
+from ux_support.recovery import atomic_write_json, atomic_write_text, append_jsonl, read_jsonl
+
+# LightGBM models saved with feature names warn on every prediction from a plain array; the columns are in order
+warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
 # =============================================================================================== #
 # === Constants === #
@@ -74,79 +93,82 @@ NACA_KP_FILE = "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"  # AVL 3.32 sectio
 SWEEP_MODE = "zero_out"   # alpha sweep, see simulation_support.alpha_sweep
 KP_SEED = 42              # random_state of the key-point GPR fit
 
-# --- Inference settings --- #
-NUM_INFERENCE_RUNS = 10
-NUM_SAMPLES = 600_000          # uniform (global) CST samples per inference round
-NUM_LOCAL_SAMPLES = 800_000    # local-refinement samples per round, drawn around the best dataset designs (0 = off)
-NUM_EDGE_SAMPLES = 400_000     # edge-probe samples per round (0 = off); only rows outside the window are kept
-LOCAL_TOP_K = 30               # number of distinct top-E dataset designs used as local search centers
-LOCAL_SIGMA_FRACTION = 0.10    # local noise std dev, as a fraction of each coefficient's range width
-EDGE_SIGMA_STEPS = 0.5         # edge-probe noise std dev on the extended coefficients, in grid steps (reaches ~1 step past the edge)
-# Rows per model call; keeps GPU/CPU memory bounded for large candidate sets. A chunk can still be close to the free
-# GPU memory: PyTorch then frees its cached blocks and retries, which may print an out-of-memory WARNING from
-# CUDACachingAllocator.cpp. That warning is harmless while the predictions continue; only an OutOfMemoryError
-# exception (the run stops) calls for a smaller value.
-PREDICT_CHUNK = 250_000
-VALIDITY_THRESHOLD = 0.99
-SEED_POOL_SIZE = 10000  # per-round seeds are drawn (without repetition) from [0, SEED_POOL_SIZE)
-MAX_MASTER_SEED = 0xFFFFFFFF  # upper limit of the master seed (8 hex digits); raise it here if ever needed
-ELITE_PER_CRITERION = 2000     # rows kept per round for each model's ranking and for the consensus ranking
-CHECKPOINT_FILE = "inference_checkpoint.json"  # shortlisted candidates of a run, reused by --resume
-
-# --- Shortlist --- #
-TOP_K_PER_MODEL = 20           # diverse picks per model
-TOP_K_CONSENSUS = 20           # diverse picks by consensus (lowest prediction across models)
-TOP_K_EDGE = 12                # diverse edge-probe picks (outside the window), ranked by consensus
-CONFIG_CHECK_SHAPES = 3        # best consensus shapes, also simulated in the configurations they were not picked with
-REFERENCE_TOP = 5              # top dataset designs re-simulated as they are (reproducibility check)
-DIVERSITY_MIN_STEPS = 0.5      # kept designs differ by at least this many grid steps in some CST coefficient
+# --- Iteration 0 (shared candidate search) --- #
+NUM_INFERENCE_RUNS = 5         # seeded rounds
+NUM_SAMPLES = 400_000          # uniform (global) CST samples per round
+NUM_LOCAL_SAMPLES = 600_000    # samples per round around the best dataset designs (0 = off)
+NUM_EDGE_SAMPLES = 300_000     # edge-probe samples per round (0 = off); only shapes outside the window are kept
+LOCAL_TOP_K = 30               # distinct top-E dataset designs used as local search centres
+LOCAL_SIGMA_FRACTION = 0.10    # local noise std dev, as a fraction of each coefficient's window width
+EDGE_SIGMA_STEPS = 0.5         # edge-probe noise std dev on the extended coefficients, in grid steps
 EDGE_MIN_SHARE = 0.5           # a window edge is probed if at least this share of the top dataset designs sit on it
-HIT_FRACTION = 0.9             # a "hit" simulates at >= HIT_FRACTION x dataset best E
+# Rows per model call; keeps GPU/CPU memory bounded. A chunk close to the free GPU memory can print a harmless
+# out-of-memory WARNING from CUDACachingAllocator.cpp; only an OutOfMemoryError calls for a smaller value.
+PREDICT_CHUNK = 250_000
+SEED_POOL_SIZE = 10000         # round seeds are drawn (without repetition) from [0, SEED_POOL_SIZE)
+MAX_MASTER_SEED = 0xFFFFFFFF   # upper limit of the master seed (8 hex digits)
+ELITE_PER_LANE = 2000          # shapes kept per round and lane (inside the window; a quarter of it from the edge probe)
+RANDOM_POOL_PER_ROUND = 400    # shapes kept per round for the random lane's iteration-0 picks
+TOP_K_IN_WINDOW = 16           # iteration-0 picks per lane inside the window
+TOP_K_EDGE = 8                 # iteration-0 picks per lane from the edge probe
+RANDOM_PICKS_0 = 24            # iteration-0 picks of the random lane
+REFERENCE_TOP = 5              # top dataset shapes re-simulated as they are (reproducibility check)
+DIVERSITY_MIN_STEPS = 0.5      # iteration-0 picks differ by at least this many grid steps in some coefficient
+VALIDITY_THRESHOLD = 0.99      # classifier probability shown as "classifier: valid" in the reports (not a gate)
 
-# --- Robustness --- #
-ROBUST_DESIGNS = 10            # best simulated designs (distinct shapes) that get perturbed
-ROBUST_PERTURBATIONS = 8       # perturbations per design
-ROBUST_SIGMA_STEPS = 0.10      # perturbation std dev, in grid steps (0.05 was sized to the sequential-sweep artifact's E flips)
-ROBUST_HOLD_FRACTION = 0.9     # a perturbation "holds" if it simulates at >= this fraction of its parent's E
+# --- Trust-region loop --- #
+PEAK_SHARE = 0.90              # dataset peaks: local maxima with E >= this share of their configuration's best E
+MAX_START_TRACKS = 6           # at most this many dataset peaks start tracks
+MAX_TRACKS_FACTOR = 2          # a lane follows at most this many times the number of dataset peaks
+NEW_TRACK_MIN_STEPS = 2.0      # an iteration-0 design opens a new track this far (grid steps) from every track
+TR_UNIFORM_SAMPLES = 20_000    # uniform samples per track and iteration
+TR_REFINE_SAMPLES = 10_000     # extra samples around the best-predicted ones
+TR_REFINE_TOP = 50
+PICKS_PER_TRACK = 16           # shapes simulated per track and iteration
+PICK_MIN_STEPS_FACTOR = 0.25   # picks differ by at least this x radius grid steps
+EXPLORE_TOP_SHARE = 0.10       # consensus lane: exploration picks come from this top share by consensus
+MIN_GAIN = 0.005               # stop rule: best E gains less than this (relative) ...
+STALL_PATIENCE = 2             # ... this many iterations in a row
+DROP_SHARE = 0.95              # a track below this share of its lane's best E is dropped (from iteration 2)
+MERGE_STEPS = 1.0              # two tracks closer than this (grid steps) merge
+DEFAULT_HOURS = 24.0
+MAX_ITERATIONS = None          # optional hard cap on loop iterations (None: time ceiling and stop rule only)
 
-# --- Candidate search window (CST deltas) --- #
-# Defaults replicate the dataset 17 generation ranges (Hossain_DB_Gen.py). This is an
-# exploration window: narrow it manually once a promising direction is found.
-# Format: (start_value, end_value, step); only start/end are used for continuous sampling.
-RANGES_UPPER = {
-    'LE': (0, 0.125, 0.0625),
-    'inter': (0, 0.125, 1/24),
-    'TE': (0, 0.125, 0.125),
-}
-RANGES_LOWER = {
-    'LE': (-0.125, 0, 0.0625),
-    'inter': (0, 0.125, 1/24),
-    'TE': (0, 0.125, 0.125),
-}
+# --- Fine-tuning (ai_support.models fine_tune) --- #
+FT_NEW_WEIGHT = 10             # weight of a new simulation row against one dataset (anchor) row
+FT_MIN_SHAPES = 5              # fewer new shapes than this: no update
+FT_LOCAL_ANCHOR_STEPS = 1.5    # dataset rows this close (grid steps) to a track centre are anchors ...
+FT_LOCAL_ANCHOR_MAX = 30_000   # ... at most this many
+FT_RANDOM_ANCHORS = 20_000     # plus this many random dataset rows (keeps the rest of the space)
+
+# --- Final validation --- #
+VALIDATION_TOP = 3             # best designs per lane checked with a cold-start (history-free) simulation
+ROBUST_DESIGNS = 3             # best designs per lane that get perturbed
+ROBUST_PERTURBATIONS = 8
+ROBUST_SIGMA_STEPS = 0.10      # perturbation std dev, in grid steps
+ROBUST_HOLD_FRACTION = 0.9     # a perturbation "holds" at >= this fraction of its parent's E
+REACH_SHARES = (1.00, 1.01, 1.02, 1.05)   # "simulations to reach this share of the dataset best E"
+
+# --- Search window of iteration 0 (CST deltas; dataset 17 / 17.5 generation ranges) --- #
+RANGES_UPPER = {'LE': (0, 0.125, 0.0625), 'inter': (0, 0.125, 1/24), 'TE': (0, 0.125, 0.125)}
+RANGES_LOWER = {'LE': (-0.125, 0, 0.0625), 'inter': (0, 0.125, 1/24), 'TE': (0, 0.125, 0.125)}
+
+# --- Files --- #
+SIMULATIONS_FILE = "simulations.jsonl"
+STATE_FILE = "recovery_status.json"
+SHORTLIST_FILE = "inference_checkpoint.json"
 
 # --- Wing configuration modes --- #
 HOSSAIN_MODE = "Hossain_config"
 SINGLE_MODE = "single_configuration"
-SINGLE_CONFIG_KEY = "__single__"  # internal key used when the dataset has no one-hot columns
+HOSSAIN_IDENTIFIERS = ["rec", "flat", "60DEG"]
 
-# Registry mapping each Hossain wing-configuration identifier to its .geo creator class.
-# Extend this list if new wing configurations are added to the dataset.
-HOSSAIN_CONFIG_REGISTRY = [
-    (HossainWingRec_Creation, "rec"),
-    (HossainWingFlat_Creation, "flat"),
-    (HossainWing60DEG_Creation, "60DEG"),
-]
-
-# Regressor type per model folder prefix (folders: mlp_regressor, mlp_regressor_station, ...)
+# Regressor type per model folder prefix (folders: mlp_regressor, mlp_regressor_sum_station, ...)
 REGRESSOR_FOLDER_TYPES = {'mlp_regressor': 'mlp', 'lgbm_regressor': 'lgbm', 'sknn_regressor': 'sknn'}
+TYPE_LABELS = {'mlp': 'MLP', 'lgbm': 'LGBM', 'sknn': 'SKNN'}
+LANE_CONSENSUS = "consensus"
+LANE_RANDOM = "random"
 
-# Selection groups (a candidate can belong to several)
-GROUP_CONSENSUS = "consensus"
-GROUP_EDGE = "edge"
-GROUP_CONFIG = "config_check"
-GROUP_REFERENCE = "reference"
-
-# --- User-facing messages for unavailable / incompatible functionality --- #
 SKNN_UNAVAILABLE_MESSAGE = (
     "SKNN functionality is currently unavailable.\n"
     "   The SKNN module is undergoing 'improvements'. I use that word generously.\n"
@@ -192,36 +214,43 @@ def parse_master_seed(raw: str, decimal: bool) -> int:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Inference and simulation-based validation of trained AI models.")
-    parser.add_argument('--dataset', type=dataset_number_arg, default="17", help="Dataset number, e.g. 17 or 17.5 (default: 17).")
+    parser = argparse.ArgumentParser(description="Iterative inference (trust-region search) and simulation-based validation "
+                                                 "of trained AI models.")
+    parser.add_argument('--dataset', type=dataset_number_arg, default="17.5", help="Dataset number, e.g. 17.5 (default: 17.5).")
     parser.add_argument('--wing-mode', choices=[HOSSAIN_MODE, SINGLE_MODE], default=None,
-                        help=f"'{HOSSAIN_MODE}': one-hot rec/flat/60DEG configurations (default). "
-                             f"'{SINGLE_MODE}': dataset without one-hot columns.")
+                        help=f"'{HOSSAIN_MODE}': one-hot rec/flat/60DEG configurations (default).")
     parser.add_argument('--classifier', default=None,
-                        help="Name of the classifier (folder 'classifier'). Required unless --resume is used.")
+                        help="Classifier name (folder 'classifier'); its validity probability is reported, it filters "
+                             "nothing. Required unless --resume is used.")
     parser.add_argument('--models', nargs='+', default=None,
-                        help="Names of the regressors to run, e.g. --models Murata Buer. All run sequentially. "
-                             "Required unless --resume is used.")
+                        help="Regressors, e.g. --models Agares_1.5 Odysseus_1.5 Murata_1.5. Each gets its own lane, plus "
+                             "the consensus and random lanes. Required unless --resume is used.")
+    parser.add_argument('--lane', default=None,
+                        help=f"Run only this lane: a model name from --models, '{LANE_CONSENSUS}' or '{LANE_RANDOM}'.")
+    parser.add_argument('--no-update', action='store_true',
+                        help="Freeze the models for the whole run (no fine-tuning; no new dataset/model versions).")
+    parser.add_argument('--hours', type=float, default=None,
+                        help=f"Time ceiling in hours (default {DEFAULT_HOURS:g}). Checked between iterations only: an "
+                             f"iteration is never cut, so the run can overshoot.")
+    parser.add_argument('--workers', type=int, default=None,
+                        help="Parallel simulation processes (default: CPU threads - 1).")
     parser.add_argument('--seed', type=str, default=None,
-                        help=f"Optional master seed, hexadecimal by default (0 to {MAX_MASTER_SEED:x}). The round "
-                             f"seeds derive from it; reuse it to get identical candidate clouds across invocations.")
-    parser.add_argument('--decimal', action='store_true',
-                        help="Interpret --seed as a decimal number instead of hexadecimal.")
+                        help=f"Master seed, hexadecimal by default (0 to {MAX_MASTER_SEED:x}). Every random choice of the "
+                             f"run derives from it.")
+    parser.add_argument('--decimal', action='store_true', help="Interpret --seed as a decimal number.")
     parser.add_argument('--csv', default=None,
-                        help="Regressor dataset CSV that defines the dataset best, the local search centers and the "
-                             "reference designs (default: data/datasets/dataset_<N>/regressor_dataset_<N>.csv). Use the "
-                             "rectified CSV when the models were trained on it.")
+                        help="Regressor dataset CSV (default: the dataset's regressor CSV). Use the rectified CSV when "
+                             "the models were trained on it.")
     parser.add_argument('--resume', default=None, metavar='RUN_FOLDER',
-                        help="Continue an earlier run in its own folder: a folder name under results/dataset_<N> (use "
-                             "--dataset for N) or a path. Its settings come from its metadata; saved inference results "
-                             "and polar archives are reused, so only the missing stages run.")
+                        help="Continue a stopped run in its own folder (a folder name under results/dataset_<N> or a "
+                             "path). Its settings come from its metadata; only --hours and --workers may be given.")
     args = parser.parse_args()
     if args.decimal and args.seed is None:
         parser.error("--decimal only makes sense together with --seed.")
     if args.resume:
-        given = [flag for flag, value in (('--classifier', args.classifier), ('--models', args.models),
-                                          ('--seed', args.seed), ('--csv', args.csv), ('--wing-mode', args.wing_mode))
-                 if value is not None]
+        given = [flag for flag, value in (('--classifier', args.classifier), ('--models', args.models), ('--seed', args.seed),
+                                          ('--csv', args.csv), ('--wing-mode', args.wing_mode), ('--lane', args.lane))
+                 if value is not None] + (['--no-update'] if args.no_update else [])
         if given:
             parser.error(f"--resume takes its settings from the earlier run; remove {', '.join(given)}.")
         return args
@@ -229,6 +258,8 @@ def parse_args():
         parser.error("--classifier and --models are required (unless --resume is used).")
     if len(set(args.models)) != len(args.models):
         parser.error("Duplicate names in --models.")
+    if args.lane is not None and args.lane not in args.models + [LANE_CONSENSUS, LANE_RANDOM]:
+        parser.error(f"--lane must be one of {args.models + [LANE_CONSENSUS, LANE_RANDOM]}.")
     args.wing_mode = args.wing_mode or HOSSAIN_MODE
     if args.seed is not None:
         try:
@@ -239,37 +270,31 @@ def parse_args():
 
 
 def build_paths(dataset_num: str) -> SimpleNamespace:
-    current_dir = Path(__file__).resolve().parent
-    project_root = current_dir.parent
-    sys.path.insert(0, str(project_root))
-
+    project_root = Path(__file__).resolve().parent.parent
     binaries_dir = project_root / "bin"
     exe_ext = ".exe" if sys.platform == "win32" else ""
     support_files_dir = project_root / "data" / "support"
-    models_dir = project_root / "models" / f"dataset_{dataset_num}"
-
+    models_dir = models_folder(dataset_num, project_root)
+    classifier_dir = models_dir / "classifier"
+    if not classifier_dir.is_dir() and parent_dataset(dataset_num):   # expansions reuse their parent's classifier
+        classifier_dir = models_folder(parent_dataset(dataset_num), project_root) / "classifier"
     return SimpleNamespace(
         project_root=project_root,
-        training_file=project_root / "data" / "datasets" / f"dataset_{dataset_num}" / f"regressor_dataset_{dataset_num}.csv",
-        support_files_dir=support_files_dir,
+        training_file=dataset_csv(dataset_num, project_root),
         case_file=support_files_dir / "Hossain_sqwing_case.run",
         base_airfoil=support_files_dir / "naca0012_unit.csv",
         naca_kp_file=support_files_dir / "naca_kp" / NACA_KP_FILE,
         xfoil_bin=binaries_dir / f"xfoil{exe_ext}",
         avl_bin=binaries_dir / f"avl{exe_ext}",
         models_dir=models_dir,
-        classifier_dir=models_dir / "classifier",
+        classifier_dir=classifier_dir,
         results_root=project_root / "results" / f"dataset_{dataset_num}",
     )
 
 
-def get_workspace() -> Path:
-    """Short, fixed temp path (XFOIL/AVL do not tolerate long paths). Wiped at start and end of each simulation stage."""
-    root = Path("C:/inference_temp") if platform.system() == "Windows" else Path.home() / ".inference_temp"
-    if root.exists():
-        shutil.rmtree(root, ignore_errors=True)
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+def temp_root() -> Path:
+    """Short, fixed temp path for the simulation workers (XFOIL and AVL do not tolerate long paths)."""
+    return Path("C:/inference_temp") if platform.system() == "Windows" else Path.home() / ".inference_temp"
 
 
 def make_run_dir(results_root: Path, master_seed: int) -> Path:
@@ -283,11 +308,12 @@ def make_run_dir(results_root: Path, master_seed: int) -> Path:
     return run_dir
 
 
+def metadata_path_of(run_dir: Path, dataset_num: str) -> Path:
+    return run_dir / f"AI_Test_Results_dataset_{dataset_num}_run_metadata.json"
+
+
 def load_previous_run(args):
-    """
-    --resume: finds the earlier run folder and copies its settings (dataset, wing mode, classifier, models, master
-    seed, dataset CSV) into args. Returns (run folder, its metadata).
-    """
+    """--resume: the earlier run folder and its metadata; its settings are copied into args."""
     folder = Path(args.resume)
     if not folder.is_dir():
         folder = build_paths(args.dataset).results_root / args.resume
@@ -295,14 +321,40 @@ def load_previous_run(args):
     if not metadata_files:
         sys.exit(f"[ERROR] --resume: no run metadata found in '{folder}'.")
     previous = json.loads(metadata_files[0].read_text())
+    if str(previous.get("run_status", "")).startswith("completed"):
+        sys.exit(f"[ERROR] --resume: run '{folder.name}' is already completed. Start a new run instead.")
+    if "lanes" not in previous:
+        sys.exit("[ERROR] --resume: this run was made by the one-shot inference (before the iterative version); "
+                 "it cannot be continued by this script. Start a new run.")
     args.dataset = str(previous['dataset'])
     args.wing_mode = previous['wing_mode']
     args.classifier = previous['classifier']['name']
     args.models = [m['name'] for m in previous['models']] + [m['name'] for m in previous.get('skipped_models', [])]
     args.seed = int(previous['master_seed']['decimal'])
     args.csv = previous['dataset_csv']
+    args.lane = previous.get('lane_option')
+    args.no_update = bool(previous.get('no_update', False))
+    args.hours = args.hours if args.hours is not None else previous.get('hours', DEFAULT_HOURS)
+    args.workers = args.workers if args.workers is not None else previous.get('workers')
     print(f"Resuming run '{folder.name}' (last status: {previous.get('run_status', 'unknown')})")
     return folder.resolve(), previous
+
+
+def report_unfinished_runs(results_root: Path, dataset_num: str):
+    """Points at earlier runs of this dataset that did not finish (they can be continued with --resume)."""
+    if not results_root.is_dir():
+        return
+    unfinished = []
+    for meta in sorted(results_root.glob("*/AI_Test_Results_dataset_*_run_metadata.json")):
+        try:
+            data = json.loads(meta.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if "lanes" in data and not str(data.get('run_status', '')).startswith("completed"):
+            unfinished.append(meta.parent.name)
+    if unfinished:
+        print(f"[NOTE] Unfinished run(s) of dataset {dataset_num}: {', '.join(unfinished)}. To continue one instead:")
+        print(f"       python src/inference_and_testing.py --resume {unfinished[-1]} --dataset {dataset_num}")
 
 
 def file_fingerprint(files) -> str:
@@ -319,163 +371,145 @@ def model_fingerprint(folder: Path, name: str) -> str:
 
 
 def check_resume_fingerprints(previous: dict, current: dict):
-    """Stops a resume if the dataset CSV or a model changed since the run started: its saved predictions would be stale."""
-    old = previous.get('fingerprints')
-    if old is None:
-        print("[WARNING] This run was made before file fingerprints were recorded, so it cannot be confirmed that the "
-              "models and the dataset CSV are unchanged. Continuing on trust.")
-        return
+    """Stops a resume if the dataset CSV or a model changed since the run started."""
+    old = previous.get('fingerprints', {})
     pairs = [("the dataset CSV", old.get('dataset_csv'), current['dataset_csv']),
              (f"classifier {previous['classifier']['name']}", old.get('classifier'), current['classifier'])]
     pairs += [(f"model {n}", old.get('models', {}).get(n), f) for n, f in current['models'].items()]
     changed = [label for label, before, now in pairs if before != now]
     if changed:
         sys.exit(f"[ERROR] Cannot resume: {', '.join(changed)} changed since this run started (retrained or "
-                 f"regenerated?), so its saved predictions no longer apply. Start a new run instead.")
+                 f"regenerated?), so its picks and fine-tuned models no longer apply. Start a new run instead.")
 
 
-CHECKPOINT_FIELDS = ('candidate_id', 'features', 'config_col', 'preds', 'origin', 'sources', 'round', 'dataset_E',
-                     'consensus', 'grid_distance', 'nearest_dataset_E', 'region')
+def write_json(path: Path, data):
+    atomic_write_json(path, jsonable(data), indent=4)
 
 
-def save_checkpoint(path: Path, candidates: list, pool_rows: int, rounds_completed: int, inference_time: str):
-    write_json(path, {"pool_rows": pool_rows, "rounds_completed": rounds_completed, "inference_time": inference_time,
-                      "candidates": [{k: c[k] for k in CHECKPOINT_FIELDS if k in c} for c in candidates]})
+def rng_for(master_seed: int, *parts) -> np.random.Generator:
+    """Independent, reproducible random stream for one purpose (e.g. lane 2, iteration 5, track 1)."""
+    return np.random.default_rng([int(master_seed)] + [int(p) for p in parts])
 
 
-def load_checkpoint(path: Path):
-    """Shortlisted candidates saved by save_checkpoint, with the numeric types the pipeline expects."""
-    data = json.loads(path.read_text())
-    nan = lambda v: np.nan if v is None else v
-    candidates = []
-    for c in data['candidates']:
-        c = dict(c)
-        c['features'] = np.asarray(c['features'], dtype=np.float32)
-        c['preds'] = np.asarray([nan(v) for v in c['preds']], dtype=np.float64)
-        for key in ('consensus', 'grid_distance', 'nearest_dataset_E'):
-            c[key] = nan(c[key])
-        candidates.append(c)
-    return candidates, data
+def seed_for(master_seed: int, *parts) -> int:
+    return int(np.random.SeedSequence([int(master_seed)] + [int(p) for p in parts]).generate_state(1)[0])
+
+
+def hms(seconds: float) -> str:
+    """Duration as H:MM:SS (hours keep counting past 24)."""
+    total = int(round(max(seconds, 0)))
+    return f"{total // 3600}:{total % 3600 // 60:02d}:{total % 60:02d}"
 
 
 # =============================================================================================== #
-# === Dataset schema === #
+# === Dataset === #
 # =============================================================================================== #
 
 def parse_dataset_columns(csv_path: Path, wing_mode: str):
-    """
-    Reads only the dataset header and classifies every feature column by type.
-    The last CSV column is always the regression target and is excluded.
-
-    Returns
-    -------
-    feature_columns : list[str]  -- all feature columns, in CSV order
-    cst_l_cols      : list[str]  -- 'cst_l_X' columns, sorted by X
-    cst_u_cols      : list[str]  -- 'cst_u_X' columns, sorted by X
-    config_cols     : list[str]  -- remaining columns (one-hot wing configuration flags; empty in single mode)
-    """
+    """(feature columns, cst_l columns, cst_u columns, config columns) from the dataset header (last column = E)."""
     header = pd.read_csv(csv_path, nrows=0).columns.tolist()
     feature_columns = header[:-1]
-    cst_l_cols = sorted((c for c in feature_columns if re.fullmatch(r'cst_l_\d+', c)),
-                        key=lambda c: int(c.rsplit('_', 1)[1]))
-    cst_u_cols = sorted((c for c in feature_columns if re.fullmatch(r'cst_u_\d+', c)),
-                        key=lambda c: int(c.rsplit('_', 1)[1]))
+    cst_l_cols = sorted((c for c in feature_columns if re.fullmatch(r'cst_l_\d+', c)), key=lambda c: int(c.rsplit('_', 1)[1]))
+    cst_u_cols = sorted((c for c in feature_columns if re.fullmatch(r'cst_u_\d+', c)), key=lambda c: int(c.rsplit('_', 1)[1]))
     if not cst_l_cols or len(cst_l_cols) != len(cst_u_cols):
         raise ValueError(f"Invalid CST columns in '{csv_path.name}': {len(cst_l_cols)} lower vs {len(cst_u_cols)} upper.")
     config_cols = [c for c in feature_columns if c not in cst_l_cols and c not in cst_u_cols]
-
     if wing_mode == HOSSAIN_MODE and not config_cols:
-        raise ValueError(f"Wing mode '{HOSSAIN_MODE}' needs hot-encoded configuration columns, none found in "
-                         f"'{csv_path.name}'. Use --wing-mode {SINGLE_MODE} for datasets without them.")
-    if wing_mode == SINGLE_MODE and config_cols:
-        raise ValueError(f"Wing mode '{SINGLE_MODE}' expects CST columns only, but '{csv_path.name}' also has "
-                         f"{config_cols}. Use --wing-mode {HOSSAIN_MODE}.")
+        raise ValueError(f"Wing mode '{HOSSAIN_MODE}' needs hot-encoded configuration columns, none found in '{csv_path.name}'.")
     return feature_columns, cst_l_cols, cst_u_cols, config_cols
 
 
-def check_wing_mode_available(wing_mode: str):
-    """Stops the run early when the selected wing mode is not functional yet."""
-    if wing_mode == SINGLE_MODE:
-        # ======================= PLACEHOLDER: single_configuration =======================
-        # RecWingGeo_Creation has not been updated to the current geo-creator interface
-        # (it takes different arguments). Once it is, delete this block; the code that
-        # builds the registry for this mode already exists in build_config_registry().
-        print(SINGLE_UNAVAILABLE_MESSAGE)
-        sys.exit(1)
-        # =================================================================================
-
-
-def build_config_registry(wing_mode: str, config_cols: list) -> dict:
-    """Maps each config key to (creator_class, identifier). One-hot columns are matched by substring."""
-    if wing_mode == SINGLE_MODE:
-        # UNVERIFIED: written for the future single_configuration mode (see check_wing_mode_available).
-        # RecWingGeo_Creation's constructor arguments must be checked/adapted when it is updated.
-        from simulation_support import RecWingGeo_Creation  # imported lazily: only needed in this mode
-        return {SINGLE_CONFIG_KEY: (RecWingGeo_Creation, "single")}
-
+def config_identifiers(config_cols: list) -> dict:
+    """{config column: wing configuration identifier ('rec', 'flat', '60DEG')}, matched by name."""
     mapping = {}
     for col in config_cols:
-        matches = [entry for entry in HOSSAIN_CONFIG_REGISTRY if entry[1].lower() in col.lower()]
+        matches = [ident for ident in HOSSAIN_IDENTIFIERS if ident.lower() in col.lower()]
         if len(matches) != 1:
-            raise ValueError(
-                f"Could not uniquely match dataset column '{col}' to a wing configuration in "
-                f"HOSSAIN_CONFIG_REGISTRY. Matches found: {matches}. Update the registry to resolve this.")
+            raise ValueError(f"Could not uniquely match dataset column '{col}' to a wing configuration {HOSSAIN_IDENTIFIERS}.")
         mapping[col] = matches[0]
     return mapping
 
 
+def load_dataset(csv_path: Path, feature_columns, cst_cols, config_cols) -> SimpleNamespace:
+    """
+    The dataset in memory: feature rows X, E values y, CST block, configuration of every row, grid steps, best row,
+    local-search centres (distinct top-E shapes), reference shapes, nearest-shape lookup trees, configuration order.
+    """
+    df = pd.read_csv(csv_path)
+    target = df.columns[-1]
+    X = df[feature_columns].to_numpy(np.float32)
+    y = df[target].to_numpy(np.float64)
+    cst = df[cst_cols].to_numpy(np.float64)
+    configs = np.array(config_cols)[df[config_cols].to_numpy().argmax(axis=1)]
+    steps = []
+    for col in cst_cols:
+        u = np.unique(np.round(df[col].to_numpy(), 6))
+        steps.append(float(np.min(np.diff(u))) if len(u) > 1 else 1.0)
+    steps = np.array(steps, dtype=np.float64)
+    order = np.argsort(-y)
+    best = order[0]
+    seen, parents, references = set(), [], []
+    for i in order:
+        key = shape_key(cst[i])
+        if key in seen:
+            continue
+        seen.add(key)
+        if len(parents) < LOCAL_TOP_K:
+            parents.append(cst[i])
+        if len(references) < REFERENCE_TOP:
+            references.append((cst[i], configs[i], float(y[i])))
+        if len(parents) >= LOCAL_TOP_K and len(references) >= REFERENCE_TOP:
+            break
+    trees = {key: (cKDTree(cst[configs == key] / steps), y[configs == key]) for key in config_cols}
+    pivot = df.assign(_config=configs).pivot_table(index=cst_cols, columns='_config', values=target).dropna()
+    config_order = list(pivot.mean().sort_values(ascending=False).index)
+    return SimpleNamespace(X=X, y=y, cst=cst, cst_scaled=cst / steps, configs=configs, steps=steps,
+                           best={"E": float(y[best]), "config": str(configs[best]), "cst": cst[best].tolist()},
+                           e_max=float(y[best]), parents=np.array(parents, dtype=np.float32), references=references,
+                           trees=trees, all_tree=cKDTree(np.unique(cst / steps, axis=0)), config_order=config_order)
+
+
 # =============================================================================================== #
-# === Candidate generation === #
+# === Shapes, sampling and scoring === #
 # =============================================================================================== #
+
+def shape_key(cst) -> str:
+    return ",".join(f"{float(v):.6f}" for v in cst)
+
+
+def shape_id(key: str) -> str:
+    """Short file-name id of a shape (XFOIL reads at most 64 characters of a path)."""
+    return "s" + hashlib.sha1(key.encode()).hexdigest()[:10]
+
 
 def build_feature_ranges(n_cst, ranges_upper, ranges_lower):
     """Per-coefficient (low, high, step) ranges, lower block first, then upper block."""
-    return (
-        [ranges_lower["LE"]] + [ranges_lower["inter"]] * (n_cst - 2) + [ranges_lower["TE"]] +
-        [ranges_upper["LE"]] + [ranges_upper["inter"]] * (n_cst - 2) + [ranges_upper["TE"]]
-    )
+    return ([ranges_lower["LE"]] + [ranges_lower["inter"]] * (n_cst - 2) + [ranges_lower["TE"]] +
+            [ranges_upper["LE"]] + [ranges_upper["inter"]] * (n_cst - 2) + [ranges_upper["TE"]])
 
 
-def window_bounds(n_cst, ranges_upper, ranges_lower):
-    """(lows, highs) of the search window per CST coefficient (lower block, then upper block)."""
-    feature_ranges = build_feature_ranges(n_cst, ranges_upper, ranges_lower)
-    lows = np.array([min(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
-    highs = np.array([max(r[0], r[1]) for r in feature_ranges], dtype=np.float32)
-    return lows, highs
+def window_bounds(n_cst):
+    ranges = build_feature_ranges(n_cst, RANGES_UPPER, RANGES_LOWER)
+    return (np.array([min(r[0], r[1]) for r in ranges], dtype=np.float32),
+            np.array([max(r[0], r[1]) for r in ranges], dtype=np.float32))
 
 
-def generate_cst_candidates(num_samples, n_cst, ranges_upper, ranges_lower, rng):
-    """Uniform random CST-only candidates (lower block, then upper block) from the given RNG.
-    Sampling is continuous: the 'step' of each range is not used (it only describes the dataset grid)."""
-    feature_ranges = build_feature_ranges(n_cst, ranges_upper, ranges_lower)
-    candidates = np.zeros((num_samples, n_cst + n_cst), dtype=np.float32)
-    for i, (low, high, _step) in enumerate(feature_ranges):
-        candidates[:, i] = rng.uniform(low, high, size=num_samples)
-    return candidates
+def generate_uniform(num_samples, lows, highs, rng):
+    return rng.uniform(lows, highs, size=(num_samples, len(lows))).astype(np.float32)
 
 
-def generate_local_candidates(parents, num_samples, lows, highs, sigma_fraction, rng, clip_lows=None, clip_highs=None,
-                              sigma=None):
-    """
-    Local refinement: Gaussian perturbations around randomly chosen parent designs (e.g. the best dataset
-    designs). The noise std dev is sigma_fraction of each coefficient's window width, or the per-coefficient
-    `sigma` array when given. The result is clipped to the search window (or to clip_lows/clip_highs when
-    given), so candidates near an edge stay on it.
-    """
+def generate_local(parents, num_samples, lows, highs, rng, clip_lows=None, clip_highs=None, sigma=None):
+    """Gaussian perturbations around random parents, clipped to the window (or to clip_lows/clip_highs)."""
     clip_lows = lows if clip_lows is None else clip_lows
     clip_highs = highs if clip_highs is None else clip_highs
-    sigma = (highs - lows) * sigma_fraction if sigma is None else sigma
-    centers = parents[rng.integers(0, len(parents), size=num_samples)]
-    noise = rng.normal(0.0, 1.0, size=centers.shape).astype(np.float32) * sigma
-    return np.clip(centers + noise, clip_lows, clip_highs).astype(np.float32)
+    sigma = (highs - lows) * LOCAL_SIGMA_FRACTION if sigma is None else sigma
+    centres = parents[rng.integers(0, len(parents), size=num_samples)]
+    noise = rng.normal(0.0, 1.0, size=centres.shape).astype(np.float32) * sigma
+    return np.clip(centres + noise, clip_lows, clip_highs).astype(np.float32)
 
 
 def detect_edge_directions(parents, lows, highs, steps):
-    """
-    Window edges worth probing: a coefficient's edge is probed when at least EDGE_MIN_SHARE of the top dataset
-    designs sit on it. The window is extended one grid step past each such edge.
-    Returns (directions, ext_lows, ext_highs); directions is a list of (coefficient index, 'low'/'high', new bound).
-    """
+    """Window edges shared by at least EDGE_MIN_SHARE of the top dataset designs; extended one grid step past them."""
     directions = []
     ext_lows, ext_highs = lows.copy(), highs.copy()
     for i in range(len(lows)):
@@ -489,160 +523,73 @@ def detect_edge_directions(parents, lows, highs, steps):
 
 
 def outside_window(cst_block, lows, highs):
-    """True for every row with at least one CST coefficient outside the search window."""
     return ((cst_block < lows - 1e-7) | (cst_block > highs + 1e-7)).any(axis=1)
 
 
-def predict_chunked(predict_fn, X, chunk_size=PREDICT_CHUNK):
-    """Runs predict_fn on X in row chunks and returns one flat array (bounds GPU/CPU memory use)."""
+def predict_chunked(predict_fn, X, chunk_size=None):
+    chunk_size = chunk_size or PREDICT_CHUNK
     parts = [np.asarray(predict_fn(X[i:i + chunk_size])).reshape(-1) for i in range(0, len(X), chunk_size)]
-    return np.concatenate(parts)
+    return np.concatenate(parts) if parts else np.zeros(0)
 
 
-def predict_all(regressors: dict, X) -> np.ndarray:
-    """(rows, models) matrix of predictions, one column per regressor in CLI order. Non-finite values become NaN."""
-    preds = np.column_stack([predict_chunked(m.predict, X).astype(np.float64) for m in regressors.values()])
+def predict_all(models: dict, X) -> np.ndarray:
+    """(rows, models) predictions; non-finite values become NaN."""
+    preds = np.column_stack([predict_chunked(m.predict, X).astype(np.float64) for m in models.values()])
     preds[~np.isfinite(preds)] = np.nan
     return preds
 
 
-def consensus_score(preds: np.ndarray) -> np.ndarray:
-    """Most pessimistic prediction across models (NaN if any model returned NaN): high only if all models agree."""
-    return np.min(preds, axis=1)
+def feature_rows(cst_block, ctx) -> np.ndarray:
+    """Every shape in every configuration, rows ordered (shape, configuration), in dataset column order."""
+    cst_block = np.atleast_2d(np.asarray(cst_block, dtype=np.float32))
+    n, c = len(cst_block), ctx.n_configs
+    rows = np.zeros((n * c, len(ctx.feature_columns)), dtype=np.float32)
+    rows[:, ctx.cst_col_idx] = np.repeat(cst_block, c, axis=0)
+    for j, col in enumerate(ctx.config_cols):
+        rows[j::c, ctx.feature_columns.index(col)] = 1.0
+    return rows
 
 
-def expand_with_configs(cst_candidates, feature_columns, cst_l_cols, cst_u_cols, config_cols):
-    """
-    Pairs every CST combination with every hot-encoded wing configuration, producing one full
-    feature row (in dataset column order) per (cst combination, config) pair -- e.g. 10 CST
-    combinations x 3 configurations => 30 rows. Without configuration columns (single mode) the
-    CST rows are only arranged in dataset column order.
-
-    Returns
-    -------
-    full_candidates : np.ndarray, shape (num_samples * num_configs, num_features)
-    config_labels   : np.ndarray of str, the config key active in each row
-    """
-    num_samples = cst_candidates.shape[0]
-    num_configs = max(len(config_cols), 1)
-    cst_col_order = cst_l_cols + cst_u_cols
-
-    # Row r corresponds to (sample r // num_configs, config r % num_configs) in both blocks below.
-    cst_repeated = np.repeat(cst_candidates, num_configs, axis=0)
-    if config_cols:
-        one_hot_block = np.tile(np.eye(num_configs, dtype=np.float32), (num_samples, 1))
-        config_labels = np.tile(np.array(config_cols), num_samples)
-    else:
-        one_hot_block = None
-        config_labels = np.full(num_samples, SINGLE_CONFIG_KEY)
-
-    cst_pos = {col: i for i, col in enumerate(cst_col_order)}
-    full_candidates = np.zeros((num_samples * num_configs, len(feature_columns)), dtype=np.float32)
-    for f_idx, col in enumerate(feature_columns):
-        if col in cst_pos:
-            full_candidates[:, f_idx] = cst_repeated[:, cst_pos[col]]
-        elif config_cols and col in config_cols:
-            full_candidates[:, f_idx] = one_hot_block[:, config_cols.index(col)]
-    return full_candidates, config_labels
-
-
-def with_config(features, config_cols, feature_columns, config_col):
-    """Copy of a full feature row with its one-hot block switched to config_col."""
-    row = features.copy()
-    for c in config_cols:
-        row[feature_columns.index(c)] = 1.0 if c == config_col else 0.0
+def feature_row(cst, config_col, ctx) -> np.ndarray:
+    row = np.zeros(len(ctx.feature_columns), dtype=np.float32)
+    row[ctx.cst_col_idx] = np.asarray(cst, dtype=np.float32)
+    row[ctx.feature_columns.index(config_col)] = 1.0
     return row
 
 
-def load_dataset_info(csv_path: Path, cst_l_cols, cst_u_cols, config_cols, top_k: int):
-    """
-    Reads the training dataset once. Returns None if it is unavailable, otherwise a namespace with:
-      best         -- dict with the highest-E row (E, wing_config, cst_lower, cst_upper). Information + reference.
-      e_max        -- highest E in the dataset
-      parents      -- array (<= top_k, 2 * n_cst): distinct CST vectors of the highest-E rows (local search centers)
-      reference    -- list of (cst vector, config key, E) for the REFERENCE_TOP highest-E rows
-      steps        -- dataset grid step of every CST coefficient (lower block, then upper block)
-      trees        -- {config key: (cKDTree over CST / steps, E array)} for nearest-design lookups
-      config_order -- config keys sorted by mean E over the shapes simulated in every configuration
-    """
-    try:
-        df = pd.read_csv(csv_path)
-    except FileNotFoundError:
-        return None
-    target = df.columns[-1]
-    cst_cols = cst_l_cols + cst_u_cols
-    if config_cols:
-        df['_config'] = np.array(config_cols)[df[config_cols].to_numpy().argmax(axis=1)]
-    else:
-        df['_config'] = SINGLE_CONFIG_KEY
-    ordered = df.sort_values(target, ascending=False)
-    best_row = ordered.iloc[0]
-    best_config = best_row['_config']
-    best = {
-        "E": float(best_row[target]),
-        "wing_config": best_config if config_cols else "single configuration",
-        "cst_lower": [round(float(best_row[c]), 6) for c in cst_l_cols],
-        "cst_upper": [round(float(best_row[c]), 6) for c in cst_u_cols],
-    }
-    parents = ordered[cst_cols].drop_duplicates().head(top_k).to_numpy(dtype=np.float32)
-    reference = [(r[cst_cols].to_numpy(dtype=np.float32), r['_config'], float(r[target]))
-                 for _, r in ordered.head(REFERENCE_TOP).iterrows()]
-
-    steps = []
-    for col in cst_cols:
-        u = np.unique(np.round(df[col].to_numpy(), 6))
-        steps.append(float(np.min(np.diff(u))) if len(u) > 1 else 1.0)
-    steps = np.array(steps, dtype=np.float64)
-
-    trees = {}
-    for key, part in df.groupby('_config'):
-        trees[key] = (cKDTree(part[cst_cols].to_numpy(dtype=np.float64) / steps), part[target].to_numpy(dtype=np.float64))
-
-    if config_cols:
-        pivot = df.pivot_table(index=cst_cols, columns='_config', values=target).dropna()
-        config_order = list(pivot.mean().sort_values(ascending=False).index)
-    else:
-        config_order = [SINGLE_CONFIG_KEY]
-    return SimpleNamespace(best=best, e_max=float(ordered[target].iloc[0]), parents=parents, reference=reference,
-                           steps=steps, trees=trees, config_order=config_order)
+def score_shapes(models: dict, cst_block, ctx) -> np.ndarray:
+    """(shapes, configurations, models) predicted E."""
+    cst_block = np.atleast_2d(cst_block)
+    if len(cst_block) == 0:
+        return np.zeros((0, ctx.n_configs, len(models)))
+    return predict_all(models, feature_rows(cst_block, ctx)).reshape(len(cst_block), ctx.n_configs, len(models))
 
 
-def tag_regions(cst_block, config_labels, info, lows, highs):
-    """
-    Distance (Chebyshev, in grid steps) to the nearest dataset design of the same configuration, that design's E,
-    and the region label: 'outside' (past the window), 'on-grid' (a dataset design) or 'between' (interpolation).
-    """
-    n = len(cst_block)
-    dist, near_e = np.full(n, np.nan), np.full(n, np.nan)
-    scaled = cst_block.astype(np.float64) / info.steps
-    for key, (tree, e_values) in info.trees.items():
-        mask = config_labels == key
-        if mask.any():
-            d, j = tree.query(scaled[mask], p=np.inf)
-            dist[mask], near_e[mask] = d, e_values[j]
-    region = np.where(outside_window(cst_block, lows, highs), 'outside', np.where(dist < 1e-3, 'on-grid', 'between'))
-    return dist, near_e, region
+def lane_score(kind: str, preds: np.ndarray):
+    """(score, best configuration index) of every shape: the lane's model in its best configuration, or for the
+    consensus lane the most pessimistic model prediction in the best configuration."""
+    per_config = np.min(preds, axis=2) if kind == LANE_CONSENSUS else preds[:, :, 0]
+    per_config = np.where(np.isfinite(per_config), per_config, -np.inf)
+    best_c = per_config.argmax(axis=1)
+    score = per_config.max(axis=1)
+    return np.where(np.isfinite(score), score, np.nan), best_c
 
 
-def print_dataset_best(best):
-    """Information line: best E found in the training dataset."""
-    if best is None:
-        print("\n[INFO] Dataset best: training dataset not found.")
-        return
-    print(f"\n[INFO] Dataset best -> E = {best['E']:.4f} | config = {best['wing_config']}")
-    print(f"       CST lower: {best['cst_lower']}")
-    print(f"       CST upper: {best['cst_upper']}")
+def top_indices(score, k, mask=None):
+    """Indices of the k highest finite scores (optionally restricted to mask), unordered."""
+    s = np.where(np.isfinite(score), score, -np.inf)
+    if mask is not None:
+        s = np.where(mask, s, -np.inf)
+    k = min(k, int(np.isfinite(s).sum()))
+    return np.argpartition(-s, k - 1)[:k] if k > 0 else np.array([], dtype=int)
 
 
 # =============================================================================================== #
-# === Model discovery and loading === #
+# === Models === #
 # =============================================================================================== #
 
 def infer_hidden_layers(pth_path: Path) -> list:
-    """
-    Reads the hidden layer sizes from the saved state dict (the model metadata does not store them).
-    Every 2-D '.weight' tensor is a Linear layer; the last one is the single-output layer.
-    """
+    """Hidden layer sizes from a saved state dict (every 2-D '.weight' tensor is a Linear layer; the last is the output)."""
     state = torch.load(pth_path, map_location='cpu', weights_only=True)
     linears = [v for k, v in state.items() if k.endswith('.weight') and v.ndim == 2]
     if len(linears) < 2 or linears[-1].shape[0] != 1:
@@ -651,26 +598,14 @@ def infer_hidden_layers(pth_path: Path) -> list:
 
 
 class ModelIncompatibleError(Exception):
-    """The model was saved without the files this calculation scheme needs (it is skipped, not fatal)."""
+    """The model was saved without the files this scheme needs (it is skipped, not fatal)."""
 
 
-def read_mlp_parameters(folder: Path, name: str, hidden_layers: list) -> dict:
-    """
-    Reads the tuning script's '{name}_regressor_model_parameters.json'. 'log_trans' is not stored in
-    the model metadata and MLP_Regressor.load_model does not restore it, so it must come from here.
-    """
+def read_parameters(folder: Path, name: str) -> dict:
     path = folder / f"{name}_regressor_model_parameters.json"
     if not path.exists():
-        raise ModelIncompatibleError(f"MLP parameters file not found: {path}")
-    with open(path, 'r') as f:
-        params = json.load(f)
-    if 'log_trans' not in params:
-        raise ModelIncompatibleError(f"'log_trans' missing in {path.name}")
-    if 'n_layers' in params:  # consistency check between the weights and the tuning parameters
-        expected = [int(params[f'n_units_l{i}']) for i in range(int(params['n_layers']))]
-        if expected != hidden_layers:
-            raise ValueError(f"Layer mismatch for '{name}': weights {hidden_layers} vs parameters file {expected}.")
-    return params
+        raise ModelIncompatibleError(f"Parameters file not found: {path}")
+    return json.loads(path.read_text())
 
 
 def list_regressor_names(models_dir: Path) -> list:
@@ -682,45 +617,56 @@ def list_regressor_names(models_dir: Path) -> list:
 
 
 def resolve_regressor(name: str, models_dir: Path):
-    """Finds the folder holding regressor 'name' and returns (folder, type)."""
+    """(folder, type) of regressor 'name'."""
     if not models_dir.is_dir():
         raise FileNotFoundError(f"Models folder does not exist: {models_dir}")
     matches = []
     for sub in sorted(p for p in models_dir.iterdir() if p.is_dir()):
         for prefix, mtype in REGRESSOR_FOLDER_TYPES.items():
-            if not sub.name.startswith(prefix):
-                continue
-            # SKNN is detected by folder, whatever the file naming scheme is; the others need their metadata file.
-            owns_name = any(sub.glob(f"{name}_*")) if mtype == 'sknn' else (sub / f"{name}_meta.json").exists()
-            if owns_name:
-                matches.append((sub, mtype))
+            if sub.name.startswith(prefix):
+                owns = any(sub.glob(f"{name}_*")) if mtype == 'sknn' else (sub / f"{name}_meta.json").exists()
+                if owns:
+                    matches.append((sub, mtype))
     if not matches:
-        raise FileNotFoundError(f"No regressor named '{name}' under '{models_dir}'. "
-                                f"Available: {list_regressor_names(models_dir)}")
+        raise FileNotFoundError(f"No regressor named '{name}' under '{models_dir}'. Available: {list_regressor_names(models_dir)}")
     if len(matches) > 1:
         raise ValueError(f"Regressor name '{name}' is ambiguous, found in: {[str(m[0]) for m in matches]}")
     return matches[0]
 
 
 def load_regressor(name: str, folder: Path, mtype: str):
-    """Returns the loaded regressor, or None when the model type is not available yet (SKNN)."""
+    """The loaded regressor with its training hyperparameters (fine-tuning needs them), or None for SKNN. The model
+    classes' own loading messages are silenced (every lane loads its own copies)."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return _load_regressor(name, folder, mtype)
+
+
+def _load_regressor(name: str, folder: Path, mtype: str):
     if mtype == 'sknn':
-        # ============================ PLACEHOLDER: SKNN ============================
-        # Replace the next two lines with the real loader once the SKNN module is updated, e.g.:
-        #     return SKNN_Regressor.load_model(folder, name)
-        # and import SKNN_Regressor from ai_support. Then the model loading loop no longer needs to skip it.
-        print(f"[{name}] {SKNN_UNAVAILABLE_MESSAGE}")
         return None
-        # ===========================================================================
+    params = read_parameters(folder, name)
     if mtype == 'mlp':
         hidden = infer_hidden_layers(folder / f"{name}_model.pth")
-        params = read_mlp_parameters(folder, name, hidden)
-        return MLP_Regressor.load_model(folder, name, hidden_layer_sizes=hidden,
-                                        dropout_rate=float(params.get('dropout_rate', 0.0)),
-                                        log_trans=bool(params['log_trans']))
-    if mtype == 'lgbm':
-        return LGBM_Regressor.load_model(folder, name)
-    raise ValueError(f"Unsupported model type '{mtype}'.")
+        if 'log_trans' not in params:
+            raise ModelIncompatibleError(f"'log_trans' missing in {name}_regressor_model_parameters.json")
+        if 'n_layers' in params:
+            expected = [int(params[f'n_units_l{i}']) for i in range(int(params['n_layers']))]
+            if expected != hidden:
+                raise ValueError(f"Layer mismatch for '{name}': weights {hidden} vs parameters file {expected}.")
+        model = MLP_Regressor.load_model(folder, name, hidden_layer_sizes=hidden,
+                                         dropout_rate=float(params.get('dropout_rate', 0.0)), log_trans=bool(params['log_trans']),
+                                         learning_rate=float(params.get('learning_rate', 1e-3)),
+                                         batch_size=int(params.get('batch_size', 1024)), weight=params.get('weight', 'None'),
+                                         patience=int(params.get('patience', 16)))
+    elif mtype == 'lgbm':
+        model = LGBM_Regressor.load_model(folder, name)
+        for key in ('n_estimators', 'learning_rate', 'num_leaves', 'max_depth', 'objective', 'weight', 'lr_decay', 'stopping_rounds'):
+            if key in params:
+                setattr(model, key, params[key])
+    else:
+        raise ValueError(f"Unsupported model type '{mtype}'.")
+    model.parameters_json = params
+    return model
 
 
 def load_classifier(name: str, folder: Path):
@@ -731,295 +677,734 @@ def load_classifier(name: str, folder: Path):
 
 
 # =============================================================================================== #
-# === Shortlist === #
+# === Simulations (stored as they finish) === #
 # =============================================================================================== #
 
-def top_indices(score, k, mask=None):
-    """Indices of the k highest finite scores (optionally restricted to mask), unordered."""
-    s = np.where(np.isfinite(score), score, -np.inf)
-    if mask is not None:
-        s = np.where(mask, s, -np.inf)
-    k = min(k, int(np.isfinite(s).sum()))
-    if k == 0:
-        return np.array([], dtype=int)
-    return np.argpartition(-s, k - 1)[:k]
-
-
-def diverse_top(score, cst_scaled, k, mask=None, min_steps=DIVERSITY_MIN_STEPS):
+class Simulation_Store:
     """
-    Walks the rows from the highest score down and keeps a row only if its CST vector differs from every kept
-    row by at least min_steps grid steps in some coefficient. Stops at k rows. Returns indices in rank order.
+    Every simulation of the run, keyed by (shape key, protocol). Each finished simulation is appended to
+    simulations.jsonl at once (forced to disk), so an interruption loses nothing that finished; a resumed run reloads
+    the file and simulates only what is missing.
     """
-    s = np.where(np.isfinite(score), score, -np.inf)
-    if mask is not None:
-        s = np.where(mask, s, -np.inf)
-    kept = []
-    for i in np.argsort(-s):
-        if len(kept) >= k or not np.isfinite(s[i]):
-            break
-        if kept and np.abs(cst_scaled[kept] - cst_scaled[i]).max(axis=1).min() < min_steps:
-            continue
-        kept.append(int(i))
-    return kept
+
+    def __init__(self, path: Path, ctx):
+        self.path = Path(path)
+        self.ctx = ctx
+        self.entries = {(e["key"], e["protocol"]): e for e in read_jsonl(self.path)}
+
+    def run(self, key: str, protocol: str = SWEEP_MODE):
+        entry = self.entries.get((key, protocol))
+        return entry["run"] if entry else None
+
+    def simulate(self, shapes: dict, protocol: str, stage: str, iteration: int, title: str) -> int:
+        """Simulates the shapes ({key: cst}) not simulated yet with this protocol. Returns how many ran now."""
+        missing = {k: {"cst": [float(v) for v in cst], "id": shape_id(k)} for k, cst in shapes.items()
+                   if (k, protocol) not in self.entries}
+        reused = len(shapes) - len(missing)
+        print(f"\n--- Simulations: {title} ({len(missing)} to run" + (f", {reused} reused" if reused else "") + ") ---")
+        if not missing:
+            return 0
+
+        def on_result(key, prot, run):
+            entry = {"key": key, "id": missing[key]["id"], "cst": missing[key]["cst"], "protocol": prot, "stage": stage,
+                     "iteration": iteration, "run": jsonable(run)}
+            append_jsonl(self.path, entry)
+            self.entries[(key, prot)] = entry
+
+        t0 = time.perf_counter()
+        simulate_shapes(missing, [protocol], self.ctx.workers, configs=self.ctx.identifiers,
+                        settings={protocol: self.ctx.settings[protocol]}, temp_root=self.ctx.temp_root, store_polar=True,
+                        store_files=True, on_result=on_result, title=f"Inference: {title}", use_gui=False)
+        runs = [self.run(k, protocol) for k in missing]
+        no_polar = sum(1 for r in runs if r is None or not r.get("polar_points"))
+        valid = sum(1 for k in missing if best_valid_E(self.run(k, protocol), self.ctx)[0] is not None)
+        status = defaultdict(int)
+        for r in runs:
+            status[(r or {}).get("status", "missing")] += 1
+        print(f"{len(missing)} simulated in {hms(time.perf_counter() - t0)}: {valid} with a valid E | "
+              + ", ".join(f"{s} {n}" for s, n in sorted(status.items())))
+        if no_polar == len(missing) and len(missing) >= 3:
+            errors = sorted({str((r or {}).get('error')) for r in runs})[:3]
+            print("\n" + "!" * 90)
+            print(f"[ERROR] XFOIL wrote no polar for any of the {len(missing)} airfoils of this batch, so nothing can be simulated.")
+            for e in errors:
+                print(f"        {e[:160]}")
+            print("        1. Check XFOIL:      python src/simulation_support/polar_creation.py")
+            print(f"        2. Continue the run: python src/inference_and_testing.py --resume {self.ctx.run_dir.name} "
+                  f"--dataset {self.ctx.dataset_num}")
+            print("!" * 90)
+            self.ctx.metadata.update(run_status=f"stopped: no polars in '{title}'", finished=now_text())
+            write_json(self.ctx.metadata_path, self.ctx.metadata)
+            sys.exit(1)
+        return len(missing)
 
 
-def add_candidate(unique: dict, features, config_col, preds, origin, group, rank, score, extra=None):
-    """
-    Adds a shortlisted row, merging identical feature vectors (configuration included). Each unique candidate
-    keeps a 'sources' list with every (group, rank, score) that selected it.
-    """
-    key = np.asarray(features, dtype=np.float32).tobytes()
-    if key not in unique:
-        unique[key] = {
-            'candidate_id': f"candidate_{len(unique) + 1:03d}",
-            'features': np.asarray(features, dtype=np.float32),
-            'config_col': str(config_col),
-            'preds': np.asarray(preds, dtype=np.float64),
-            'origin': origin,
-            'sources': [],
-            **(extra or {}),
-        }
-    unique[key]['sources'].append({'group': group, 'rank': rank, 'score': None if score is None else float(score)})
-
-
-# =============================================================================================== #
-# === Simulation === #
-# =============================================================================================== #
-
-def extract_force_data(file_path: Path):
-    """Extracts airfoil name, CL, and CD from a force file. Returns NaN on failure."""
-    airfoil, cl_tot, cd_tot = None, np.nan, np.nan
-    if not file_path.exists():
-        return airfoil, np.nan, np.nan
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if "Configuration:" in line and " for " in line:
-                    airfoil = line.split(" for ", 1)[1].strip()
-                elif 'CLtot =' in line:
-                    cl_tot = float(line.split('=')[1].strip())
-                elif 'CDtot =' in line:
-                    cd_tot = float(line.split('=')[1].strip())
-        if airfoil is not None:
-            return airfoil, cl_tot, cd_tot
-    except Exception as e:
-        print(f"Warning: Failed to parse force data in {file_path.name}: {e}")
-    return None, np.nan, np.nan
-
-
-def compute_simulated_E(cl, cd):
-    """CL/CD, or NaN for divergence (missing data, CD = 0, non-finite) and for E = 0 (no relative error possible)."""
-    if cd == 0 or not (math.isfinite(cl) and math.isfinite(cd)):
-        return np.nan
-    e = cl / cd
-    if e == 0 or not math.isfinite(e):
-        return np.nan
-    return e
-
-
-class NoPolarsError(RuntimeError):
-    """XFOIL wrote no polar file at all in a simulation stage, so nothing after it can work."""
-    def __init__(self, stage: str, airfoils: int):
-        super().__init__(f"No polar files after XFOIL in stage '{stage}' ({airfoils} airfoils)")
-        self.stage, self.airfoils = stage, airfoils
-
-
-def polar_complete(path: Path) -> bool:
-    return path.exists() and COMPLETION_FLAG in path.read_text()
-
-
-def stop_without_polars(error: NoPolarsError, run_dir: Path, dataset_num: str, metadata: dict, metadata_path: Path):
-    """Ends the run with a readable explanation when a simulation stage produced no polars."""
-    print(f"\n[ERROR] No polar files were found after the XFOIL step of the '{error.stage}' simulation stage.")
-    print(f"        XFOIL was given {error.airfoils} airfoil(s) and wrote no polar, so nothing can be simulated.")
-    print("        The run stops here instead of writing empty results.")
-    print("        1. Check XFOIL:        python src/simulation_support/polar_creation.py")
-    print(f"        2. Continue the run:   python src/inference_and_testing.py --resume {run_dir.name} --dataset {dataset_num}")
-    print("           (the inference results are reused; only the simulations run again)")
-    metadata.update({"run_status": f"stopped: no polar files in the '{error.stage}' stage",
-                     "finished": datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
-    write_json(metadata_path, metadata)
-    sys.exit(1)
-
-
-def simulate_candidates(candidates: list, stage: str, ctx) -> dict:
-    """
-    Runs the full simulation chain (airfoil .dat -> XFOIL -> key points -> .avl geometry -> AVL) sequentially for
-    every candidate, archives the raw files of the stage and returns {candidate_id: result dict}.
-    Result statuses: 'ok', 'invalid_geometry' (airfoil surfaces cross; not simulated), 'no_result' (a step failed).
-    Polars archived by an earlier attempt of the same run (--resume) are reused. Raises NoPolarsError if XFOIL
-    wrote no polar at all.
-    """
-    results = {c['candidate_id']: {'status': 'no_result', 'CL': np.nan, 'CD': np.nan, 'E': np.nan} for c in candidates}
-    if not candidates:
-        return results
-    print(f"\n# === Simulation stage '{stage}': {len(candidates)} candidate(s) === #")
-    angles = [ASEQ[0] + j * ASEQ[2] for j in range(int((ASEQ[1] - ASEQ[0]) / ASEQ[2]) + 1)]
-    temp_root = get_workspace()
-    prefix = f"{ctx.prefix}_{stage}"
-    try:
-        airfoils_temp = temp_root / "airfoils"
-        polars_temp = temp_root / "polars"
-        geo_temp = temp_root / "geometry"
-        forces_temp = temp_root / "forces"
-        support_temp = temp_root / "support"
-        for d in [airfoils_temp, polars_temp, geo_temp, forces_temp, support_temp]:
-            d.mkdir(parents=True, exist_ok=True)
-
-        # Generate Airfoils (geometrically invalid shapes are not simulated)
-        print("\n--- Generating Airfoil Geometry ---")
-        valid = []
-        for c in tqdm(candidates, desc="Creating .dat files"):
-            x_mod, yu_mod, yl_mod = ctx.airfoil_creator.generate(cst_coeffs=c['features'][ctx.cst_col_idx])
-            if not check_validity(x_mod, yu_mod, yl_mod, verbose=False):
-                results[c['candidate_id']]['status'] = 'invalid_geometry'
-                continue
-            ctx.airfoil_creator._create_dat_file(output_dir=airfoils_temp, n_cst=ctx.n_cst, x=x_mod, yl=yl_mod, yu=yu_mod,
-                                                 file_name=c['candidate_id'])
-            valid.append(c)
-        if not valid:
-            print("No geometrically valid airfoils in this stage.")
-            return results
-
-        # Run XFOIL (same conditions as the dataset generation), only for airfoils without a complete polar
-        print("\n--- Generating Polars (XFOIL) ---")
-        polar_archive = ctx.run_dir / f"{prefix}_polars.rar"
-        if polar_archive.exists():
-            ctx.archiver.decompress_archive(polar_archive, polars_temp)
-        airfoil_paths = get_all_files_from(airfoils_temp, extension='dat')
-        pending = [p for p in airfoil_paths if not polar_complete(polars_temp / f"polar_{Path(p).stem}.txt")]
-        if len(pending) < len(airfoil_paths):
-            print(f"Reusing {len(airfoil_paths) - len(pending)} polar(s) from {polar_archive.name}; "
-                  f"XFOIL runs for the other {len(pending)}.")
-        xfoil_case = XPR(xfoil_exe_path=str(ctx.paths.xfoil_bin), main_dir=temp_root, airfoil_dir=airfoils_temp,
-                         polar_dir=polars_temp, verbose=False)
-        for path in tqdm(pending, desc="Running XFOIL"):
-            polar_path = polars_temp / f"polar_{Path(path).stem}.txt"
-            # Does not require try/except due to internal handler
-            xfoil_case.run_simulation(airfoil_file_path=path, polar_file_path=str(polar_path),
-                                      alfa_sequence=angles, visc=RE, mach=MACH, sweep_mode=SWEEP_MODE)
-        polar_paths = get_all_files_from(polars_temp, extension='txt')
-        if not polar_paths:
-            raise NoPolarsError(stage, len(airfoil_paths))
-        print(f"Polars: {len(polar_paths)} of {len(airfoil_paths)} airfoils.")
-        ctx.archiver.compress_folder(polars_temp, ctx.run_dir, f"{prefix}_polars")  # archived now so --resume can reuse them
-
-        # Create Wing Geometries, each candidate uses the creator matching its own configuration
-        print("\n--- Generating Wing Geometry (.avl files) ---")
-        key_points = Key_Point_Extraction(polar_file_paths=polar_paths, verbose=True, random_state=KP_SEED)
-        key_points_data = key_points.process_files()
-        key_points.save_error_log(os.path.join(geo_temp, 'KP_error_log.txt'))
-
-        airfoil_paths_by_config = defaultdict(list)
-        for c in valid:
-            airfoil_paths_by_config[c['config_col']].append(str(airfoils_temp / f"{c['candidate_id']}.dat"))
-
-        for config_col, subset_paths in airfoil_paths_by_config.items():
-            creator_class, identifier = ctx.config_registry[config_col]
-            print(f"  -> {len(subset_paths)} airfoil(s) under '{identifier}' configuration")
-            geo_creator = creator_class(
-                key_points_data=key_points_data,
-                airfoil_abs_paths=subset_paths,
-                naca_key_points_data=str(ctx.paths.naca_kp_file),
-                output_dir=str(geo_temp),
-                verbose=False,
-                pb=True
-            )
-            geo_creator.create_geo_files()
-            geo_creator.save_error_log(os.path.join(geo_temp, f'geo_{identifier}_error_log.txt'))
-
-        # Calculate Final Forces (AVL), sequentially
-        print("\n--- Calculating Final Coefficients (AVL) ---")
-        geo_paths = get_all_files_from(geo_temp, extension='avl')
-        shutil.copy(ctx.paths.case_file, support_temp)
-        case_file_temp = support_temp / ctx.paths.case_file.name
-        for path in tqdm(geo_paths, desc="Running AVL sequentially"):
-            avl_case = AVL_Run_Case(geo_files=[path], case_file=str(case_file_temp), avl_exe_path=str(ctx.paths.avl_bin),
-                                    output_dir=forces_temp, debug=False)
-            # Does not require try/except due to internal handler
-            avl_case.run()
-
-        print("\n--- Archiving Raw Data Files ---")
-        ctx.archiver.compress_folder(airfoils_temp, ctx.run_dir, f"{prefix}_airfoils")
-        ctx.archiver.compress_folder(geo_temp, ctx.run_dir, f"{prefix}_geo")
-        ctx.archiver.compress_folder(forces_temp, ctx.run_dir, f"{prefix}_forces")
-
-        # Parse simulation results
-        for fpath in tqdm(get_all_files_from(forces_temp, extension='txt'), desc="Reading force files"):
-            airfoil_name, cl, cd = extract_force_data(Path(fpath))
-            if airfoil_name is None or airfoil_name not in results:
-                continue  # Skip unparseable files entirely
-            e = compute_simulated_E(cl, cd)
-            results[airfoil_name] = {'status': 'ok' if not math.isnan(e) else 'no_result', 'CL': cl, 'CD': cd, 'E': e}
-    finally:
-        shutil.rmtree(temp_root, ignore_errors=True)
-    return results
-
-
-# =============================================================================================== #
-# === Reporting === #
-# =============================================================================================== #
-
-def safe_spearman(a, b):
-    """Rank agreement between two sequences, or None when it is undefined (fewer than 3 points or constant)."""
-    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
-    if len(a) < 3 or np.ptp(a) == 0 or np.ptp(b) == 0:
+def valid_E(run, identifier: str, ctx):
+    """Simulated E of one configuration, or None: failed simulation or a polar below the laminar CD limit."""
+    if not run or run.get("status") not in ("ok", "partial"):
         return None
-    return float(spearmanr(a, b)[0])
+    if run.get("cd_min") is None or run["cd_min"] < ctx.cd_limit:
+        return None
+    e = run.get("E", {}).get(identifier)
+    return float(e) if e is not None and math.isfinite(e) else None
 
 
-def group_score(candidate, group, model_names):
-    """The value a group ranked by: the model's own prediction for a model group, the consensus otherwise."""
-    if group.startswith("model:"):
-        return float(candidate['preds'][model_names.index(group[len("model:"):])])
-    return float(candidate['consensus'])
+def best_valid_E(run, ctx):
+    """(best E, its configuration identifier) over the configurations, or (None, None)."""
+    best = (None, None)
+    for ident in ctx.identifiers:
+        e = valid_E(run, ident, ctx)
+        if e is not None and (best[0] is None or e > best[0]):
+            best = (e, ident)
+    return best
 
 
-def build_scorecard(candidates, groups, model_names, e_best, e_max):
-    """One row per selection group: how its simulated picks performed against the dataset best."""
-    rows = []
-    for group in groups:
-        picks = [c for c in candidates if any(s['group'] == group for s in c['sources'])]
-        if not picks:
+def now_text() -> str:
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+# =============================================================================================== #
+# === Lanes === #
+# =============================================================================================== #
+
+class Lane:
+    """One search: its models (own copies), tracks, stop rule, the shapes it requested and its fine-tuning history."""
+
+    def __init__(self, name: str, kind: str, model_names: list, index: int):
+        self.name, self.kind, self.model_names, self.index = name, kind, list(model_names), index
+        self.models = {}
+        self.tracks, self.removed = [], []
+        self.monitor = None
+        self.keys = {}           # shape key -> iteration it was first requested (simulation count order)
+        self.picks = []          # every pick with its predictions
+        self.accepted = {}       # model -> {"iteration", "centres", "seed"} of its kept fine-tune
+        self.ft_reports = []
+        self.history = []
+        self.done, self.done_reason = False, None
+
+    @property
+    def label(self) -> str:
+        return self.name
+
+    def request(self, key: str, iteration: int):
+        self.keys.setdefault(key, iteration)
+
+    def to_dict(self) -> dict:
+        return {"name": self.name, "kind": self.kind, "model_names": self.model_names, "index": self.index,
+                "tracks": [t.to_dict() for t in self.tracks],
+                "removed": [{"track": t.to_dict(), "reason": r, "iteration": it} for t, r, it in self.removed],
+                "monitor": self.monitor.to_dict() if self.monitor else None, "keys": self.keys, "picks": self.picks,
+                "accepted": self.accepted, "ft_reports": self.ft_reports, "history": self.history,
+                "done": self.done, "done_reason": self.done_reason}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Lane":
+        lane = cls(d["name"], d["kind"], d["model_names"], d["index"])
+        lane.tracks = [Trust_Region.from_dict(t) for t in d["tracks"]]
+        lane.removed = [(Trust_Region.from_dict(r["track"]), r["reason"], r["iteration"]) for r in d["removed"]]
+        lane.monitor = Lane_Monitor.from_dict(d["monitor"]) if d["monitor"] else None
+        lane.keys, lane.picks, lane.accepted = dict(d["keys"]), list(d["picks"]), dict(d["accepted"])
+        lane.ft_reports, lane.history = list(d["ft_reports"]), list(d["history"])
+        lane.done, lane.done_reason = bool(d["done"]), d["done_reason"]
+        return lane
+
+
+def build_lanes(model_names: list, lane_option, model_types: dict) -> list:
+    specs = [(n, "model", [n]) for n in model_names] + [(LANE_CONSENSUS, LANE_CONSENSUS, list(model_names)),
+                                                       (LANE_RANDOM, LANE_RANDOM, [])]
+    if lane_option:
+        specs = [s for s in specs if s[0] == lane_option]
+    return [Lane(name, kind, names, i) for i, (name, kind, names) in enumerate(specs)]
+
+
+def lane_description(lane: Lane, ctx) -> str:
+    if lane.kind == "model":
+        mtype, feature = ctx.model_info[lane.name]
+        return f"{lane.name} ({TYPE_LABELS.get(mtype, mtype)}, {feature} features)"
+    if lane.kind == LANE_CONSENSUS:
+        return f"consensus of {', '.join(lane.model_names)}"
+    return "random picks inside the trust regions (no models)"
+
+
+# --- Fine-tuning --- #
+
+def lane_training_rows(lane: Lane, ctx, upto_iteration: int):
+    """Feature rows, E values and shape keys of the lane's valid simulations requested up to that iteration
+    (dataset shapes excluded: they are in the dataset already)."""
+    rows, values, groups = [], [], []
+    for key, it in lane.keys.items():
+        if it > upto_iteration or key in ctx.dataset_keys:
             continue
-        sims = [c for c in picks if c['status'] == 'ok']
-        scores = np.array([group_score(c, group, model_names) for c in sims])
-        sim_e = np.array([c['simulated_E'] for c in sims])
-        rows.append({
-            'group': group,
-            'picks': len(picks),
-            'simulated': len(sims),
-            'failed': sum(c['status'] == 'no_result' for c in picks),
-            'invalid_geometry': sum(c['status'] == 'invalid_geometry' for c in picks),
-            'best_simulated_E': float(sim_e.max()) if len(sims) else None,
-            'regret': float(e_best - sim_e.max()) if len(sims) else None,
-            'median_simulated_E': float(np.median(sim_e)) if len(sims) else None,
-            'hits': int((sim_e >= HIT_FRACTION * e_best).sum()),
-            'mean_signed_error': float(np.mean(scores - sim_e)) if len(sims) else None,
-            'rank_agreement': safe_spearman(scores, sim_e),
-            'scores_above_dataset_max': int(sum(group_score(c, group, model_names) > e_max for c in picks)),
-        })
-    return rows
+        run = ctx.store.run(key)
+        cst = ctx.store.entries[(key, SWEEP_MODE)]["cst"] if run else None
+        for col, ident in ctx.identifier_of.items():
+            e = valid_E(run, ident, ctx)
+            if e is not None:
+                rows.append(feature_row(cst, col, ctx))
+                values.append(e)
+                groups.append(key)
+    if not rows:
+        return np.zeros((0, len(ctx.feature_columns)), np.float32), np.zeros(0), []
+    return np.array(rows, dtype=np.float32), np.array(values), groups
 
 
-def build_model_table(candidates, model_names, e_max):
-    """Every model judged on every simulated main-stage candidate (not only its own picks): a fair comparison."""
-    sims = [c for c in candidates if c['status'] == 'ok']
-    sim_e = np.array([c['simulated_E'] for c in sims])
-    rows = []
-    for m, name in enumerate(model_names):
-        pred = np.array([c['preds'][m] for c in sims])
-        ok = np.isfinite(pred)
-        rows.append({
-            'model': name,
-            'candidates': int(ok.sum()),
-            'mean_signed_error': float(np.mean(pred[ok] - sim_e[ok])) if ok.any() else None,
-            'mean_abs_error': float(np.mean(np.abs(pred[ok] - sim_e[ok]))) if ok.any() else None,
-            'rank_agreement': safe_spearman(pred[ok], sim_e[ok]),
-            'predictions_above_dataset_max': int((pred[ok] > e_max).sum()),
-        })
-    return rows
+def anchor_rows(ctx, centres, seed: int):
+    """Dataset rows near the track centres (local anchors) plus random dataset rows."""
+    rng = np.random.default_rng(seed)
+    near = np.zeros(len(ctx.data.y), dtype=bool)
+    for c in centres:
+        near |= np.abs(ctx.data.cst_scaled - np.asarray(c) / ctx.data.steps).max(axis=1) <= FT_LOCAL_ANCHOR_STEPS
+    near_idx = np.where(near)[0]
+    if len(near_idx) > FT_LOCAL_ANCHOR_MAX:
+        near_idx = rng.choice(near_idx, FT_LOCAL_ANCHOR_MAX, replace=False)
+    rand_idx = rng.choice(len(ctx.data.y), min(FT_RANDOM_ANCHORS, len(ctx.data.y)), replace=False)
+    idx = np.unique(np.concatenate([near_idx, rand_idx]))
+    return ctx.data.X[idx], ctx.data.y[idx]
 
+
+def fine_tune_lane(lane: Lane, ctx, iteration: int):
+    """Fine-tunes every model of the lane (from its original weights) on all of the lane's simulations so far."""
+    if lane.kind == LANE_RANDOM or ctx.no_update or not lane.models:
+        return
+    X_new, y_new, groups = lane_training_rows(lane, ctx, iteration)
+    n_shapes = len(set(groups))
+    if n_shapes < FT_MIN_SHAPES:
+        print(f"  {lane.label}: {n_shapes} new valid shape(s), fewer than {FT_MIN_SHAPES}: models not updated.")
+        return
+    centres = [t.centre.tolist() for t in lane.tracks] or [t.centre.tolist() for t, _, _ in lane.removed[-1:]]
+    seed = seed_for(ctx.master_seed, 7, lane.index, iteration)
+    X_anchor, y_anchor = anchor_rows(ctx, centres, seed)
+    for name, model in lane.models.items():
+        t0 = time.perf_counter()
+        report = model.fine_tune(X_new, y_new, X_anchor, y_anchor, groups_new=groups, new_weight=FT_NEW_WEIGHT,
+                                 random_state=seed, from_base=True)
+        if report["accepted"]:
+            lane.accepted[name] = {"iteration": iteration, "centres": centres, "seed": seed}
+        lane.ft_reports.append({"iteration": iteration, "model": name, **report})
+        print(f"  {lane.label}: {name} update {'KEPT' if report['accepted'] else 'rejected'} | {n_shapes} shapes "
+              f"({len(y_new)} rows) | held-out new-shape MAE {fmt(report['mae_new_before'], 3)} -> "
+              f"{fmt(report['mae_new_after'], 3)} | anchor MAE {fmt(report['mae_anchor_before'], 3)} -> "
+              f"{fmt(report['mae_anchor_after'], 3)} | {hms(time.perf_counter() - t0)}")
+
+
+def rebuild_fine_tunes(lanes: list, ctx):
+    """--resume: rebuilds every kept fine-tune from the saved simulations (the models themselves are not stored)."""
+    jobs = [(lane, name, acc) for lane in lanes for name, acc in lane.accepted.items()]
+    if not jobs:
+        return
+    print(f"\nRebuilding {len(jobs)} fine-tuned model(s) from the saved simulations...")
+    for lane, name, acc in jobs:
+        X_new, y_new, groups = lane_training_rows(lane, ctx, acc["iteration"])
+        X_anchor, y_anchor = anchor_rows(ctx, acc["centres"], acc["seed"])
+        lane.models[name].fine_tune(X_new, y_new, X_anchor, y_anchor, groups_new=groups, new_weight=FT_NEW_WEIGHT,
+                                    random_state=acc["seed"], from_base=True, force_accept=True)
+        print(f"  {lane.label}: {name} rebuilt (update of iteration {acc['iteration']})")
+
+
+# =============================================================================================== #
+# === Iteration 0 === #
+# =============================================================================================== #
+
+def run_iteration0_inference(ctx, lanes: list, models: dict, round_seeds: list) -> dict:
+    """Candidate rounds scored by every model; returns each lane's shortlist and the reference shapes."""
+    names = list(models)
+    lows, highs = ctx.lows, ctx.highs
+    edge_dirs, ext_lows, ext_highs = detect_edge_directions(ctx.data.parents, lows, highs, ctx.data.steps)
+    edge_sigma = (highs - lows) * LOCAL_SIGMA_FRACTION
+    for i, _side, _bound in edge_dirs:
+        edge_sigma[i] = ctx.data.steps[i] * EDGE_SIGMA_STEPS
+    use_edge = NUM_EDGE_SAMPLES > 0 and bool(edge_dirs)
+    print(f"Iteration 0: {len(round_seeds)} round(s) of {NUM_SAMPLES:,} uniform + {NUM_LOCAL_SAMPLES:,} local + "
+          f"{NUM_EDGE_SAMPLES if use_edge else 0:,} edge-probe samples, scored by {len(names)} model(s) in "
+          f"{ctx.n_configs} configuration(s).")
+    if use_edge:
+        print(f"Edge probe past: {[f'{ctx.cst_names[i]} {side} -> {bound:.4f}' for i, side, bound in edge_dirs]}")
+    scored_lanes = [l for l in lanes if l.kind != LANE_RANDOM]
+    pool = defaultdict(list)
+    random_pool = []
+    t0 = time.perf_counter()
+    for r, seed in enumerate(round_seeds, start=1):
+        rng = np.random.default_rng(seed)
+        blocks = [(generate_uniform(NUM_SAMPLES, lows, highs, rng), 'global')]
+        if NUM_LOCAL_SAMPLES > 0:
+            blocks.append((generate_local(ctx.data.parents, NUM_LOCAL_SAMPLES, lows, highs, rng), 'local'))
+        if use_edge:
+            edge = generate_local(ctx.data.parents, NUM_EDGE_SAMPLES, lows, highs, rng, ext_lows, ext_highs, edge_sigma)
+            blocks.append((edge[outside_window(edge, lows, highs)], 'edge'))
+        cst = np.concatenate([b for b, _ in blocks])
+        origin = np.concatenate([np.full(len(b), o) for b, o in blocks])
+        inside = origin != 'edge'
+        t_round = time.perf_counter()
+        preds = score_shapes(models, cst, ctx) if scored_lanes else np.zeros((len(cst), ctx.n_configs, 0))
+        elite = set()
+        best_line = []
+        for lane in scored_lanes:
+            cols = [names.index(m) for m in lane.model_names]
+            score, _ = lane_score(lane.kind, preds[:, :, cols])
+            elite.update(top_indices(score, ELITE_PER_LANE, inside).tolist())
+            elite.update(top_indices(score, ELITE_PER_LANE // 4, ~inside).tolist())
+            if np.isfinite(score).any():
+                best_line.append(f"{lane.label} {np.nanmax(np.where(inside, score, np.nan)):.3f}")
+        elite = np.array(sorted(elite), dtype=int)
+        pool['cst'].append(cst[elite])
+        pool['preds'].append(preds[elite])
+        pool['origin'].append(origin[elite])
+        pool['round'].append(np.full(len(elite), r))
+        random_pool.append(cst[rng.choice(np.where(inside)[0], min(RANDOM_POOL_PER_ROUND, int(inside.sum())), replace=False)])
+        print(f"  Round {r}/{len(round_seeds)} (seed {seed:x}): {len(cst):,} shapes scored in {hms(time.perf_counter() - t_round)}"
+              + (f" | best predicted E: {', '.join(best_line)}" if best_line else ""))
+    pool = {k: np.concatenate(v) for k, v in pool.items()}
+    random_pool = np.concatenate(random_pool)
+    scaled = pool['cst'].astype(np.float64) / ctx.data.steps
+    inside = pool['origin'] != 'edge'
+    print(f"Elite pool: {len(pool['cst']):,} shapes ({int(inside.sum()):,} inside the window). "
+          f"Inference time {hms(time.perf_counter() - t0)}.")
+
+    shortlist = {}
+    for lane in lanes:
+        picks = []
+        if lane.kind == LANE_RANDOM:
+            rng = rng_for(ctx.master_seed, 3, lane.index, 0)
+            for i in rng.permutation(len(random_pool)):
+                if len(picks) >= RANDOM_PICKS_0:
+                    break
+                if ctx.geometry_ok(random_pool[i]):
+                    picks.append({"key": shape_key(random_pool[i]), "cst": random_pool[i].tolist(), "group": "random",
+                                  "score": None, "config": None, "preds": {}})
+        else:
+            cols = [names.index(m) for m in lane.model_names]
+            score, best_c = lane_score(lane.kind, pool['preds'][:, :, cols])
+            accept = lambda i: ctx.geometry_ok(pool['cst'][i])
+            chosen = [(i, "in window") for i in diverse_top(score, scaled, TOP_K_IN_WINDOW, inside, DIVERSITY_MIN_STEPS, accept)]
+            chosen += [(i, "edge") for i in diverse_top(score, scaled, TOP_K_EDGE, ~inside, DIVERSITY_MIN_STEPS, accept,
+                                                         taken=scaled[[i for i, _ in chosen]] if chosen else None)]
+            for i, group in chosen:
+                picks.append({"key": shape_key(pool['cst'][i]), "cst": pool['cst'][i].tolist(), "group": group,
+                              "score": float(score[i]), "config": ctx.identifiers[int(best_c[i])],
+                              "preds": {m: pool['preds'][i, :, names.index(m)].tolist() for m in names}})
+        shortlist[lane.name] = picks
+    references = []
+    seen = set()
+    for cst, _config, e in ctx.data.references:
+        key = shape_key(cst)
+        if key not in seen:
+            seen.add(key)
+            references.append({"key": key, "cst": [float(v) for v in cst], "dataset_E": e})
+    for p in ctx.peaks:
+        key = shape_key(p["cst"])
+        if key not in seen:
+            seen.add(key)
+            references.append({"key": key, "cst": [float(v) for v in p["cst"]], "dataset_E": p["E"]})
+    return {"lanes": shortlist, "references": references, "pool_shapes": int(len(pool['cst'])),
+            "rounds": len(round_seeds), "inference_time": hms(time.perf_counter() - t0)}
+
+
+def start_tracks(lane: Lane, ctx, shortlist: dict):
+    """Tracks at the dataset peaks (simulated E of the peak when valid), moved or added by the iteration-0 finds."""
+    lane.tracks = []
+    for i, p in enumerate(ctx.peaks, start=1):
+        e, ident = best_valid_E(ctx.store.run(shape_key(p["cst"])), ctx)
+        lane.tracks.append(Trust_Region(f"T{i}", p["cst"], e if e is not None else p["E"], ident or p["config"],
+                                        ctx.data.steps))
+    finds = []
+    for pick in shortlist["lanes"][lane.name]:
+        e, ident = best_valid_E(ctx.store.run(pick["key"]), ctx)
+        if e is not None:
+            finds.append((e, np.asarray(pick["cst"], dtype=np.float64), ident))
+    finds.sort(key=lambda f: -f[0])
+    for track in lane.tracks:
+        inside = [f for f in finds if track.inside(f[1])[0] and f[0] > track.centre_E]
+        if inside:
+            e, cst, ident = inside[0]
+            track.history.append({"iteration": 0, "E_before": track.centre_E, "E_after": e, "gain": e - track.centre_E,
+                                  "rho": None, "radius_before": track.radius, "radius_after": track.radius,
+                                  "action": "moved to the best iteration-0 design"})
+            track.centre, track.centre_E, track.centre_config = cst, e, ident
+    max_tracks = MAX_TRACKS_FACTOR * max(len(ctx.peaks), 1)
+    for e, cst, ident in finds:
+        if len(lane.tracks) >= max_tracks:
+            break
+        weakest = min(t.centre_E for t in lane.tracks) if lane.tracks else -np.inf
+        far = all(t.distance(cst)[0] > NEW_TRACK_MIN_STEPS for t in lane.tracks)
+        if e > weakest and far:
+            lane.tracks.append(Trust_Region(f"T{len(lane.tracks) + 1}", cst, e, ident, ctx.data.steps,
+                                            origin="iteration-0 design"))
+    lane.monitor = Lane_Monitor(max(t.centre_E for t in lane.tracks), MIN_GAIN, STALL_PATIENCE)
+
+
+# =============================================================================================== #
+# === Loop iteration === #
+# =============================================================================================== #
+
+def pick_for_track(lane: Lane, track: Trust_Region, ctx, rng, taken_scaled) -> list:
+    """The track's picks for this iteration (diverse, geometrically valid, not simulated by the lane before)."""
+    steps = ctx.data.steps
+    min_steps = PICK_MIN_STEPS_FACTOR * track.radius
+    if lane.kind == LANE_RANDOM:
+        cand = track.sample_uniform(PICKS_PER_TRACK * 30, rng)
+        idx = diverse_top(rng.random(len(cand)), cand.astype(np.float64) / steps, PICKS_PER_TRACK, min_steps=min_steps,
+                          accept=lambda i: ctx.geometry_ok(cand[i]), taken=taken_scaled)
+        return [{"key": shape_key(cand[i]), "cst": cand[i].tolist(), "track": track.track_id, "group": "random",
+                 "score": None, "config": None, "preds": {}} for i in idx]
+    cand = track.sample_uniform(TR_UNIFORM_SAMPLES, rng)
+    preds = score_shapes(lane.models, cand, ctx)
+    score, _ = lane_score(lane.kind, preds)
+    top = top_indices(score, TR_REFINE_TOP)
+    if len(top) and TR_REFINE_SAMPLES > 0:
+        extra = track.sample_around(cand[top], TR_REFINE_SAMPLES, rng)
+        cand = np.vstack([cand, extra])
+        preds = np.concatenate([preds, score_shapes(lane.models, extra, ctx)])
+        score, _ = lane_score(lane.kind, preds)
+    _, best_c = lane_score(lane.kind, preds)
+    scaled = cand.astype(np.float64) / steps
+    accept = lambda i: ctx.geometry_ok(cand[i])
+    names = list(lane.models)
+    chosen = []
+
+    def add(indices, group):
+        for i in indices:
+            chosen.append((i, group))
+
+    def taken_now():
+        parts = [taken_scaled] if taken_scaled is not None and len(taken_scaled) else []
+        if chosen:
+            parts.append(scaled[[i for i, _ in chosen]])
+        return np.vstack(parts) if parts else None
+
+    if lane.kind == "model":
+        add(diverse_top(score, scaled, PICKS_PER_TRACK, min_steps=min_steps, accept=accept, taken=taken_scaled), "model")
+    else:
+        per_model = 2 if len(names) >= 2 else 0
+        explore = 2 if len(names) >= 2 else 0
+        n_consensus = max(PICKS_PER_TRACK - per_model * len(names) - explore, 1)
+        add(diverse_top(score, scaled, n_consensus, min_steps=min_steps, accept=accept, taken=taken_scaled), "consensus")
+        for m, name in enumerate(names[:]):
+            if per_model:
+                own = np.where(np.isfinite(preds[:, :, m]), preds[:, :, m], -np.inf).max(axis=1)
+                add(diverse_top(own, scaled, per_model, min_steps=min_steps, accept=accept, taken=taken_now()), f"model:{name}")
+        if explore:
+            cut = np.nanquantile(score, 1 - EXPLORE_TOP_SHARE) if np.isfinite(score).any() else np.inf
+            spread = np.ptp(preds[np.arange(len(cand)), best_c, :], axis=1)
+            add(diverse_top(spread, scaled, explore, mask=score >= cut, min_steps=min_steps, accept=accept,
+                            taken=taken_now()), "explore")
+    return [{"key": shape_key(cand[i]), "cst": cand[i].tolist(), "track": track.track_id, "group": group,
+             "score": float(score[i]) if np.isfinite(score[i]) else None, "config": ctx.identifiers[int(best_c[i])],
+             "preds": {name: preds[i, :, m].tolist() for m, name in enumerate(names)}} for i, group in chosen]
+
+
+def pick_iteration(lanes: list, ctx, iteration: int) -> dict:
+    """{lane name: picks} of every active lane for this iteration."""
+    picks = {}
+    for lane in lanes:
+        if lane.done:
+            continue
+        taken = [np.asarray(ctx.store.entries[(k, SWEEP_MODE)]["cst"]) / ctx.data.steps
+                 for k in lane.keys if (k, SWEEP_MODE) in ctx.store.entries]
+        taken = np.array(taken) if taken else None
+        lane_picks = []
+        t0 = time.perf_counter()
+        for t_index, track in enumerate(lane.tracks):
+            rng = rng_for(ctx.master_seed, 5, lane.index, iteration, t_index)
+            new = pick_for_track(lane, track, ctx, rng, taken)
+            lane_picks += new
+            if new:
+                scaled = np.array([p["cst"] for p in new]) / ctx.data.steps
+                taken = scaled if taken is None else np.vstack([taken, scaled])
+        picks[lane.name] = lane_picks
+        print(f"  {lane.label}: {len(lane_picks)} pick(s) from {len(lane.tracks)} track(s) in {hms(time.perf_counter() - t0)}")
+    return picks
+
+
+def pick_errors(picks: list, ctx) -> dict:
+    """Mean absolute error of every model on the picks it scored (prediction made before the simulation)."""
+    errors = defaultdict(list)
+    for p in picks:
+        run = ctx.store.run(p["key"])
+        for name, values in p.get("preds", {}).items():
+            for ident, pred in zip(ctx.identifiers, values):
+                e = valid_E(run, ident, ctx)
+                if e is not None and pred is not None and math.isfinite(pred):
+                    errors[name].append(abs(pred - e))
+    return {name: float(np.mean(v)) for name, v in errors.items() if v}
+
+
+def update_lane(lane: Lane, picks: list, ctx, iteration: int):
+    """Track updates, pruning, stop rule and the iteration record of one lane (after its picks were simulated)."""
+    lines = []
+    for track in lane.tracks:
+        own = [p for p in picks if p["track"] == track.track_id]
+        best = (None, None, None)
+        for p in own:
+            e, ident = best_valid_E(ctx.store.run(p["key"]), ctx)
+            if e is not None and (best[0] is None or e > best[0]):
+                best = (e, p["cst"], ident)
+        scores = [p["score"] for p in own if p.get("score") is not None]
+        step = track.update(iteration, best[0], best[1], best[2], predicted_E=max(scores) if scores else None)
+        if step["gain"] is None:
+            result = "no valid result"
+        else:
+            result = (f"best pick {step['E_before'] + step['gain']:.3f} "
+                      f"({100 * step['gain'] / max(abs(step['E_before']), 1e-9):+.2f}%)")
+        moved = step["gain"] is not None and step["gain"] > 0
+        rho = f", rho {step['rho']:.2f}" if (step["rho"] is not None and moved) else ""
+        lines.append(f"    track {track.track_id}: centre E {step['E_before']:.3f} -> {step['E_after']:.3f} | {result} | radius "
+                     f"{step['radius_before']:.3f} -> {step['radius_after']:.3f} steps ({step['action']}{rho})")
+    lane_best = max([t.centre_E for t in lane.tracks] + [lane.monitor.best_E])
+    gain = lane.monitor.update(lane_best)
+    kept, removed = Trust_Region.prune(lane.tracks, lane.monitor.best_E, iteration, DROP_SHARE, MERGE_STEPS)
+    lane.tracks = kept
+    for track, reason in removed:
+        lane.removed.append((track, reason, iteration))
+        lines.append(f"    track {track.track_id} removed: {reason}")
+    if lane.monitor.done:
+        lane.done, lane.done_reason = True, (f"converged: best E gained less than {MIN_GAIN:.1%} for "
+                                             f"{STALL_PATIENCE} iterations in a row")
+    elif not lane.tracks:
+        lane.done, lane.done_reason = True, "no tracks left"
+    errors = pick_errors(picks, ctx)
+    lane.history.append({"iteration": iteration, "lane": lane.name, "tracks": len(lane.tracks), "shapes": len(picks),
+                         "simulations_total": len(lane.keys), "best_E": lane.monitor.best_E, "gain": gain,
+                         "stall": lane.monitor.stall, "pick_MAE": errors, "done": lane.done})
+    print(f"\n  {lane.label}: best E {lane.monitor.best_E:.3f} ({gain:+.2%}) | {len(lane.tracks)} track(s) | "
+          f"{len(picks)} shapes this iteration, {len(lane.keys)} in total | stall {lane.monitor.stall}/{STALL_PATIENCE}")
+    for line in lines:
+        print(line)
+    if errors:
+        print("    error on its picks (MAE, predicted before simulating): "
+              + ", ".join(f"{n} {v:.3f}" for n, v in errors.items()))
+    if lane.done:
+        print(f"    -> lane finished: {lane.done_reason}")
+
+
+# =============================================================================================== #
+# === State (recovery) === #
+# =============================================================================================== #
+
+def save_state(ctx, lanes: list, **fields):
+    ctx.state.update(fields)
+    ctx.state["lanes"] = [lane.to_dict() for lane in lanes]
+    ctx.state["elapsed_seconds"] = ctx.elapsed()
+    ctx.state["saved"] = now_text()
+    write_json(ctx.run_dir / STATE_FILE, ctx.state)
+
+
+# =============================================================================================== #
+# === Final validation === #
+# =============================================================================================== #
+
+def window_status(cst, ctx) -> dict:
+    cst = np.asarray(cst, dtype=np.float64)
+    out = []
+    for i, name in enumerate(ctx.cst_names):
+        if cst[i] > ctx.highs[i] + 1e-7:
+            out.append(f"{name} +{(cst[i] - ctx.highs[i]) / ctx.data.steps[i]:.2f} steps")
+        elif cst[i] < ctx.lows[i] - 1e-7:
+            out.append(f"{name} -{(ctx.lows[i] - cst[i]) / ctx.data.steps[i]:.2f} steps")
+    d, _ = ctx.data.all_tree.query(cst / ctx.data.steps, p=np.inf)
+    region = "outside" if out else ("on-grid" if d < 1e-3 else "between")
+    return {"region": region, "grid_distance": float(d), "outside": out}
+
+
+def final_validation(lanes: list, ctx, models: dict, classifier) -> dict:
+    """Cold-start check, robustness, filter and window status of every lane's best designs."""
+    winners = {}
+    for lane in lanes:
+        ranked = []
+        for key in lane.keys:
+            if key in ctx.dataset_keys:
+                continue
+            e, ident = best_valid_E(ctx.store.run(key), ctx)
+            if e is not None:
+                ranked.append((e, key, ident))
+        ranked.sort(reverse=True)
+        winners[lane.name] = ranked[:max(VALIDATION_TOP, ROBUST_DESIGNS)]
+    cst_of = lambda key: ctx.store.entries[(key, SWEEP_MODE)]["cst"]
+    check_keys = {key: cst_of(key) for ranked in winners.values() for _, key, _ in ranked[:VALIDATION_TOP]}
+    ctx.store.simulate(check_keys, "cold", "validation", -1, "cold-start check of the best designs (slow: one XFOIL start per angle)")
+
+    robust = {}
+    robust_shapes = {}
+    for lane in lanes:
+        rng = rng_for(ctx.master_seed, 9, lane.index)
+        for e, key, ident in winners[lane.name][:ROBUST_DESIGNS]:
+            if key in robust:
+                continue
+            base = np.asarray(cst_of(key))
+            kids = []
+            for _ in range(ROBUST_PERTURBATIONS):
+                cst = (base + rng.normal(0.0, ROBUST_SIGMA_STEPS, size=len(base)) * ctx.data.steps).astype(np.float32)
+                k = shape_key(cst)
+                kids.append(k)
+                robust_shapes[k] = cst.tolist()
+            robust[key] = {"parent_E": e, "config": ident, "kids": kids}
+    ctx.store.simulate(robust_shapes, SWEEP_MODE, "robustness", -1, "robustness perturbations")
+    for key, info in robust.items():
+        values = [valid_E(ctx.store.run(k), info["config"], ctx) for k in info["kids"]]
+        values = np.array([v for v in values if v is not None])
+        info.update(simulated=len(values), hold_rate=float((values >= ROBUST_HOLD_FRACTION * info["parent_E"]).mean()) if len(values) else None,
+                    mean_E=float(values.mean()) if len(values) else None, min_E=float(values.min()) if len(values) else None,
+                    max_E=float(values.max()) if len(values) else None)
+
+    designs = {}
+    names = list(models)
+    for lane in lanes:
+        rows = []
+        for e, key, ident in winners[lane.name][:VALIDATION_TOP]:
+            cst = np.asarray(cst_of(key), dtype=np.float64)
+            x, yu, yl = ctx.airfoil_creator.generate(cst_coeffs=cst)
+            filters = check_airfoil(x, yu, yl, cst, ctx.n_cst, name=shape_id(key))
+            col = next(c for c, i in ctx.identifier_of.items() if i == ident)
+            original = predict_all(models, feature_row(cst, col, ctx)[None])[0] if names else []
+            updated = predict_all(lane.models, feature_row(cst, col, ctx)[None])[0] if lane.models else []
+            prob = float(predict_chunked(classifier.predict, cst[None].astype(np.float32))[0]) if classifier is not None else None
+            rows.append({"key": key, "id": shape_id(key), "cst": cst.tolist(), "E": e, "config": ident,
+                         "E_all_configs": {i: valid_E(ctx.store.run(key), i, ctx) for i in ctx.identifiers},
+                         "cold_check": compare_runs(ctx.store.run(key), ctx.store.run(key, "cold"), ctx.identifiers),
+                         "cold_E": (ctx.store.run(key, "cold") or {}).get("E", {}).get(ident),
+                         "robustness": robust.get(key), "filters": filters, "classifier_probability": prob,
+                         "window": window_status(cst, ctx),
+                         "original_predictions": dict(zip(names, map(float, original))),
+                         "lane_predictions": dict(zip(lane.models, map(float, updated)))})
+        designs[lane.name] = rows
+    return designs
+
+
+def reference_target(ctx) -> tuple:
+    """(target E, re-simulated E of the dataset best shape): a design must beat both the dataset best and its re-simulation."""
+    run = ctx.store.run(shape_key(ctx.data.best["cst"]))
+    resim = valid_E(run, ctx.identifier_of.get(ctx.data.best["config"], ctx.data.best["config"]), ctx)
+    return (max(ctx.data.e_max, resim) if resim is not None else ctx.data.e_max), resim
+
+
+def lane_outcome(designs: list, target: float) -> str:
+    if not designs or designs[0]["E"] <= target:
+        return "Try again..."
+    verdict = designs[0]["cold_check"]["verdict"]
+    return "SUCCESS!!" if verdict == "agrees" else "SUCCESS??"
+
+
+def simulations_to_reach(lane: Lane, ctx) -> dict:
+    """Simulations (shapes requested, in order) the lane needed to reach each share of the dataset best E."""
+    order = sorted(lane.keys.items(), key=lambda kv: kv[1])
+    best, count, reached = -np.inf, 0, {}
+    curve = []
+    for key, _ in order:
+        count += 1
+        if key not in ctx.dataset_keys:
+            e, _ = best_valid_E(ctx.store.run(key), ctx)
+            if e is not None:
+                best = max(best, e)
+        curve.append((count, best if np.isfinite(best) else None))
+        for share in REACH_SHARES:
+            if share not in reached and np.isfinite(best) and best >= share * ctx.data.e_max:
+                reached[share] = count
+    return {"reached": {f"{share:.0%}": reached.get(share) for share in REACH_SHARES}, "curve": curve}
+
+
+# =============================================================================================== #
+# === Expanded dataset and models (versions X.Y.i) === #
+# =============================================================================================== #
+
+def save_expansion(ctx, lanes: list, iterations: int) -> dict:
+    """Writes the expanded dataset (dataset + every valid new simulation) and one final fine-tune of every model."""
+    if ctx.no_update:
+        print("\n[NOTE] --no-update: the models were frozen, so this run writes no new dataset or model versions.")
+        return {"status": "skipped (--no-update)"}
+    if parent_dataset(ctx.dataset_num):
+        print(f"\n[NOTE] Dataset {ctx.dataset_num} is already an expansion; no further version is written.")
+        return {"status": "skipped (dataset is an expansion)"}
+    number = expansion_number(ctx.dataset_num, iterations)
+    lanes_of = defaultdict(set)
+    for lane in lanes:
+        for key in lane.keys:
+            lanes_of[key].add(lane.name)
+    rows, values, groups, side = [], [], [], []
+    below_limit = 0
+    for (key, protocol), entry in sorted(ctx.store.entries.items()):
+        if protocol != SWEEP_MODE or key in ctx.dataset_keys:
+            continue
+        run = entry["run"]
+        if run and run.get("cd_min") is not None and run["cd_min"] < ctx.cd_limit:
+            below_limit += 1
+            continue
+        for col, ident in ctx.identifier_of.items():
+            e = valid_E(run, ident, ctx)
+            if e is not None:
+                rows.append(feature_row(entry["cst"], col, ctx))
+                values.append(e)
+                groups.append(key)
+                side.append({"id": entry["id"], "config": ident, "E": e, "stage": entry["stage"],
+                             "iteration": entry["iteration"], "lanes": "+".join(sorted(lanes_of.get(key, []))) or "robustness"})
+    if not rows:
+        print("\n[NOTE] No valid new simulations: no expanded dataset written.")
+        return {"status": "skipped (no valid new simulations)"}
+    X_new, y_new = np.array(rows, dtype=np.float32), np.array(values)
+    print(f"\n# === Expanded dataset {number}: {len(y_new)} new rows from {len(set(groups))} shapes "
+          f"({below_limit} shape(s) below the laminar CD limit left out) === #")
+
+    data_dir = dataset_folder(number, ctx.paths.project_root)
+    model_dir = models_folder(number, ctx.paths.project_root)
+    diverted = data_dir.exists() or model_dir.exists()
+    if diverted:
+        data_dir = ctx.run_dir / f"dataset_{number}" / "data"
+        model_dir = ctx.run_dir / f"dataset_{number}" / "models"
+        print("!" * 90)
+        print(f"[WARNING] Version {number} already exists in data/datasets or models (another run with {iterations} "
+              f"iteration(s)?). Nothing there is overwritten: this run's version is saved in the run folder instead:")
+        print(f"          {data_dir.parent}")
+        print("!" * 90)
+    data_partial = data_dir.with_name(data_dir.name + ".partial")
+    model_partial = model_dir.with_name(model_dir.name + ".partial")
+    for d in (data_partial, model_partial):
+        shutil.rmtree(d, ignore_errors=True)
+        d.mkdir(parents=True)
+    target = pd.read_csv(ctx.paths.training_file, nrows=0).columns[-1]
+    new_df = pd.DataFrame(X_new, columns=ctx.feature_columns)
+    new_df[target] = y_new
+    full = pd.concat([pd.read_csv(ctx.paths.training_file), new_df], ignore_index=True)
+    csv_path = data_partial / f"regressor_dataset_{number}.csv"
+    full.to_csv(csv_path, index=False)
+    side_df = pd.concat([pd.DataFrame(side), new_df[ctx.cst_names].reset_index(drop=True)], axis=1)
+    side_df.to_csv(data_partial / f"expansion_rows_{number}.csv", index=False)
+
+    reports = {}
+    for name, (folder, mtype) in ctx.resolved.items():
+        if name not in ctx.model_names:
+            continue
+        model = load_regressor(name, folder, mtype)
+        new_name = expanded_model_name(name, iterations)
+        t0 = time.perf_counter()
+        report = model.fine_tune(X_new, y_new, ctx.data.X, ctx.data.y, groups_new=groups, new_weight=FT_NEW_WEIGHT,
+                                 random_state=seed_for(ctx.master_seed, 11), from_base=True)
+        out = model_partial / folder.name
+        model.save_model(str(out), new_name)
+        (out / f"{new_name}_regressor_model_parameters.json").write_text(json.dumps(model.parameters_json, indent=4))
+        info = {"name": new_name, "base_name": base_name(name), "version": model_version(new_name),
+                "mode": "inference fine-tune", "previous_model": str(folder / name),
+                "dataset_csv": str(data_dir / csv_path.name), "run_folder": str(ctx.run_dir), "iterations": iterations,
+                "new_rows": int(len(y_new)), "new_shapes": int(len(set(groups))), "fine_tune": report,
+                "created": now_text(), "platform": platform.platform(),
+                "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"}
+        (out / f"{new_name}_training_info.json").write_text(json.dumps(jsonable(info), indent=4))
+        reports[new_name] = report
+        state = "update kept" if report["accepted"] else "UPDATE REJECTED by the gate: saved unchanged"
+        print(f"  {name} -> {new_name}: {state} | held-out new-shape MAE {fmt(report['mae_new_before'], 3)} -> "
+              f"{fmt(report['mae_new_after'], 3)} | anchor MAE {fmt(report['mae_anchor_before'], 3)} -> "
+              f"{fmt(report['mae_anchor_after'], 3)} | {hms(time.perf_counter() - t0)}")
+    data_dir.parent.mkdir(parents=True, exist_ok=True)
+    model_dir.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(data_partial, data_dir)
+    os.replace(model_partial, model_dir)
+    print(f"Saved: {data_dir}")
+    print(f"       {model_dir}")
+    return {"status": "saved", "version": number, "dataset_dir": str(data_dir), "models_dir": str(model_dir),
+            "diverted_to_run_folder": diverted, "new_rows": int(len(y_new)), "new_shapes": int(len(set(groups))),
+            "below_laminar_limit": below_limit, "models": reports}
+
+
+# =============================================================================================== #
+# === Reports === #
+# =============================================================================================== #
 
 def fmt(v, digits=2, width=None):
     """Number formatting that tolerates None/NaN."""
@@ -1027,15 +1412,6 @@ def fmt(v, digits=2, width=None):
     return text if width is None else f"{text:<{width}}"
 
 
-def short_sources(sources):
-    labels = []
-    for s in sources:
-        g = s['group'][len("model:"):] if s['group'].startswith("model:") else s['group']
-        labels.append(f"{g}#{s['rank']}")
-    return ", ".join(labels)
-
-
-# Plain block letters, 5 rows per glyph
 BANNER_GLYPHS = {
     "S": [" ____  ", "/ ___| ", "\\___ \\ ", " ___) |", "|____/ "],
     "U": [" _   _ ", "| | | |", "| | | |", "| |_| |", " \\___/ "],
@@ -1049,681 +1425,450 @@ BANNER_GLYPHS = {
     "I": [" ___ ", "|_ _|", " | | ", " | | ", "|___|"],
     "N": [" _   _ ", "| \\ | |", "|  \\| |", "| |\\  |", "|_| \\_|"],
     "!": [" _ ", "| |", "| |", "|_|", "(_)"],
+    "?": [" ___ ", "|__ \\", "  / /", " |_| ", " (_) "],
     ".": ["   ", "   ", "   ", " _ ", "(_)"],
     " ": ["   ", "   ", "   ", "   ", "   "],
 }
 
 
 def banner(text: str) -> list:
-    """Big ASCII letters for the outcome line of result.txt."""
     glyphs = [BANNER_GLYPHS[ch] for ch in text.upper()]
     return ["".join(g[row].ljust(max(len(r) for r in g)) for g in glyphs).rstrip() for row in range(5)]
 
 
-def find_outcome(candidates, model_names, e_dataset_best, reference_best_E):
-    """
-    Did any model find a better design? Candidates picked by a model, by consensus, by the edge probe or by the
-    configuration check count; dataset designs re-simulated as they are (reference picks or exact on-grid rows)
-    do not. A design must beat both the dataset best and that design's own re-simulation, so simulation
-    differences alone cannot produce a success.
-    """
-    target = max(e_dataset_best, reference_best_E) if reference_best_E is not None else e_dataset_best
-    improvements = []
-    for c in candidates:
-        if c['status'] != 'ok' or not math.isfinite(c['simulated_E']):
-            continue
-        if all(s['group'] == GROUP_REFERENCE for s in c['sources']) or c['grid_distance'] < 1e-3:
-            continue
-        if c['simulated_E'] > target:
-            improvements.append(c)
-    improvements.sort(key=lambda c: c['simulated_E'], reverse=True)
-    per_model = {}
-    for name in model_names:
-        own = [c['simulated_E'] for c in candidates if c['status'] == 'ok'
-               and any(s['group'] == f"model:{name}" for s in c['sources'])]
-        per_model[name] = max(own) if own else None
-    return {'success': bool(improvements), 'target_E': target, 'dataset_best_E': e_dataset_best,
-            'reference_best_simulated_E': reference_best_E, 'improvements': improvements, 'best_per_model': per_model}
-
-
-def save_result_report(path: Path, ctx, outcome: dict, best_candidate, robust_by_parent: dict, run_info: dict):
-    """result.txt: the outcome in big letters and the bare minimum around it."""
-    message = "SUCCESS!!" if outcome['success'] else "Try again..."
-    target = outcome['target_E']
-    lines = [""] + ["   " + row for row in banner(message)] + ["", "=" * 90]
-    lines.append(f"Goal: a wing design with simulated E above the best of dataset {ctx.dataset_num}.")
-    ref = outcome['reference_best_simulated_E']
-    lines.append(f"Target: E > {target:.4f}  (dataset best {outcome['dataset_best_E']:.4f}"
-                 + (f", re-simulated {ref:.4f})" if ref is not None else ")"))
-    lines.append("")
-    if best_candidate is not None:
-        gain = 100 * (best_candidate['simulated_E'] - target) / target
-        lines.append(f"Best design found: E = {best_candidate['simulated_E']:.4f} ({gain:+.2f}% vs target) | "
-                     f"config {best_candidate['wing_config']} | picked by {short_sources(best_candidate['sources'])}")
-        n_cst = len(best_candidate['cst_coeffs']) // 2
-        lines.append(f"  CST lower: {[round(float(v), 4) for v in best_candidate['cst_coeffs'][:n_cst]]}")
-        lines.append(f"  CST upper: {[round(float(v), 4) for v in best_candidate['cst_coeffs'][n_cst:]]}")
-        rob = robust_by_parent.get(best_candidate['candidate_id'])
-        if rob and rob['simulated']:
-            lines.append(f"  Robustness: {rob['simulated']} small perturbations, E from {rob['min_E']:.2f} to "
-                         f"{rob['max_E']:.2f} (hold rate {rob['hold_rate']:.0%})")
-        lines.append("")
-    if outcome['success']:
-        lines.append(f"Designs above the target: {len(outcome['improvements'])}")
-        for c in outcome['improvements'][:10]:
-            lines.append(f"  {c['candidate_id']:<14} E = {c['simulated_E']:.4f}  {c['wing_config']:<6} "
-                         f"{short_sources(c['sources'])}")
-        lines.append("")
-    lines.append("Best simulated E of each model's own picks:")
-    for name, e in outcome['best_per_model'].items():
-        verdict = "-" if e is None else ("beats the target" if e > target else f"{e - target:+.2f} from the target")
-        lines.append(f"  {name:<18} {fmt(e, 4):>8}   {verdict}")
-    lines += ["", f"Run: {run_info['folder']} | master seed {run_info['seed']} | {run_info['total_time']}",
-              "Full details: detailed_results.txt", "=" * 90]
-    path.write_text("\n".join(lines) + "\n", encoding='utf-8')
-    print("\n".join(lines[:7]))
-    print(f"Saved result summary to '{path.name}'")
-
-
-def save_text_report(path: Path, ctx, report: dict):
-    """Human-readable report: header, scorecards, configuration check, candidates and robustness."""
-    model_names = ctx.model_names
-    best = report['dataset_best']
-    width = 150
-    lines = ["=" * width, f"Aerodynamic Efficiency (E) Validation Report for Dataset {ctx.dataset_num}", "=" * width]
-    if best is not None:
-        lines += [f"Dataset best: E = {best['E']:.4f} | config = {best['wing_config']}",
-                  f"  CST lower: {best['cst_lower']}", f"  CST upper: {best['cst_upper']}",
-                  f"Hit = simulated E >= {HIT_FRACTION:.0%} of the dataset best ({HIT_FRACTION * best['E']:.2f}). "
-                  f"Signed error = prediction - simulation (positive = the model was too optimistic)."]
-    outcome = report['outcome']
-    lines += [f"Outcome: {'SUCCESS!!' if outcome['success'] else 'Try again...'} | target E > {outcome['target_E']:.4f} | "
-              f"designs above it: {len(outcome['improvement_ids'])}",
-              f"Inference rounds completed: {report['rounds_completed']} | Total time: {report['total_time']}", ""]
-
-    lines += ["--- Scorecard per selection group (each group judged with the score it ranked by) " + "-" * 60]
-    lines.append(f"{'Group':<18} {'Picks':>5} {'Sim':>4} {'Fail':>4} {'Inval':>5} {'Best E':>8} {'Regret':>7} "
-                 f"{'Median E':>9} {'Hits':>4} {'Signed err':>10} {'Rank agr.':>9} {'Score>max':>9}")
-    for r in report['scorecard']:
-        g = r['group'][len("model:"):] if r['group'].startswith("model:") else r['group']
-        lines.append(f"{g:<18} {r['picks']:>5} {r['simulated']:>4} {r['failed']:>4} {r['invalid_geometry']:>5} "
-                     f"{fmt(r['best_simulated_E']):>8} {fmt(r['regret']):>7} {fmt(r['median_simulated_E']):>9} "
-                     f"{r['hits']:>4} {fmt(r['mean_signed_error']):>10} {fmt(r['rank_agreement']):>9} "
-                     f"{r['scores_above_dataset_max']:>9}")
-    lines.append("")
-
-    lines += ["--- Every model on every simulated main-stage candidate " + "-" * 94]
-    lines.append(f"{'Model':<18} {'N':>4} {'Signed err':>10} {'Abs err':>8} {'Rank agr.':>9} {'Pred>max':>8}")
-    for r in report['model_table']:
-        lines.append(f"{r['model']:<18} {r['candidates']:>4} {fmt(r['mean_signed_error']):>10} "
-                     f"{fmt(r['mean_abs_error']):>8} {fmt(r['rank_agreement']):>9} {r['predictions_above_dataset_max']:>8}")
-    lines.append("")
-
-    cfg_names = [ctx.config_registry[c][1] for c in ctx.config_order]
-    lines += [f"--- Configuration check (dataset order: {' > '.join(cfg_names)}) " + "-" * 80]
-    for r in report['config_check']['model_winners']:
-        preds = "  ".join(f"{k}={fmt(v)}" for k, v in r['predictions'].items())
-        lines.append(f"{r['model']:<18} winner {r['candidate_id']} ({r['picked_config']}): {preds}  "
-                     f"-> {'matches' if r['order_matches_dataset'] else 'DIFFERS FROM'} dataset order")
-    verdicts = {True: "matches dataset order", False: "DIFFERS FROM dataset order", None: "incomplete (a simulation failed)"}
-    for r in report['config_check']['simulated_shapes']:
-        sims = "  ".join(f"{k}={fmt(v)}" for k, v in r['simulated_E'].items())
-        lines.append(f"Consensus shape #{r['shape']} simulated: {sims}  -> {verdicts[r['order_matches_dataset']]}")
-    lines.append("")
-
-    lines += ["--- Candidates (sorted by simulated E) " + "-" * 112]
-    model_hdr = " ".join(f"{n[:8]:>8}" for n in model_names)
-    lines.append(f"{'Candidate':<14} {'Cfg':<6} {'Region':<15} {model_hdr} {'Spread':>6} {'Sim E':>7} {'Err(cons)':>9} "
-                 f"{'Near E':>7}  {'Flags':<10} Picked by")
-    for c in sorted(report['candidates'], key=lambda c: -np.inf if c['simulated_E'] is None else c['simulated_E'], reverse=True):
-        region = f"{c['region']} {fmt(c['grid_distance'])}"
-        preds = " ".join(f"{fmt(p):>8}" for p in c['predictions'].values())
-        flags = []
-        if c['above_dataset_max']:
-            flags.append("pred>max")
-        if c['status'] != 'ok':
-            flags.append(c['status'])
-        lines.append(f"{c['candidate_id']:<14} {c['wing_config']:<6} {region:<15} {preds} {fmt(c['spread']):>6} "
-                     f"{fmt(c['simulated_E']):>7} {fmt(c['consensus_error']):>9} {fmt(c['nearest_dataset_E']):>7}  "
-                     f"{','.join(flags):<10} {short_sources(c['sources'])}")
-    lines.append("")
-
-    rob = report['robustness']
-    lines += ["--- Robustness (small perturbations of the best simulated designs) " + "-" * 83]
-    if rob['status'] != 'completed':
-        lines.append(f"Not run: {rob['status']}")
-    else:
-        lines.append(f"Perturbation std dev: {ROBUST_SIGMA_STEPS} grid steps. A perturbation holds if it simulates at "
-                     f">= {ROBUST_HOLD_FRACTION:.0%} of its parent's E.")
-        lines.append(f"{'Parent':<14} {'Parent E':>8} {'Pert.':>5} {'Sim':>4} {'Hold rate':>9} {'Mean E':>7} {'Min E':>7} {'Max E':>7}")
-        for r in rob['parents']:
-            lines.append(f"{r['parent']:<14} {fmt(r['parent_E']):>8} {r['perturbations']:>5} {r['simulated']:>4} "
-                         f"{fmt(r['hold_rate']):>9} {fmt(r['mean_E']):>7} {fmt(r['min_E']):>7} {fmt(r['max_E']):>7}")
-    lines.append("=" * width)
-    path.write_text("\n".join(lines) + "\n", encoding='utf-8')
-    print(f"Successfully saved text report to '{path.name}'")
-
-
-def save_parity_plot(path: Path, candidates, model_names, e_best):
-    """Predicted vs simulated E for every model on every simulated main-stage candidate."""
+def save_plots(ctx, lanes: list, reach: dict, target: float):
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
-        print("matplotlib not available; parity plot skipped.")
+        print("matplotlib not available; plots skipped.")
         return
-    sims = [c for c in candidates if c['status'] == 'ok']
-    if not sims:
-        return
-    fig, ax = plt.subplots(figsize=(7, 6))
-    sim_e = np.array([c['simulated_E'] for c in sims])
-    for m, name in enumerate(model_names):
-        ax.scatter([c['preds'][m] for c in sims], sim_e, s=22, alpha=0.75, label=name)
-    lo = min(np.nanmin(sim_e), np.nanmin([c['preds'] for c in sims])) - 2
-    hi = max(np.nanmax(sim_e), np.nanmax([c['preds'] for c in sims]), e_best) + 2
-    ax.plot([lo, hi], [lo, hi], ls='--', c='gray', lw=1, label='perfect prediction')
-    ax.axhline(e_best, c='green', lw=1, label=f'dataset best ({e_best:.2f})')
-    ax.set_xlabel("Predicted E")
-    ax.set_ylabel("Simulated E")
-    ax.set_title("Predicted vs simulated E (main stage)")
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for lane in lanes:
+        curve = [(n, e) for n, e in reach[lane.name]["curve"] if e is not None]
+        if curve:
+            ax.step([c[0] for c in curve], [c[1] for c in curve], where="post", label=lane.label)
+    ax.axhline(ctx.data.e_max, c="green", lw=1, ls="--", label=f"dataset best ({ctx.data.e_max:.2f})")
+    ax.axhline(target, c="gray", lw=1, ls=":", label=f"target ({target:.2f})")
+    ax.set_xlabel("Shapes simulated by the lane (each in every wing configuration)")
+    ax.set_ylabel("Best simulated E found")
+    ax.set_title("Convergence per lane")
     ax.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig(ctx.run_dir / "convergence.png", dpi=150)
     plt.close(fig)
-    print(f"Saved parity plot to '{path.name}'")
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    names = ctx.model_names
+    for name in names:
+        xs, ys = [], []
+        for lane in lanes:
+            for p in lane.picks:
+                values = p.get("preds", {}).get(name)
+                if not values:
+                    continue
+                run = ctx.store.run(p["key"])
+                for ident, pred in zip(ctx.identifiers, values):
+                    e = valid_E(run, ident, ctx)
+                    if e is not None and pred is not None and math.isfinite(pred):
+                        xs.append(pred)
+                        ys.append(e)
+        if xs:
+            ax.scatter(xs, ys, s=10, alpha=0.5, label=name)
+    lims = ax.get_xlim()
+    ax.plot(lims, lims, ls="--", c="gray", lw=1, label="perfect prediction")
+    ax.axhline(ctx.data.e_max, c="green", lw=1, label="dataset best")
+    ax.set_xlabel("Predicted E (when picked)")
+    ax.set_ylabel("Simulated E")
+    ax.set_title("Predicted vs simulated E of every pick")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(ctx.run_dir / "parity.png", dpi=150)
+    plt.close(fig)
 
 
-def to_json(value):
-    """Recursively converts numpy types and NaN to plain JSON values."""
-    if isinstance(value, dict):
-        return {str(k): to_json(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [to_json(v) for v in value]
-    if isinstance(value, np.ndarray):
-        return to_json(value.tolist())
-    if isinstance(value, (np.floating, float)):
-        return None if math.isnan(float(value)) else float(value)
-    if isinstance(value, (np.integer,)):
-        return int(value)
-    if isinstance(value, np.bool_):
-        return bool(value)
-    return value
+def write_reports(ctx, lanes: list, designs: dict, reach: dict, expansion: dict, timing: dict):
+    target, resim = reference_target(ctx)
+    outcomes = {lane.name: lane_outcome(designs.get(lane.name, []), target) for lane in lanes}
+    overall = "SUCCESS!!" if "SUCCESS!!" in outcomes.values() else ("SUCCESS??" if "SUCCESS??" in outcomes.values() else "Try again...")
 
+    # --- result.txt --- #
+    lines = [""] + ["   " + row for row in banner(overall)] + ["", "=" * 100]
+    lines.append(f"Goal: a wing design with simulated E above the best of dataset {ctx.dataset_num}.")
+    lines.append(f"Target: E > {target:.4f}  (dataset best {ctx.data.e_max:.4f}" + (f", re-simulated {resim:.4f})" if resim is not None else ")"))
+    lines.append("SUCCESS!! = beats the target and the cold-start (history-free) simulation agrees; SUCCESS?? = beats the target "
+                 "but the cold-start check disagrees (possible sweep artifact).")
+    lines.append("")
+    lines.append(f"{'Lane':<22} {'Outcome':<13} {'Best E':>8} {'vs target':>9} {'Shapes':>7} {'Iter':>5}  "
+                 + "  ".join(f"{s:>5}" for s in reach[lanes[0].name]["reached"]) + "   (shapes simulated to reach that share of the dataset best)")
+    for lane in lanes:
+        best_E = designs[lane.name][0]["E"] if designs.get(lane.name) else None
+        versus = f"{100 * (best_E - target) / target:+.2f}%" if best_E is not None else "-"
+        iters = lane.history[-1]["iteration"] if lane.history else 0
+        reached = "  ".join(f"{fmt(v):>5}" for v in reach[lane.name]["reached"].values())
+        lines.append(f"{lane.label:<22} {outcomes[lane.name]:<13} {fmt(best_E, 4):>8} {versus:>9} {len(lane.keys):>7} "
+                     f"{iters:>5}  {reached}")
+    lines.append("")
+    for lane in lanes:
+        rows = designs.get(lane.name)
+        if not rows:
+            continue
+        d = rows[0]
+        n = ctx.n_cst
+        lines.append(f"{lane.label}: best design {d['id']} E = {d['E']:.4f} ({d['config']}) | cold-start: {d['cold_check']['verdict']}"
+                     f" | window: {d['window']['region']}" + (f" ({', '.join(d['window']['outside'])})" if d['window']['outside'] else "")
+                     + f" | filters: {'pass' if d['filters']['passed'] else 'fail (' + str(d['filters']['reason']) + ')'}")
+        lines.append(f"    CST lower: {[round(v, 4) for v in d['cst'][:n]]}  CST upper: {[round(v, 4) for v in d['cst'][n:]]}")
+        rob = d.get("robustness")
+        if rob and rob.get("simulated"):
+            lines.append(f"    robustness: {rob['simulated']} perturbations, E {rob['min_E']:.2f} to {rob['max_E']:.2f} "
+                         f"(hold rate {rob['hold_rate']:.0%})")
+    lines.append("")
+    lines += timing["lines"]
+    if expansion.get("status") == "saved":
+        lines.append(f"New versions: dataset {expansion['version']} ({expansion['new_rows']} new rows) and its models in "
+                     f"{expansion['models_dir']}")
+    else:
+        lines.append(f"New versions: {expansion.get('status')}")
+    lines += [f"Run: {ctx.run_dir.name} | master seed 0x{ctx.master_seed:x}", "Full details: detailed_results.txt", "=" * 100]
+    atomic_write_text(ctx.run_dir / "result.txt", "\n".join(lines) + "\n")
+    print("\n".join(lines))
 
-def write_json(path: Path, data):
-    with open(path, 'w') as f:
-        json.dump(to_json(data), f, indent=4)
+    # --- detailed_results.txt --- #
+    width = 150
+    d_lines = ["=" * width, f"Iterative inference report, dataset {ctx.dataset_num}", "=" * width,
+               f"Dataset best: E = {ctx.data.e_max:.4f} ({ctx.data.best['config']}) | target {target:.4f}",
+               *ctx.peak_lines, ""]
+    for lane in lanes:
+        d_lines += [f"--- Lane {lane.label}: {lane_description(lane, ctx)} " + "-" * 60,
+                    f"Outcome: {outcomes[lane.name]} | finished: {lane.done_reason or 'stopped by the time ceiling'}"]
+        d_lines.append(f"{'Iter':>4} {'Tracks':>6} {'Shapes':>6} {'Total':>6} {'Best E':>8} {'Gain':>8} {'Stall':>5}  Pick MAE per model")
+        for h in lane.history:
+            d_lines.append(f"{h['iteration']:>4} {h['tracks']:>6} {h['shapes']:>6} {h['simulations_total']:>6} {h['best_E']:>8.3f} "
+                           f"{h['gain']:>+8.2%} {h['stall']:>5}  " + ", ".join(f"{n} {v:.3f}" for n, v in h['pick_MAE'].items()))
+        if lane.ft_reports:
+            kept = sum(r["accepted"] for r in lane.ft_reports)
+            d_lines.append(f"Fine-tuning: {kept} of {len(lane.ft_reports)} updates kept")
+        for t in lane.tracks + [r[0] for r in lane.removed]:
+            reason = next((r for tr, r, _ in lane.removed if tr is t), "active at the end")
+            d_lines.append(f"  track {t.track_id} ({t.origin}): E {t.centre_E:.3f}, radius {t.radius:.3f} steps, "
+                           f"{len(t.history)} steps | {reason}")
+        for d in designs.get(lane.name, []):
+            cold = d["cold_check"]
+            d_lines.append(f"  design {d['id']}: E {d['E']:.4f} ({d['config']}) all configs "
+                           + ", ".join(f"{k}={fmt(v, 3)}" for k, v in d["E_all_configs"].items())
+                           + f" | cold E {fmt(d['cold_E'], 3)} ({cold['verdict']}, pre-stall same branch {fmt(cold['pre_stall_same_branch'], 3)})")
+            d_lines.append(f"     window {d['window']['region']} {fmt(d['window']['grid_distance'])} steps from the nearest dataset "
+                           f"shape | filters {'pass' if d['filters']['passed'] else 'fail: ' + str(d['filters']['reason'])} | "
+                           f"classifier {fmt(d['classifier_probability'], 3)}")
+            d_lines.append("     predictions original: " + ", ".join(f"{k}={v:.3f}" for k, v in d["original_predictions"].items())
+                           + (" | lane's updated models: " + ", ".join(f"{k}={v:.3f}" for k, v in d["lane_predictions"].items())
+                              if d["lane_predictions"] else ""))
+        d_lines.append("")
+    d_lines += timing["lines"] + ["=" * width]
+    atomic_write_text(ctx.run_dir / "detailed_results.txt", "\n".join(d_lines) + "\n")
+
+    # --- tables, json, plots --- #
+    pd.DataFrame([h for lane in lanes for h in lane.history]).to_csv(ctx.run_dir / "iterations.csv", index=False)
+    lanes_of = defaultdict(set)
+    for lane in lanes:
+        for key in lane.keys:
+            lanes_of[key].add(lane.name)
+    sim_rows = []
+    for (key, protocol), entry in ctx.store.entries.items():
+        run = entry["run"] or {}
+        for ident in ctx.identifiers:
+            sim_rows.append({"id": entry["id"], "protocol": protocol, "stage": entry["stage"], "iteration": entry["iteration"],
+                             "lanes": "+".join(sorted(lanes_of.get(key, []))), "config": ident,
+                             **dict(zip(ctx.cst_names, entry["cst"])), "status": run.get("status"), "cd_min": run.get("cd_min"),
+                             "CL": run.get("CL", {}).get(ident), "CD": run.get("CD", {}).get(ident), "E": run.get("E", {}).get(ident),
+                             "valid_E": valid_E(run, ident, ctx)})
+    pd.DataFrame(sim_rows).to_csv(ctx.run_dir / "simulations.csv", index=False)
+    write_json(ctx.run_dir / "detailed_results.json", {
+        "outcome": overall, "lane_outcomes": outcomes, "target_E": target, "dataset_best": ctx.data.best,
+        "reference_resimulated_E": resim, "peaks": ctx.peaks, "designs": designs,
+        "simulations_to_reach": {k: v["reached"] for k, v in reach.items()},
+        "lanes": [lane.to_dict() for lane in lanes], "expansion": expansion, "timing": timing})
+    save_plots(ctx, lanes, reach, target)
+    return overall, outcomes
 
 
 # =============================================================================================== #
-# === Main pipeline === #
+# === Main === #
 # =============================================================================================== #
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
     resume_dir, previous = load_previous_run(args) if args.resume else (None, None)
-    check_wing_mode_available(args.wing_mode)
-
-    # === Mandatory GPU Check (classifier and MLP regressors are torch models) === #
+    if args.wing_mode == SINGLE_MODE:
+        print(SINGLE_UNAVAILABLE_MESSAGE)
+        sys.exit(1)
     if not torch.cuda.is_available():
         print("ERROR: Execution stopped. This script requires a CUDA-enabled GPU.")
         sys.exit(1)
     print(f"GPU detected: {torch.cuda.get_device_name(0)}")
-
+    session_start = time.perf_counter()
+    start_time = datetime.now()
     dataset_num = args.dataset
     paths = build_paths(dataset_num)
     if args.csv:
         paths.training_file = Path(args.csv).resolve()
+    hours = float(args.hours if args.hours is not None else DEFAULT_HOURS)
+    workers = int(args.workers or max(1, multiprocessing.cpu_count() - 1))
     print(f"Dataset CSV: {paths.training_file}")
-    dataset_name_prefix = f"AI_Test_Results_dataset_{dataset_num}"
-    start_time = datetime.now()
-    print(f"Pipeline started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    print(f"Started at {start_time.strftime('%Y-%m-%d %H:%M:%S')} | time ceiling {hours:g} h | {workers} simulation worker(s)")
+    if previous is None:
+        report_unfinished_runs(paths.results_root, dataset_num)
 
-    # === Seeds: one per inference round, identical for every model === #
-    # NumPy's Generator (np.random.default_rng) accepts any non-negative integer, so the accepted range
-    # is simply MAX_MASTER_SEED. The round seeds are a deterministic function of the master seed.
-    if args.seed is not None:
-        master_seed = args.seed
-        source = "of the resumed run" if previous else f"supplied as {'decimal' if args.decimal else 'hexadecimal'}"
-        print(f"Master seed {source}: 0x{master_seed:x} = {master_seed} (decimal)")
-    else:
-        master_seed = secrets.randbelow(MAX_MASTER_SEED + 1)
-        print(f"Master seed generated: 0x{master_seed:x} = {master_seed} (decimal)")
+    master_seed = args.seed if args.seed is not None else secrets.randbelow(MAX_MASTER_SEED + 1)
+    print(f"Master seed: 0x{master_seed:x} = {master_seed} (decimal)")
     round_seeds = np.random.default_rng(master_seed).choice(SEED_POOL_SIZE, size=NUM_INFERENCE_RUNS, replace=False).tolist()
-    print(f"Round seeds (hex): {[f'{s:x}' for s in round_seeds]}")
 
-    # === Dataset Schema Parsing === #
-    print("\n# === Parsing Dataset Schema === #")
+    # --- Dataset and models --- #
     feature_columns, cst_l_cols, cst_u_cols, config_cols = parse_dataset_columns(paths.training_file, args.wing_mode)
+    cst_names = cst_l_cols + cst_u_cols
     n_cst = len(cst_l_cols)
-    config_registry = build_config_registry(args.wing_mode, config_cols)
-    print(f"Wing mode '{args.wing_mode}': {n_cst} CST coefficients per surface, configuration(s): "
-          f"{[v[1] for v in config_registry.values()]}")
-    if not paths.naca_kp_file.exists():
-        raise FileNotFoundError(f"NACA 0012 key point support file not found: {paths.naca_kp_file}")
-
-    # === Model resolution (cheap, fails early) === #
+    identifier_of = config_identifiers(config_cols)
+    for path in (paths.naca_kp_file, paths.case_file, paths.base_airfoil, paths.xfoil_bin, paths.avl_bin):
+        if not Path(path).exists():
+            raise FileNotFoundError(f"Required file not found: {path}")
     resolved = {name: resolve_regressor(name, paths.models_dir) for name in args.models}
-
-    # === Model Initialization === #
     print("\n# === Loading AI Models === #")
-    classifier = load_classifier(args.classifier, paths.classifier_dir)
-    cst_col_idx = [feature_columns.index(c) for c in cst_l_cols + cst_u_cols]
-    if classifier.input_dim != len(cst_col_idx):
-        raise ValueError(f"Classifier input_dim ({classifier.input_dim}) does not match the "
-                         f"{len(cst_col_idx)} CST feature columns found in '{paths.training_file.name}'.")
-
-    regressors, skipped_models = {}, []
+    with contextlib.redirect_stdout(io.StringIO()):
+        classifier = load_classifier(args.classifier, paths.classifier_dir)
+    print(f"  {args.classifier}: classifier (validity probability, reported only)")
+    models, skipped, model_info = {}, [], {}
     for name, (folder, mtype) in resolved.items():
         try:
             model = load_regressor(name, folder, mtype)
         except ModelIncompatibleError as e:
             print(f"[{name}] {MLP_INCOMPATIBLE_MESSAGE}")
-            skipped_models.append({"name": name, "type": mtype, "reason": str(e)})
+            skipped.append({"name": name, "type": mtype, "reason": str(e)})
             continue
-        if model is None:  # type not available yet (SKNN); the message was printed by load_regressor
-            skipped_models.append({"name": name, "type": mtype, "reason": "functionality currently unavailable"})
+        if model is None:
+            print(f"[{name}] {SKNN_UNAVAILABLE_MESSAGE}")
+            skipped.append({"name": name, "type": mtype, "reason": "functionality currently unavailable"})
             continue
-        n_input = getattr(getattr(model, 'feature_engineer', None), 'n_input', None)
-        if n_input is not None and n_input != len(feature_columns):
-            raise ValueError(f"Model '{name}' expects {n_input} raw input columns but the dataset has "
-                             f"{len(feature_columns)} (check --wing-mode).")
-        regressors[name] = model
-
-    if not regressors:
+        models[name] = model
+        model_info[name] = (mtype, getattr(model, 'feature_mode', 'raw'))
+        print(f"  {name}: {TYPE_LABELS.get(mtype, mtype)}, {model_info[name][1]} features "
+              f"({folder.relative_to(paths.models_dir.parent) if folder.is_relative_to(paths.models_dir.parent) else folder})")
+    if not models:
         print("\nNo usable regressors remain. There is nothing left to calculate. Congratulations.")
         sys.exit(1)
-    model_names = list(regressors)
-
-    # === Fingerprints: let --resume detect a retrained model or a regenerated dataset CSV === #
+    model_names = list(models)
     fingerprints = {"dataset_csv": file_fingerprint([paths.training_file]),
                     "classifier": model_fingerprint(paths.classifier_dir, args.classifier),
-                    "models": {n: model_fingerprint(resolved[n][0], n) for n in regressors}}
+                    "models": {n: model_fingerprint(resolved[n][0], n) for n in models}}
     if previous is not None:
         check_resume_fingerprints(previous, fingerprints)
 
-    # === Dataset information: best row, local-search centers, grid steps, nearest-design lookup === #
-    info = load_dataset_info(paths.training_file, cst_l_cols, cst_u_cols, config_cols, LOCAL_TOP_K)
-    if info is None:
-        raise FileNotFoundError(f"Training dataset not found: {paths.training_file}. It is needed for the local search, "
-                                f"region tagging and the reference designs.")
-    lows, highs = window_bounds(n_cst, RANGES_UPPER, RANGES_LOWER)
-    cst_names = cst_l_cols + cst_u_cols
-    edge_directions, ext_lows, ext_highs = detect_edge_directions(info.parents, lows, highs, info.steps)
-    edge_sigma = (highs - lows) * LOCAL_SIGMA_FRACTION
-    for i, _side, _bound in edge_directions:
-        edge_sigma[i] = info.steps[i] * EDGE_SIGMA_STEPS
-    use_local = NUM_LOCAL_SAMPLES > 0
-    use_edge = NUM_EDGE_SAMPLES > 0 and bool(edge_directions)
-
-    # === Run folder === #
-    paths.results_root.mkdir(parents=True, exist_ok=True)
+    print("\n# === Dataset === #")
+    data = load_dataset(paths.training_file, feature_columns, cst_names, config_cols)
+    lows, highs = window_bounds(n_cst)
     run_dir = resume_dir if previous is not None else make_run_dir(paths.results_root, master_seed)
     print(f"Results folder: {run_dir}")
 
-    # === Metadata (written now, completed at the end of the run) === #
-    metadata = {
-        "run_status": "running",
-        "started": start_time.strftime('%Y-%m-%d %H:%M:%S'),
-        "dataset": dataset_num,
-        "dataset_csv": str(paths.training_file),
-        "wing_mode": args.wing_mode,
-        "wing_configurations": [v[1] for v in config_registry.values()],
-        "master_seed": {"hex": f"{master_seed:x}", "decimal": master_seed},
-        "round_seeds_hex": [f"{s:x}" for s in round_seeds],
-        "classifier": {"name": args.classifier, "folder": str(paths.classifier_dir)},
-        "models": [{"name": n, "type": resolved[n][1], "folder": str(resolved[n][0]),
-                    "feature_mode": getattr(regressors[n], 'feature_mode', None)} for n in regressors],
-        "skipped_models": skipped_models,
-        "inference": {"num_runs": NUM_INFERENCE_RUNS, "num_samples": NUM_SAMPLES, "validity_threshold": VALIDITY_THRESHOLD,
-                      "num_local_samples": NUM_LOCAL_SAMPLES, "local_centers": len(info.parents),
-                      "local_sigma_fraction": LOCAL_SIGMA_FRACTION, "num_edge_samples": NUM_EDGE_SAMPLES if use_edge else 0,
-                      "edge_sigma_grid_steps": EDGE_SIGMA_STEPS,
-                      "elite_per_criterion": ELITE_PER_CRITERION, "predict_chunk": PREDICT_CHUNK},
-        "shortlist": {"top_k_per_model": TOP_K_PER_MODEL, "top_k_consensus": TOP_K_CONSENSUS, "top_k_edge": TOP_K_EDGE,
-                      "config_check_shapes": CONFIG_CHECK_SHAPES, "reference_top": REFERENCE_TOP,
-                      "diversity_min_steps": DIVERSITY_MIN_STEPS, "consensus": "minimum prediction across models"},
-        "robustness": {"designs": ROBUST_DESIGNS, "perturbations": ROBUST_PERTURBATIONS,
-                       "sigma_grid_steps": ROBUST_SIGMA_STEPS, "hold_fraction": ROBUST_HOLD_FRACTION},
-        "grid_steps": dict(zip(cst_names, info.steps.tolist())),
-        "edge_probe": [{"coefficient": cst_names[i], "side": side, "extended_to": bound} for i, side, bound in edge_directions],
-        "ranges_upper": RANGES_UPPER,
-        "ranges_lower": RANGES_LOWER,
-        "simulation": {"ASEQ": ASEQ, "Re": RE, "Mach": MACH, "naca_key_points_file": NACA_KP_FILE},
-        "fingerprints": fingerprints,
-        "stage_times": {},
-    }
-    checkpoint_path = run_dir / CHECKPOINT_FILE
-    checkpoint = None
-    if previous is not None:
-        metadata['started'] = previous.get('started', metadata['started'])
-        metadata['resumed'] = previous.get('resumed', []) + [start_time.strftime('%Y-%m-%d %H:%M:%S')]
-        if checkpoint_path.exists():
-            candidates, checkpoint = load_checkpoint(checkpoint_path)
-            for key in ('inference', 'shortlist', 'edge_probe'):
-                metadata[key] = previous.get(key, metadata[key])
-            metadata['stage_times']['inference'] = checkpoint['inference_time']
-            print(f"Reusing the saved inference results: {len(candidates)} candidates ({CHECKPOINT_FILE}).")
-        else:
-            print(f"No saved inference results ({CHECKPOINT_FILE}) in this run folder: the inference runs again.")
-    metadata_path = run_dir / f"{dataset_name_prefix}_run_metadata.json"
-    write_json(metadata_path, metadata)
+    ctx = SimpleNamespace(paths=paths, dataset_num=dataset_num, run_dir=run_dir, master_seed=master_seed, data=data,
+                          feature_columns=feature_columns, cst_names=cst_names, n_cst=n_cst,
+                          cst_col_idx=[feature_columns.index(c) for c in cst_names], config_cols=config_cols,
+                          n_configs=len(config_cols), identifier_of=identifier_of,
+                          identifiers=[identifier_of[c] for c in config_cols], lows=lows, highs=highs,
+                          cd_limit=laminar_cd_limit(RE), workers=workers, temp_root=temp_root(), no_update=args.no_update,
+                          model_names=model_names, model_info=model_info, resolved=resolved,
+                          airfoil_creator=Airfoil_Generator(base_airfoil_csv=paths.base_airfoil, n_cst=n_cst, verbose=False))
+    base_settings = dict(n_cst=n_cst, aseq=[float(a) for a in ASEQ], reynolds=RE, mach=MACH, base_airfoil=str(paths.base_airfoil),
+                         naca_kp_file=str(paths.naca_kp_file), case_file=str(paths.case_file), xfoil_exe=str(paths.xfoil_bin),
+                         avl_exe=str(paths.avl_bin), kp_seed=KP_SEED)
+    ctx.settings = {SWEEP_MODE: Simulation_Settings(**base_settings, sweep_mode=SWEEP_MODE),
+                    "cold": Simulation_Settings(**base_settings, sweep_mode="cold")}
+    geometry_cache = {}
 
-    print_dataset_best(info.best)
-    print(f"Local refinement: {NUM_LOCAL_SAMPLES if use_local else 0} samples per round around {len(info.parents)} "
-          f"top dataset designs (sigma = {LOCAL_SIGMA_FRACTION} x range width).")
-    if use_edge:
-        print(f"Edge probe: {NUM_EDGE_SAMPLES} samples per round (sigma = {EDGE_SIGMA_STEPS} grid steps on the extended "
-              f"coefficients) past {[f'{cst_names[i]} {side} -> {bound:.4f}' for i, side, bound in edge_directions]}")
-    else:
-        print("Edge probe disabled (NUM_EDGE_SAMPLES = 0 or no edge shared by the top dataset designs).")
+    def geometry_ok(cst) -> bool:
+        key = shape_key(cst)
+        if key not in geometry_cache:
+            x, yu, yl = ctx.airfoil_creator.generate(cst_coeffs=np.asarray(cst, dtype=np.float64))
+            geometry_cache[key] = bool(check_validity(x, yu, yl, verbose=False))
+        return geometry_cache[key]
 
-    if checkpoint is None:
-        # === Stage 1: candidate pool. Every model scores every row; an elite subset of each round is kept === #
-        pool = defaultdict(list)
-        rounds_completed, t_inference = 0, time.perf_counter()
-        for r, seed in enumerate(round_seeds, start=1):
-            print(f"\n--- Inference Run {r}/{NUM_INFERENCE_RUNS} (seed {seed:x}) ---")
-            rng = np.random.default_rng(seed)
-            blocks = [(generate_cst_candidates(NUM_SAMPLES, n_cst, RANGES_UPPER, RANGES_LOWER, rng), 'global')]
-            if use_local:
-                blocks.append((generate_local_candidates(info.parents, NUM_LOCAL_SAMPLES, lows, highs, LOCAL_SIGMA_FRACTION, rng), 'local'))
-            if use_edge:
-                edge = generate_local_candidates(info.parents, NUM_EDGE_SAMPLES, lows, highs, LOCAL_SIGMA_FRACTION, rng,
-                                                 clip_lows=ext_lows, clip_highs=ext_highs, sigma=edge_sigma)
-                blocks.append((edge[outside_window(edge, lows, highs)], 'edge'))
-            cst_candidates = np.concatenate([b for b, _ in blocks])
-            origins = np.concatenate([np.full(len(b), o) for b, o in blocks])
+    ctx.geometry_ok = geometry_ok
+    ctx.dataset_keys = set(shape_key(c) for c in np.unique(data.cst, axis=0))
+    finder = Dataset_Peaks(data.cst, data.configs, data.y, data.steps, PEAK_SHARE, MAX_START_TRACKS)
+    ctx.peaks = finder.find()
+    for p in ctx.peaks:
+        p["config"] = identifier_of.get(p["config"], p["config"])
+        p["cst"] = [float(v) for v in p["cst"]]
+    ctx.peak_lines = finder.summary_lines(ctx.peaks, cst_names)
+    print(f"Dataset best: E = {data.e_max:.4f} ({data.best['config']}) | grid steps {np.round(data.steps, 4).tolist()}")
+    print("\n".join(ctx.peak_lines))
 
-            # Classifier works on CST combinations; invalid ones are discarded.
-            validity_probs = predict_chunked(classifier.predict, cst_candidates)
-            valid_indices = np.where(validity_probs > VALIDITY_THRESHOLD)[0]
-            if len(valid_indices) == 0:
-                print("No valid candidates found in this run. Skipping.")
-                rounds_completed += 1
-                continue
-            valid_origins = origins[valid_indices]
-            print(f"{len(valid_indices)} valid CST combinations out of {len(cst_candidates)} "
-                  f"({', '.join(f'{o}: {int((valid_origins == o).sum())}' for _, o in blocks)}).")
-            full_candidates, config_labels = expand_with_configs(
-                cst_candidates[valid_indices], feature_columns, cst_l_cols, cst_u_cols, config_cols)
-            num_configs = max(len(config_cols), 1)  # row i of full_candidates belongs to valid sample i // num_configs
-            row_origins = np.repeat(valid_origins, num_configs)
+    lanes = build_lanes(model_names, args.lane, model_info)
+    if args.lane and not lanes:
+        sys.exit(f"[ERROR] Lane '{args.lane}' is not available (its model may have been skipped).")
+    for lane in lanes:
+        lane.models = {n: load_regressor(n, *resolved[n]) for n in lane.model_names}   # own copies (fine-tuned per lane)
+    print(f"\nLanes ({len(lanes)}):" + "".join(f"\n  {lane.label:<14} {lane_description(lane, ctx)}" for lane in lanes))
+    if args.no_update:
+        print("[NOTE] --no-update: the models stay frozen for the whole run (ablation).")
 
-            t0 = time.perf_counter()
-            preds = predict_all(regressors, full_candidates)
-            consensus = consensus_score(preds)
-            in_window = row_origins != 'edge'
-            for m, name in enumerate(model_names):
-                column = np.where(in_window, preds[:, m], np.nan)
-                if np.isnan(column).all():
-                    print(f"[WARNING] '{name}' returned only NaN/inf predictions in run {r}.")
-                    continue
-                i = int(np.nanargmax(column))
-                print(f"  {name}: best predicted E = {preds[i, m]:.4f} [{row_origins[i]}]")
-            print(f"  Scored {len(full_candidates)} rows with {len(model_names)} model(s) in {time.perf_counter() - t0:.1f}s")
-
-            elite = set()
-            for m in range(len(model_names)):
-                elite.update(top_indices(preds[:, m], ELITE_PER_CRITERION, in_window).tolist())
-            elite.update(top_indices(consensus, ELITE_PER_CRITERION, in_window).tolist())
-            elite.update(top_indices(consensus, ELITE_PER_CRITERION, ~in_window).tolist())
-            elite = np.array(sorted(elite), dtype=int)
-            pool['features'].append(full_candidates[elite])
-            pool['config'].append(config_labels[elite])
-            pool['preds'].append(preds[elite])
-            pool['origin'].append(row_origins[elite])
-            pool['round'].append(np.full(len(elite), r))
-            rounds_completed += 1
-
-        inference_time = str(timedelta(seconds=round(time.perf_counter() - t_inference)))
-        metadata['stage_times']['inference'] = inference_time
-        metadata['rounds_completed'] = rounds_completed
-        if not pool['features']:
-            print("\nWARNING: No candidates to validate. Nothing to simulate.")
-            metadata.update({"run_status": "completed_no_candidates", "finished": datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
-            write_json(metadata_path, metadata)
-            sys.exit(0)
-        pool = {k: np.concatenate(v) for k, v in pool.items()}
-        pool_cst = pool['features'][:, cst_col_idx]
-        pool_scaled = pool_cst.astype(np.float64) / info.steps
-        pool_consensus = consensus_score(pool['preds'])
-        _, _, pool_region = tag_regions(pool_cst, pool['config'], info, lows, highs)
-        pool_inside = pool_region != 'outside'
-        print(f"\nElite pool: {len(pool_cst)} rows ({int(pool_inside.sum())} inside the window, "
-              f"{int((~pool_inside).sum())} edge probe).")
-
-        # === Stage 2: shortlist === #
-        unique = {}
-
-        def add_pool_row(i, group, rank, score):
-            add_candidate(unique, pool['features'][i], pool['config'][i], pool['preds'][i], str(pool['origin'][i]),
-                          group, rank, score, {'round': int(pool['round'][i])})
-
-        for m, name in enumerate(model_names):
-            for rank, i in enumerate(diverse_top(pool['preds'][:, m], pool_scaled, TOP_K_PER_MODEL, pool_inside), start=1):
-                add_pool_row(i, f"model:{name}", rank, pool['preds'][i, m])
-        consensus_picks = diverse_top(pool_consensus, pool_scaled, TOP_K_CONSENSUS, pool_inside)
-        for rank, i in enumerate(consensus_picks, start=1):
-            add_pool_row(i, GROUP_CONSENSUS, rank, pool_consensus[i])
-        for rank, i in enumerate(diverse_top(pool_consensus, pool_scaled, TOP_K_EDGE, ~pool_inside), start=1):
-            add_pool_row(i, GROUP_EDGE, rank, pool_consensus[i])
-
-        # Configuration check: the best consensus shapes in every configuration
-        # Rows that are not in the pool yet; each entry is (features, config key, group, rank, origin, extra fields)
-        extra = []
-        for shape_rank, i in enumerate(consensus_picks[:CONFIG_CHECK_SHAPES], start=1):
-            for col in config_cols:
-                extra.append((with_config(pool['features'][i], config_cols, feature_columns, col), col, GROUP_CONFIG,
-                              shape_rank, str(pool['origin'][i]), {'round': int(pool['round'][i])}))
-        # Reproducibility reference: the top dataset designs exactly as they are in the dataset
-        for ref_rank, (cst, config_key, e_dataset) in enumerate(info.reference, start=1):
-            row = np.zeros(len(feature_columns), dtype=np.float32)
-            row[cst_col_idx] = cst
-            if config_cols:
-                row = with_config(row, config_cols, feature_columns, config_key)
-            extra.append((row, config_key, GROUP_REFERENCE, ref_rank, 'dataset', {'dataset_E': e_dataset}))
-        if extra:
-            extra_preds = predict_all(regressors, np.array([e[0] for e in extra], dtype=np.float32))
-            for (row, cfg, group, rank, origin, fields), p in zip(extra, extra_preds):
-                score = None if group == GROUP_REFERENCE else consensus_score(p[None])[0]
-                add_candidate(unique, row, cfg, p, origin, group, rank, score, fields)
-
-        candidates = list(unique.values())
-        cand_cst = np.array([c['features'][cst_col_idx] for c in candidates])
-        cand_dist, cand_near_e, cand_region = tag_regions(cand_cst, np.array([c['config_col'] for c in candidates]), info, lows, highs)
-        for c, d, ne, reg in zip(candidates, cand_dist, cand_near_e, cand_region):
-            c.update({'consensus': float(consensus_score(c['preds'][None])[0]), 'grid_distance': float(d),
-                      'nearest_dataset_E': float(ne), 'region': str(reg)})
-        total_sources = sum(len(c['sources']) for c in candidates)
-        print(f"Shortlist: {total_sources} picks -> {len(candidates)} unique candidates "
-              f"({total_sources - len(candidates)} repeated feature vectors merged).")
-
-        predictions_export_path = run_dir / f"{dataset_name_prefix}_predictions_only.json"
-        write_json(predictions_export_path, {
-            c['candidate_id']: {
-                "cst_coeffs": c['features'][cst_col_idx].tolist(),
-                "wing_config": config_registry[c['config_col']][1],
-                "predictions": dict(zip(model_names, c['preds'].tolist())),
-                "consensus": c['consensus'],
-                "region": c['region'], "grid_distance": c['grid_distance'], "nearest_dataset_E": c['nearest_dataset_E'],
-                "origin": c['origin'],
-                "sources": c['sources'],
-            } for c in candidates
-        })
-        print(f"=> Initial predictions saved to {predictions_export_path.name}")
-        pool_rows = int(len(pool_cst))
-        save_checkpoint(checkpoint_path, candidates, pool_rows, rounds_completed, inference_time)
-        write_json(metadata_path, metadata)
-    else:
-        pool_rows, rounds_completed = checkpoint['pool_rows'], checkpoint['rounds_completed']
-        metadata['rounds_completed'] = rounds_completed
-
-    # === Stage 3: main simulation === #
-    ctx = SimpleNamespace(paths=paths, n_cst=n_cst, cst_col_idx=cst_col_idx, config_registry=config_registry,
-                          run_dir=run_dir, prefix=dataset_name_prefix, archiver=compression_Alma(),
-                          airfoil_creator=Airfoil_Generator(base_airfoil_csv=paths.base_airfoil, n_cst=n_cst, verbose=False),
-                          dataset_num=dataset_num, model_names=model_names, config_order=info.config_order)
-    t_main = time.perf_counter()
-    try:
-        main_results = simulate_candidates(candidates, "main", ctx)
-    except NoPolarsError as e:
-        stop_without_polars(e, run_dir, dataset_num, metadata, metadata_path)
-    main_seconds = time.perf_counter() - t_main
-    metadata['stage_times']['main_simulation'] = str(timedelta(seconds=round(main_seconds)))
-    for c in candidates:
-        res = main_results[c['candidate_id']]
-        c.update({'status': res['status'], 'simulated_CL': res['CL'], 'simulated_CD': res['CD'], 'simulated_E': res['E']})
-    write_json(metadata_path, metadata)
-
-    # === Stage 4: robustness === #
-    robustness = {'status': 'not run', 'parents': []}
-    seconds_per_sim = main_seconds / max(len(candidates), 1)
-    ranked = sorted((c for c in candidates if c['status'] == 'ok'), key=lambda c: c['simulated_E'], reverse=True)
-    reference_best = next((c for c in candidates if any(s['group'] == GROUP_REFERENCE and s['rank'] == 1 for s in c['sources'])
-                           and c['status'] == 'ok'), None)
-    parents, seen = [], set()
-    for c in ([reference_best] if reference_best else []) + ranked:
-        key = c['features'][cst_col_idx].tobytes()
-        if key not in seen:
-            seen.add(key)
-            parents.append(c)
-    n_designs = min(ROBUST_DESIGNS, len(parents))
-    per_design = ROBUST_PERTURBATIONS
-    print(f"\n[TIME] Main simulation: {len(candidates)} candidates in {timedelta(seconds=round(main_seconds))} "
-          f"(~{seconds_per_sim:.0f}s each). Robustness: {n_designs * per_design} simulations "
-          f"(about {timedelta(seconds=round(n_designs * per_design * seconds_per_sim))}).")
-    if not parents:
-        robustness['status'] = 'no successfully simulated designs to perturb'
-    else:
-        print(f"Robustness: {n_designs} design(s) x {per_design} perturbation(s), "
-              f"std dev {ROBUST_SIGMA_STEPS} grid steps.")
-        rng = np.random.default_rng([master_seed, 1])
-        rob_candidates = []
-        for p_idx, parent in enumerate(parents[:n_designs], start=1):
-            noise = rng.normal(0.0, ROBUST_SIGMA_STEPS, size=(per_design, len(cst_col_idx))) * info.steps
-            for j in range(per_design):
-                row = parent['features'].copy()
-                row[cst_col_idx] = (parent['features'][cst_col_idx] + noise[j]).astype(np.float32)
-                rob_candidates.append({'candidate_id': f"robust_{p_idx:02d}_{j + 1:02d}", 'features': row,
-                                       'config_col': parent['config_col'], 'parent': parent['candidate_id']})
-        rob_preds = predict_all(regressors, np.array([c['features'] for c in rob_candidates]))
-        t_rob = time.perf_counter()
-        try:
-            rob_results = simulate_candidates(rob_candidates, "robustness", ctx)
-        except NoPolarsError as e:
-            stop_without_polars(e, run_dir, dataset_num, metadata, metadata_path)
-        metadata['stage_times']['robustness_simulation'] = str(timedelta(seconds=round(time.perf_counter() - t_rob)))
-        by_parent = defaultdict(list)
-        for c, p in zip(rob_candidates, rob_preds):
-            res = rob_results[c['candidate_id']]
-            by_parent[c['parent']].append({'candidate_id': c['candidate_id'], 'status': res['status'], 'simulated_E': res['E'],
-                                           'cst_coeffs': c['features'][cst_col_idx], 'predictions': dict(zip(model_names, p))})
-        for parent in parents[:n_designs]:
-            kids = by_parent[parent['candidate_id']]
-            e = np.array([k['simulated_E'] for k in kids if k['status'] == 'ok'])
-            robustness['parents'].append({
-                'parent': parent['candidate_id'], 'parent_E': parent['simulated_E'],
-                'parent_groups': short_sources(parent['sources']),
-                'perturbations': len(kids), 'simulated': len(e),
-                'hold_rate': float((e >= ROBUST_HOLD_FRACTION * parent['simulated_E']).mean()) if len(e) else None,
-                'mean_E': float(e.mean()) if len(e) else None, 'min_E': float(e.min()) if len(e) else None,
-                'max_E': float(e.max()) if len(e) else None, 'members': kids,
-            })
-        robustness['status'] = 'completed'
-
-    # === Stage 5: reports === #
-    print("\n--- Writing Reports ---")
-    e_best = info.best['E']
-    groups = [f"model:{n}" for n in model_names] + [GROUP_CONSENSUS, GROUP_EDGE, GROUP_CONFIG, GROUP_REFERENCE]
-    scorecard = build_scorecard(candidates, groups, model_names, e_best, info.e_max)
-    model_table = build_model_table(candidates, model_names, info.e_max)
-
-    order = [config_registry[c][1] for c in info.config_order]
-    model_winners = []
-    for m, name in enumerate(model_names):
-        winner = next((c for c in candidates for s in c['sources'] if s['group'] == f"model:{name}" and s['rank'] == 1), None)
-        if winner is None or not config_cols:
-            continue
-        rows = np.array([with_config(winner['features'], config_cols, feature_columns, col) for col in info.config_order])
-        p = predict_all({name: regressors[name]}, rows)[:, 0]
-        model_winners.append({'model': name, 'candidate_id': winner['candidate_id'],
-                              'picked_config': config_registry[winner['config_col']][1],
-                              'predictions': dict(zip(order, p)),
-                              'order_matches_dataset': bool(np.all(np.diff(p) < 0))})
-    simulated_shapes = []
-    for shape_rank in range(1, CONFIG_CHECK_SHAPES + 1):
-        members = [c for c in candidates if any(s['group'] == GROUP_CONFIG and s['rank'] == shape_rank for s in c['sources'])]
-        if not members:
-            continue
-        by_cfg = {config_registry[c['config_col']][1]: c['simulated_E'] for c in members}
-        e = [by_cfg.get(o, np.nan) for o in order]
-        complete = all(math.isfinite(x) for x in e)
-        simulated_shapes.append({'shape': shape_rank, 'candidates': [c['candidate_id'] for c in members],
-                                 'simulated_E': {o: by_cfg.get(o, np.nan) for o in order},
-                                 'order_matches_dataset': bool(np.all(np.diff(e) < 0)) if complete else None})
-
-    report_candidates = [{
-        'candidate_id': c['candidate_id'],
-        'wing_config': config_registry[c['config_col']][1],
-        'cst_coeffs': c['features'][cst_col_idx],
-        'origin': c['origin'],
-        'region': c['region'], 'grid_distance': c['grid_distance'], 'nearest_dataset_E': c['nearest_dataset_E'],
-        'dataset_E': c.get('dataset_E'),
-        'predictions': dict(zip(model_names, c['preds'])),
-        'consensus': c['consensus'],
-        'spread': float(np.ptp(c['preds'])) if np.isfinite(c['preds']).all() else np.nan,
-        'above_dataset_max': bool(np.nanmax(c['preds']) > info.e_max),
-        'status': c['status'],
-        'simulated_CL': c['simulated_CL'], 'simulated_CD': c['simulated_CD'], 'simulated_E': c['simulated_E'],
-        'consensus_error': c['consensus'] - c['simulated_E'] if c['status'] == 'ok' else np.nan,
-        'sources': c['sources'],
-    } for c in candidates]
-
-    reference_best = next((c for c in candidates if any(s['group'] == GROUP_REFERENCE and s['rank'] == 1 for s in c['sources'])
-                           and c['status'] == 'ok'), None)
-    outcome = find_outcome(report_candidates, model_names, e_best,
-                           reference_best['simulated_E'] if reference_best else None)
-    best_found = max((c for c in report_candidates if c['status'] == 'ok' and math.isfinite(c['simulated_E'])
-                      and not all(s['group'] == GROUP_REFERENCE for s in c['sources']) and c['grid_distance'] >= 1e-3),
-                     key=lambda c: c['simulated_E'], default=None)
-
-    end_time = datetime.now()
-    report = to_json({
-        'outcome': {'success': outcome['success'], 'target_E': outcome['target_E'],
-                    'dataset_best_E': outcome['dataset_best_E'],
-                    'reference_best_simulated_E': outcome['reference_best_simulated_E'],
-                    'improvement_ids': [c['candidate_id'] for c in outcome['improvements']],
-                    'best_per_model': outcome['best_per_model']},
-        'dataset_best': info.best,
-        'rounds_completed': rounds_completed,
-        'total_time': str(end_time - start_time).split('.')[0],
-        'scorecard': scorecard,
-        'model_table': model_table,
-        'config_check': {'dataset_order': order, 'model_winners': model_winners, 'simulated_shapes': simulated_shapes},
-        'candidates': report_candidates,
-        'robustness': robustness,
-    })
-    json_report_path = run_dir / "detailed_results.json"
-    write_json(json_report_path, report)
-    print(f"=> JSON detailed results saved to {json_report_path.name}")
-    save_text_report(run_dir / "detailed_results.txt", ctx, report)
-    robust_by_parent = {p['parent']: p for p in robustness['parents']}
-    save_result_report(run_dir / "result.txt", ctx, outcome, best_found, robust_by_parent,
-                       {'folder': run_dir.name, 'seed': f"0x{master_seed:x}", 'total_time': report['total_time']})
-    save_parity_plot(run_dir / f"{dataset_name_prefix}_parity.png", candidates, model_names, e_best)
-
+    # --- Metadata and state --- #
+    metadata_path = metadata_path_of(run_dir, dataset_num)
+    metadata = previous or {}
     metadata.update({
-        "run_status": "completed",
-        "finished": end_time.strftime('%Y-%m-%d %H:%M:%S'),
-        "total_execution_time": str(end_time - start_time),
-        "results": {"pool_rows": pool_rows, "unique_candidates": len(candidates),
-                    "simulated_candidates": sum(c['status'] == 'ok' for c in candidates),
-                    "robustness_simulations": sum(len(p['members']) for p in robustness['parents'])},
-        "outcome": "SUCCESS!!" if outcome['success'] else "Try again...",
+        "run_status": "running", "dataset": dataset_num, "dataset_csv": str(paths.training_file), "wing_mode": args.wing_mode,
+        "master_seed": {"hex": f"{master_seed:x}", "decimal": master_seed}, "round_seeds_hex": [f"{s:x}" for s in round_seeds],
+        "classifier": {"name": args.classifier, "folder": str(paths.classifier_dir)},
+        "models": [{"name": n, "type": resolved[n][1], "folder": str(resolved[n][0]), "feature_mode": model_info[n][1]} for n in models],
+        "skipped_models": skipped, "lanes": [lane.name for lane in lanes], "lane_option": args.lane, "no_update": args.no_update,
+        "hours": hours, "workers": workers, "fingerprints": fingerprints,
+        "settings": {"iteration0": {"rounds": NUM_INFERENCE_RUNS, "uniform": NUM_SAMPLES, "local": NUM_LOCAL_SAMPLES,
+                                    "edge": NUM_EDGE_SAMPLES, "top_in_window": TOP_K_IN_WINDOW, "top_edge": TOP_K_EDGE,
+                                    "random_picks": RANDOM_PICKS_0, "references": REFERENCE_TOP},
+                     "trust_region": {"peak_share": PEAK_SHARE, "max_start_tracks": MAX_START_TRACKS, "r0": Trust_Region.R0,
+                                      "r_min": Trust_Region.R_MIN, "r_max": Trust_Region.R_MAX, "picks_per_track": PICKS_PER_TRACK,
+                                      "uniform_samples": TR_UNIFORM_SAMPLES, "refine_samples": TR_REFINE_SAMPLES,
+                                      "min_gain": MIN_GAIN, "stall_patience": STALL_PATIENCE, "drop_share": DROP_SHARE,
+                                      "merge_steps": MERGE_STEPS},
+                     "fine_tune": {"new_weight": FT_NEW_WEIGHT, "min_shapes": FT_MIN_SHAPES, "local_anchor_steps": FT_LOCAL_ANCHOR_STEPS,
+                                   "local_anchor_max": FT_LOCAL_ANCHOR_MAX, "random_anchors": FT_RANDOM_ANCHORS},
+                     "validation": {"cold_top": VALIDATION_TOP, "robust_designs": ROBUST_DESIGNS,
+                                    "robust_perturbations": ROBUST_PERTURBATIONS, "robust_sigma_steps": ROBUST_SIGMA_STEPS},
+                     "simulation": {"ASEQ": ASEQ, "Re": RE, "Mach": MACH, "sweep_mode": SWEEP_MODE, "kp_seed": KP_SEED,
+                                    "laminar_cd_limit": ctx.cd_limit}},
+        "peaks": ctx.peaks,
     })
+    metadata.setdefault("started", start_time.strftime('%Y-%m-%d %H:%M:%S'))
+    if previous is not None:
+        metadata["resumed"] = previous.get("resumed", []) + [start_time.strftime('%Y-%m-%d %H:%M:%S')]
+    ctx.metadata, ctx.metadata_path = metadata, metadata_path
     write_json(metadata_path, metadata)
 
-    print(f"\nProcess completed successfully at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Total execution time: {end_time - start_time}")
+    state_path = run_dir / STATE_FILE
+    ctx.state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    previous_elapsed = float(ctx.state.get("elapsed_seconds", 0.0))
+    ctx.elapsed = lambda: previous_elapsed + (time.perf_counter() - session_start)
+    ctx.store = Simulation_Store(run_dir / SIMULATIONS_FILE, ctx)
+    if ctx.store.entries:
+        print(f"Saved simulations reloaded: {len(ctx.store.entries)} ({SIMULATIONS_FILE}).")
+    if ctx.state.get("lanes"):
+        saved = {d["name"]: d for d in ctx.state["lanes"]}
+        for i, lane in enumerate(lanes):
+            restored = Lane.from_dict(saved[lane.name])
+            restored.models = lane.models
+            lanes[i] = restored
+        rebuild_fine_tunes(lanes, ctx)
+
+    # --- Iteration 0 --- #
+    shortlist_path = run_dir / SHORTLIST_FILE
+    if shortlist_path.exists():
+        shortlist = json.loads(shortlist_path.read_text())
+        print(f"\nIteration-0 shortlist reloaded ({SHORTLIST_FILE}).")
+    else:
+        print("\n" + "=" * 90 + "\n# === Iteration 0: shared candidate search === #\n" + "=" * 90)
+        shortlist = run_iteration0_inference(ctx, lanes, models, round_seeds)
+        write_json(shortlist_path, shortlist)
+    if ctx.state.get("stage") is None:
+        for lane in lanes:
+            for ref in shortlist["references"]:
+                lane.request(ref["key"], 0)
+            for p in shortlist["lanes"][lane.name]:
+                lane.request(p["key"], 0)
+                lane.picks.append({**p, "iteration": 0, "track": "iteration 0"})
+        save_state(ctx, lanes, stage="iteration0_picked", iteration=0)
+    if ctx.state.get("stage") == "iteration0_picked":
+        shapes = {r["key"]: r["cst"] for r in shortlist["references"]}
+        for picks in shortlist["lanes"].values():
+            shapes.update({p["key"]: p["cst"] for p in picks})
+        ctx.store.simulate(shapes, SWEEP_MODE, "iteration 0", 0, f"iteration 0, {len(shapes)} shapes x {ctx.n_configs} configurations")
+        print("\n# === Iteration 0: tracks and model updates === #")
+        target, resim = reference_target(ctx)
+        print(f"Dataset best {data.e_max:.4f}" + (f", re-simulated {resim:.4f}" if resim is not None else " (re-simulation failed)"))
+        for lane in lanes:
+            start_tracks(lane, ctx, shortlist)
+            n0 = len(shortlist["lanes"][lane.name])
+            lane.history.append({"iteration": 0, "lane": lane.name, "tracks": len(lane.tracks), "shapes": n0,
+                                 "simulations_total": len(lane.keys), "best_E": lane.monitor.best_E, "gain": 0.0,
+                                 "stall": 0, "pick_MAE": pick_errors(lane.picks, ctx), "done": False})
+            print(f"  {lane.label}: {len(lane.tracks)} track(s), best E {lane.monitor.best_E:.3f} | "
+                  + ", ".join(f"{t.track_id} {t.centre_E:.3f} ({t.origin})" for t in lane.tracks))
+        for lane in lanes:
+            fine_tune_lane(lane, ctx, 0)
+        save_state(ctx, lanes, stage="loop", iteration=0, phase="done", iteration_seconds=[])
+
+    # --- Trust-region loop --- #
+    stop_reason = ctx.state.get("stop_reason")
+    while stop_reason is None and ctx.state.get("stage") == "loop":
+        iteration = int(ctx.state["iteration"]) + (0 if ctx.state.get("phase") == "picked" else 1)
+        active = [lane for lane in lanes if not lane.done]
+        if not active:
+            stop_reason = "every lane converged"
+            break
+        if ctx.state.get("phase") != "picked":
+            if ctx.elapsed() >= hours * 3600:
+                stop_reason = "time ceiling"
+                break
+            if MAX_ITERATIONS is not None and iteration > MAX_ITERATIONS:
+                stop_reason = f"MAX_ITERATIONS ({MAX_ITERATIONS})"
+                break
+        t_iter = time.perf_counter()
+        print("\n" + "=" * 90 + f"\n# === Iteration {iteration} | elapsed {hms(ctx.elapsed())} of {hms(hours * 3600)} | "
+              f"{len(active)} active lane(s) === #\n" + "=" * 90)
+        if ctx.state.get("phase") == "picked":
+            picks = ctx.state["pending_picks"]
+            print("Picks of this iteration reloaded (the run was interrupted while simulating them).")
+        else:
+            picks = pick_iteration(active, ctx, iteration)
+            for lane in active:
+                for p in picks.get(lane.name, []):
+                    lane.request(p["key"], iteration)
+                    lane.picks.append({**p, "iteration": iteration})
+            save_state(ctx, lanes, phase="picked", iteration=iteration, pending_picks=picks)
+        shapes = {p["key"]: p["cst"] for lane_picks in picks.values() for p in lane_picks}
+        ctx.store.simulate(shapes, SWEEP_MODE, f"iteration {iteration}", iteration,
+                           f"iteration {iteration}, {len(shapes)} shapes x {ctx.n_configs} configurations")
+        print("\n# === Updates === #")
+        for lane in active:
+            update_lane(lane, picks.get(lane.name, []), ctx, iteration)
+        print()
+        for lane in active:
+            if not lane.done:
+                fine_tune_lane(lane, ctx, iteration)
+        seconds = ctx.state.get("iteration_seconds", []) + [time.perf_counter() - t_iter]
+        save_state(ctx, lanes, phase="done", iteration=iteration, pending_picks=None, iteration_seconds=seconds)
+        print(f"\nIteration {iteration} took {hms(seconds[-1])} | elapsed {hms(ctx.elapsed())} of {hms(hours * 3600)}")
+    if ctx.state.get("stage") == "loop":
+        save_state(ctx, lanes, stage="final", stop_reason=stop_reason)
+    stop_reason = ctx.state.get("stop_reason")
+    iterations_done = int(ctx.state.get("iteration", 0))
+
+    # --- Final validation, reports, versions --- #
+    print("\n" + "=" * 90 + f"\n# === Final validation (loop ended: {stop_reason}) === #\n" + "=" * 90)
+    designs = final_validation(lanes, ctx, models, classifier)
+    reach = {lane.name: simulations_to_reach(lane, ctx) for lane in lanes}
+    expansion = save_expansion(ctx, lanes, iterations_done)
+    elapsed = ctx.elapsed()
+    still_active = [lane.label for lane in lanes if not lane.done]
+    timing_lines = [f"Loop iterations completed: {iterations_done} | stop: {stop_reason}"]
+    if stop_reason == "time ceiling" and still_active:
+        timing_lines.append(f"[NOTE] The {hours:g} h ceiling was reached while {', '.join(still_active)} "
+                            f"{'was' if len(still_active) == 1 else 'were'} still improving: another iteration was needed.")
+    if elapsed < hours * 3600:
+        timing_lines.append(f"Finished {hms(hours * 3600 - elapsed)} earlier than the {hours:g} h ceiling "
+                            f"(active run time {hms(elapsed)}).")
+    else:
+        timing_lines.append(f"Active run time {hms(elapsed)} (ceiling {hours:g} h; the last iteration and the validation "
+                            f"may run past it, an iteration is never cut).")
+    timing = {"lines": timing_lines, "elapsed_seconds": elapsed, "stop_reason": stop_reason,
+              "iterations": iterations_done, "iteration_seconds": ctx.state.get("iteration_seconds", [])}
+    overall, outcomes = write_reports(ctx, lanes, designs, reach, expansion, timing)
+    save_state(ctx, lanes, stage="completed")
+    metadata.update({"run_status": "completed", "finished": now_text(), "active_run_time": hms(ctx.elapsed()),
+                     "outcome": overall, "lane_outcomes": outcomes, "iterations": iterations_done, "stop_reason": stop_reason,
+                     "simulations": len(ctx.store.entries), "expansion": expansion})
+    write_json(metadata_path, metadata)
+    print(f"\nProcess completed at {now_text()} | active run time {hms(ctx.elapsed())}")
+
+
+if __name__ == "__main__":
+    main()

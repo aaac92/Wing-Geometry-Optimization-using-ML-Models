@@ -18,6 +18,7 @@ from simulation_support import (
     AVL_Run_Case,
 )
 from geometric_support import Airfoil_Generator, Validate_Airfoil
+from geometric_support.filter_settings import DATASET_FILTERS, apply_filters
 
 WING_CONFIG_MAP = {
     "rec": (HossainWingRec_Creation, "rec"),
@@ -203,15 +204,11 @@ def main():
             name=airfoil_name,
             verbose=inputs["verbose"]
         )
-        filters = [
-            va.thickness_filters(th_t_min=0.03, th_t_max=0.25, th_t_x_max=0.45, th_t_x_min=0.18),
-            va.sharpness_filter(curv_cont=True, th_rLE=0.01),
-            va.monotonic_thickness_filter(),
-            va.camber_filters(th_c_max=0.12, th_c_min=-0.02)
-        ]
-        for status, reason in filters:
-            if status == 'invalid':
-                print(f"[WARNING] Geometric filter flagged invalid: {reason}")
+        # Every enabled dataset filter (geometric_support/filter_settings.py), all of them reported
+        _, _, results = apply_filters(va, DATASET_FILTERS, stop_at_first=False)
+        for result in results:
+            if not result["passed"]:
+                print(f"[WARNING] Geometric filter flagged invalid: {result['filter']}: {result['reason']}")
     except Exception as e:
         print(f"[WARNING] Could not complete geometric validation filters: {e}")
 

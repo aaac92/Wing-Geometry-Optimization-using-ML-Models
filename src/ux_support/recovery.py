@@ -4,6 +4,61 @@ from pathlib import Path
 from typing import List, Tuple
 from file_handling_support import compression_Alma
 
+
+# =============================================================================================== #
+# === Power-cut safe file writes === #
+# =============================================================================================== #
+# A plain open(..., 'w') + json.dump truncates the file first: a power cut in between leaves an empty or half
+# written file and the recovery information is lost. These helpers write a temporary file next to the target,
+# force it to disk and then swap it in with os.replace (atomic on Windows and Linux): after a cut the file holds
+# either the previous or the new content, never a broken mix.
+
+def atomic_write_text(path, text: str) -> None:
+    """Replaces `path` with `text` atomically (temporary file + fsync + os.replace)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    with open(temp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp, path)
+
+
+def atomic_write_json(path, data, indent: int = 2) -> None:
+    """Replaces `path` with the JSON of `data` atomically (see atomic_write_text)."""
+    atomic_write_text(path, json.dumps(data, indent=indent))
+
+
+def append_jsonl(path, record: dict) -> None:
+    """Appends one JSON line to `path` and forces it to disk. A cut while writing can only damage that last line,
+    which read_jsonl skips."""
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def read_jsonl(path) -> list:
+    """Every complete JSON line of `path` (a missing file gives []). A damaged line (power cut mid-write) is skipped
+    with a note."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    records, damaged = [], 0
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                damaged += 1
+    if damaged:
+        print(f"[NOTE] {damaged} damaged line(s) in {path.name} skipped (an interrupted write); they are simulated again.")
+    return records
+
+
 class recovery_json:
     def __init__(self, directory: Path = None):
         if directory is not None:
@@ -19,8 +74,8 @@ class recovery_json:
         return {}
 
     def save_recovery_status(self, status):
-        with open(self.recovery_file, 'w') as f:
-            json.dump(status, f, indent=4)
+        # Atomic: a power cut during the save keeps the previous status instead of an empty file
+        atomic_write_json(self.recovery_file, status, indent=4)
 
     def recover_cleanup(self):
         self.recovery_file.unlink()

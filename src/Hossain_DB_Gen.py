@@ -39,6 +39,7 @@ from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, Ho
 from simulation_support.alpha_sweep import COMPLETION_FLAG
 from simulation_support.polar_creation import AOA_LOG_HEADER
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
+from geometric_support.filter_settings import DATASET_FILTERS, apply_filters, describe_filters
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
 from file_handling_support.dataset_names import dataset_number
 from ux_support import recovery_json, recovery_Fabius, run_with_progress
@@ -257,15 +258,8 @@ def genesis_worker(task):
                 verbose=False
                 )
 
-            if valid == 'valid':
-                valid, log_reason = va.thickness_filters(th_t_min=f.get('threshold_min_t'), th_t_max=f.get('threshold_max_t'), th_t_x_max=f.get('threshold_t_x_max'), th_t_x_min=f.get('threshold_t_x_min'))
-            if valid == 'valid':
-                valid, log_reason = va.sharpness_filter(curv_cont=f.get('activate_curvature_cont'), th_rLE=f.get('threshold_rLE'))
-            if valid == 'valid':
-                if f.get('monotonic_activation'):
-                    valid, log_reason = va.monotonic_thickness_filter()
-            if valid == 'valid':
-                valid, log_reason = va.camber_filters(th_c_max=f.get('threshold_max_camber'), th_c_min=f.get('threshold_min_camber'))
+            # Enabled filters in order (geometric_support.filter_settings); the first failure rejects the airfoil
+            valid, log_reason, _ = apply_filters(va, f)
 
             if valid == 'invalid':
                 validity = False
@@ -302,7 +296,7 @@ def genesis_worker(task):
         )
     return index + 1, log_reason.rstrip()
 
-def Airfoil_Genesis(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False, **kwargs):
+def Airfoil_Genesis(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=False, filters=None):
     '''
     Fills a folder with generated airfoils matching the combination list and geometrically filtered for real
     plausible airfoils, using a process pool. Rejected combinations go to the invalid airfoils log.
@@ -318,7 +312,7 @@ def Airfoil_Genesis(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=Fal
     cmb_datalist : np.ndarray
         A list containing rows of cst coeeffiecients, format in Airfoil_Generator
 
-    kwargs : geometric filter thresholds and activations (see geo_filt_parm)
+    filters : geometric filter settings (geometric_support.filter_settings; default DATASET_FILTERS)
     '''
     # Recovery check
     if rec_Fabius.check_stage_status(stage_name=AIRFOIL_GENESIS.name, current_rar=AIRFOIL_GENESIS.archive, required_deps=None):
@@ -349,7 +343,8 @@ def Airfoil_Genesis(base_airfoil_path, n_cst, cmb_datalist, generate_invalid=Fal
     num_workers = max(1, min(cpu_count() - 1, len(tasks)))
 
     def generate_all():
-        initargs = (base_airfoil_path, n_cst, kwargs, airfoils_temp_dir, partial_dir, invalid_output_dir, generate_invalid)
+        initargs = (base_airfoil_path, n_cst, filters if filters is not None else DATASET_FILTERS, airfoils_temp_dir,
+                    partial_dir, invalid_output_dir, generate_invalid)
         with open(invalid_airfoils_log, "a") as log, \
                 Pool(processes=num_workers, initializer=_genesis_worker_init, initargs=initargs) as pool:
             for number, log_line in pool.imap_unordered(genesis_worker, tasks, chunksize=64):
@@ -740,7 +735,7 @@ def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
     kp_seed fixes the random_state of the key-point GPR fit (None keeps the legacy unseeded fit).
     Also checks every polar's lowest drag against the laminar flat-plate limit (see laminar_cd_limit).
     '''
-    from file_handling_support.database_correction import laminar_cd_limit
+    from simulation_support.airfoil_simulation import laminar_cd_limit
 
     # Recovery check
     rec_dependencies = [
@@ -1026,7 +1021,8 @@ def Database_Mending(dataset_dir, params, configs):
     dataset 17 showed the chain is deterministic and the outliers came from the legacy 'sequential' alpha
     sweep (see simulation_support.alpha_sweep). Database_Corrector is no longer used here.
     '''
-    from file_handling_support.database_correction import Dataset_Rectifier, Simulation_Settings, grid_levels_from_ranges
+    from file_handling_support.database_correction import Dataset_Rectifier, grid_levels_from_ranges
+    from simulation_support.airfoil_simulation import Simulation_Settings
 
     # Recovery check
     rec_dependencies = [(training_files_rar_path, training_files_temp_dir)]
@@ -1119,28 +1115,9 @@ if __name__ == "__main__":
     ]
     num_configs = len(configs)
 
-    # Geometric Filters thresholds and activations
-    geo_filt_parm = {
-        'threshold_max_t': 0.25,
-        'threshold_min_t': 0.03,
-        'threshold_t_x_max': 0.45,
-        'threshold_t_x_min': 0.18,
-        'activate_curvature_cont': True,
-        'threshold_rLE': 0.01,
-        'monotonic_activation': True,
-        'threshold_max_camber': 0.12,
-        'threshold_min_camber': -0.02
-    }
-
-    threshold_max_t = geo_filt_parm['threshold_max_t']
-    threshold_min_t = geo_filt_parm['threshold_min_t']
-    threshold_t_x_max = geo_filt_parm['threshold_t_x_max']
-    threshold_t_x_min = geo_filt_parm['threshold_t_x_min']
-    activate_curvature_cont = geo_filt_parm['activate_curvature_cont']
-    threshold_rLE = geo_filt_parm['threshold_rLE']
-    monotonic_activation = geo_filt_parm['monotonic_activation']
-    threshold_max_camber = geo_filt_parm['threshold_max_camber']
-    threshold_min_camber = geo_filt_parm['threshold_min_camber']
+    # Geometric filters: shared settings in geometric_support/filter_settings.py (switch a filter off or change a
+    # threshold there, or pass a modified copy made with filter_settings(...) here)
+    geo_filters = DATASET_FILTERS
 
     # === Polar Alpha Range and Conditions === #
     ASEQ = [-20, 20, 0.5]
@@ -1164,10 +1141,8 @@ if __name__ == "__main__":
             log_file.write("="*30 + "\n")
             log_file.write(f"CST Order (n_cst): {n_cst}\n")
             log_file.write("\nGeometric Filters:\n")
-            log_file.write(f"  thickness_filters: threshold_max_t = {threshold_max_t}, threshold_min_t = {threshold_min_t}, threshold_t_x_max = {threshold_t_x_max}, threshold_t_x_min = {threshold_t_x_min}\n")
-            log_file.write(f"  sharpness_filters: activate_curvature_cont = {activate_curvature_cont}, threshold_rLE = {threshold_rLE}\n")
-            log_file.write(f"  monotonic_thickness_filter: {monotonic_activation}\n")
-            log_file.write(f"  camber_filters: threshold_max_camber = {threshold_max_camber}, threshold_min_camber = {threshold_min_camber}\n")
+            for line in describe_filters(geo_filters):
+                log_file.write(f"  {line}\n")
             log_file.write("\nCST Coefficient Ranges:\n")
             log_file.write("\nLower surface:\n")
             log_file.write(f"  {ranges_lower}\n")
@@ -1196,7 +1171,7 @@ if __name__ == "__main__":
 
     # === Execution with Recovery === #
     pipeline = [
-        (AIRFOIL_GENESIS, lambda: Airfoil_Genesis(base_airfoil, n_cst, cmb_datalist, **geo_filt_parm)),
+        (AIRFOIL_GENESIS, lambda: Airfoil_Genesis(base_airfoil, n_cst, cmb_datalist, filters=geo_filters)),
         (POLAR_FORMULATION, lambda: Polar_Formulation(ASEQ, Re, Mach, sweep_mode=SWEEP_MODE)),
         (AVL_GEOMETRIC_FILE_FORMATION, lambda: AVL_Geometric_File_Formation(configs, kp_seed=KP_SEED, reynolds=Re)),
         (FORCE_COMPUTATION, lambda: Force_Computation()),

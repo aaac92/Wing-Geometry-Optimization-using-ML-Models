@@ -41,6 +41,7 @@ import numpy as np
 from cst_modeling.foil import check_validity
 from simulation_support import Xfoil_Polar_Creator as XPR
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
+from geometric_support.filter_settings import DATASET_FILTERS, apply_filters
 
 utilities_dir = Path(__file__).resolve().parent
 current_dir = utilities_dir.parent      # matches current_dir in Hossain_DB_Gen.py
@@ -55,18 +56,8 @@ else:
 # --- Permanent, descriptive location -- results are moved here once XFOIL is done with them --- #
 test_root = project_root / "data" / "singular_test_data" / "xfoil_bin_unit_test"
 
-# === Geometric filter thresholds -- identical to Hossain_DB_Gen.py __main__ === #
-GEO_FILT_PARM = {
-    'threshold_max_t': 0.25,
-    'threshold_min_t': 0.03,
-    'threshold_t_x_max': 0.45,
-    'threshold_t_x_min': 0.18,
-    'activate_curvature_cont': True,
-    'threshold_rLE': 0.01,
-    'monotonic_activation': True,
-    'threshold_max_camber': 0.12,
-    'threshold_min_camber': -0.02
-}
+# === Geometric filters -- the settings Hossain_DB_Gen.py uses (geometric_support/filter_settings.py) === #
+GEO_FILT_PARM = DATASET_FILTERS
 
 # === CST combination ranges -- identical to Hossain_DB_Gen.py __main__ === #
 RANGES_UPPER = {
@@ -132,26 +123,7 @@ def generate_valid_test_airfoils(count, airfoils_dir, invalid_dir, log_path, see
                     cst_coeffs=cmb, n_cst=N_CST,
                     name=airfoil_name, verbose=False
                 )
-                valid = 'valid'
-                if valid == 'valid':
-                    valid, log_reason = va.thickness_filters(
-                        th_t_min=GEO_FILT_PARM['threshold_min_t'],
-                        th_t_max=GEO_FILT_PARM['threshold_max_t'],
-                        th_t_x_max=GEO_FILT_PARM['threshold_t_x_max'],
-                        th_t_x_min=GEO_FILT_PARM['threshold_t_x_min']
-                    )
-                if valid == 'valid':
-                    valid, log_reason = va.sharpness_filter(
-                        curv_cont=GEO_FILT_PARM['activate_curvature_cont'],
-                        th_rLE=GEO_FILT_PARM['threshold_rLE']
-                    )
-                if valid == 'valid' and GEO_FILT_PARM['monotonic_activation']:
-                    valid, log_reason = va.monotonic_thickness_filter()
-                if valid == 'valid':
-                    valid, log_reason = va.camber_filters(
-                        th_c_max=GEO_FILT_PARM['threshold_max_camber'],
-                        th_c_min=GEO_FILT_PARM['threshold_min_camber']
-                    )
+                valid, log_reason, _ = apply_filters(va, GEO_FILT_PARM)
                 validity = (valid == 'valid')
             except ValueError as e:
                 validity = False

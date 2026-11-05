@@ -9,6 +9,7 @@ from pathlib import Path
 from ai_support import LGBM_Regressor, CSTFeatureEngineer
 from ux_support import recovery_json
 from file_handling_support.model_names import pick_model_name
+from file_handling_support.dataset_names import dataset_folder, models_folder
 
 # === LightGBM Logger Deduplication === #
 # Two LightGBM Info-level messages are printed on every fit() call / every boosting
@@ -71,9 +72,9 @@ datasets_dir = project_root / "data" / "datasets"
 # Path to dataset
 dataset_num = "17.5" # text: decimal datasets are rebuilds (17.5 rebuilds 17)
 dataset_name = f"regressor_dataset_{dataset_num}"
-dataset_dir = datasets_dir / f"dataset_{dataset_num}"
+dataset_dir = dataset_folder(dataset_num, project_root)  # expansions (17.5.3) sit inside their parent
 training_file_dir = dataset_dir / f"{dataset_name}.csv"
-model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / f"lgbm_regressor{mode_suffix}"
+model_save_dir = models_folder(dataset_num, project_root) / f"lgbm_regressor{mode_suffix}"
 os.makedirs(model_save_dir, exist_ok=True)
 # Verify that dataset exists
 if not os.path.exists(training_file_dir):
@@ -93,7 +94,7 @@ def objective(trial):
     # Dynamically build hyperparameter space
     # Ceiling raised from 4000. Early stopping (patience 100) ends converged trials early,
     # so the ceiling mainly matters for low-learning-rate trials, which need many rounds.
-    n_estimators = trial.suggest_int('n_estimators', 7500, 15000, step=500)
+    n_estimators = trial.suggest_int('n_estimators', 1000, 10000, step=1000)
     lr = trial.suggest_float('learning_rate', 0.01, 0.3, log=True)
     # lr_decay is intentionally NOT searched: LGBM_Regressor defaults to a
     # constant learning rate (lr_decay=None).
@@ -189,7 +190,7 @@ for key, value in best_params.items():
 names = [ "Marbas", "Orobas", "Agares", "Foras", "Phobos", "Nemesis", "Kuutar"]
 if 'best_mae_name' not in status:
     # Avoids the names of models already saved for this dataset (any type, any version, old models included)
-    status['best_mae_name'] = pick_model_name(names, project_root / "models" / f"dataset_{dataset_num}", kind="LGBM regressor")
+    status['best_mae_name'] = pick_model_name(names, models_folder(dataset_num, project_root), kind="LGBM regressor")
     rec_json.save_recovery_status(status)
 best_mae_name = status['best_mae_name']
 

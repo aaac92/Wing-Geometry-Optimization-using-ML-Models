@@ -47,6 +47,109 @@ def _print_cv(k, scores):
     for name, values in scores.items():
         print(f"{name:<10} mean {np.mean(values):.4f} | per fold: " + ", ".join(f"{v:.4f}" for v in values))
 
+
+# Fine-tuning (fine_tune of MLP_Regressor and LGBM_Regressor): a short update of a trained model with new
+# simulations, used by the iterative inference. The new rows are weighted up (new_weight) and trained together
+# with "anchor" rows of the original dataset, so the model learns the new region without forgetting the rest.
+# Scaler, feature expansion and target transform stay frozen (the model keeps its input and output scales).
+# A held-out part of the new shapes and of the anchor rows decides whether the update is kept: it must lower the
+# error on the held-out new shapes and may raise the anchor error by at most anchor_tolerance (relative) or
+# anchor_abs_tolerance (E units), whichever is larger: a purely relative limit on a base error of ~0.1 E rejected
+# updates that moved the anchors by only 0.01 E (2026-11-04 synthetic test). A rejected update
+# leaves the model exactly as it was. from_base=True restarts every update from the originally loaded model, so
+# repeated updates (one per iteration, each with all simulations so far) never drift; the gate then compares the
+# update with that original model, which has never seen any new shape (an earlier kept update may have trained on
+# the shapes now held out, which would make its error look better than it is and reject good updates).
+
+def _fine_tune_split(n_new, groups_new, n_anchor, holdout, random_state):
+    """(new train idx, new held-out idx, anchor train idx, anchor held-out idx). New rows are split by group (shape),
+    so the three wing configurations of one shape never sit on both sides."""
+    rng = np.random.default_rng(random_state)
+    groups = np.asarray(groups_new if groups_new is not None else np.arange(n_new))
+    unique = np.unique(groups)
+    n_hold = int(round(holdout * len(unique))) if len(unique) >= 2 else 0
+    n_hold = min(max(n_hold, 1 if len(unique) >= 2 else 0), len(unique) - 1) if len(unique) else 0
+    held = set(rng.choice(unique, size=n_hold, replace=False).tolist()) if n_hold else set()
+    new_val = np.array([i for i in range(n_new) if groups[i] in held], dtype=int)
+    new_train = np.array([i for i in range(n_new) if groups[i] not in held], dtype=int)
+    perm = rng.permutation(n_anchor)
+    n_anchor_hold = int(round(holdout * n_anchor))
+    return new_train, new_val, perm[n_anchor_hold:], perm[:n_anchor_hold]
+
+
+def _gate(before_new, after_new, before_anchor, after_anchor, anchor_tolerance, anchor_abs_tolerance):
+    """True when the update lowers the new-shape error and keeps the anchor error within tolerance."""
+    new_ok = after_new < before_new if (before_new is not None and after_new is not None) else True
+    allowed = max(before_anchor * anchor_tolerance, anchor_abs_tolerance) if before_anchor is not None else 0.0
+    anchor_ok = (after_anchor <= before_anchor + allowed) if (before_anchor is not None and after_anchor is not None) else True
+    return bool(new_ok and anchor_ok)
+
+
+def _lgbm_combo_objective(y_true, y_pred):
+    """
+    Analytical Gradient and Hessian for the combo_loss
+    (80% Huber Loss + 20% Exponentially Weighted MSE).
+    """
+    lam = 0.8
+    power = 3.5
+
+    diff = y_pred - y_true
+    abs_diff = np.abs(diff)
+
+    # Huber Loss Gradients and Hessians (delta = 1.0)
+    grad_huber = np.where(abs_diff < 1.0, diff, np.sign(diff))
+    hess_huber = np.where(abs_diff < 1.0, 1.0, 0.0)
+
+    # Weighted MSE Gradients and Hessians
+    y_max = np.max(y_true)
+    y_max = y_max if y_max > 0 else 1e-8
+    normed = y_true / y_max
+    weights = np.exp(power * normed)
+
+    grad_wmse = 2.0 * diff * weights
+    hess_wmse = 2.0 * weights
+
+    # Combine
+    grad = lam * grad_huber + (1.0 - lam) * grad_wmse
+    hess = lam * hess_huber + (1.0 - lam) * hess_wmse
+
+    return grad, hess
+
+
+def _lgbm_combo_eval(y_true, y_pred):
+    """
+    Evaluation metric corresponding to the custom_combo_objective.
+    """
+    lam = 0.8
+    power = 3.5
+
+    diff = y_pred - y_true
+    abs_diff = np.abs(diff)
+
+    # Huber Loss
+    huber_loss = np.where(abs_diff < 1.0, 0.5 * (diff**2), abs_diff - 0.5)
+
+    # Weighted MSE
+    y_max = np.max(y_true)
+    y_max = y_max if y_max > 0 else 1e-8
+    normed = y_true / y_max
+    weights = np.exp(power * normed)
+    wmse_loss = (diff**2) * weights
+
+    # Combined loss
+    loss = lam * huber_loss + (1.0 - lam) * wmse_loss
+
+    return 'combo_loss', np.mean(loss), False
+
+
+def _lgbm_objective_and_metric(objective):
+    """(objective passed to LightGBM, early-stopping eval metric) for an objective name ('combo' is custom)."""
+    if objective == 'combo':
+        return _lgbm_combo_objective, _lgbm_combo_eval
+    if objective in ['huber', 'quantile', 'logcosh']:
+        return objective, objective
+    return objective, 'mae'
+
 class CSTFeatureEngineer:
     """
     Model-agnostic, stateless (row-wise) input expansion for CST-coefficient datasets.
@@ -351,30 +454,7 @@ class MLP_Regressor:
 
         # Load data
         X, y, X_test, y_test = self._load_and_prepare_data(data_path)
-
-        # Obtain weights for some features
-        if self.weight == 'instance':
-            # This uses the target value as the weight
-            weights = y
-            weights_train = weights*(len(y)/weights.sum())
-        elif self.weight == 'frequency':
-            # This uses bin-based inverse frequency weighting.
-            # Creates bins and counts data inside of them to assign a weight value to that bin of data.
-            # Bins that are less dense will have a higher weight value.
-            num_bins = 20
-            y_flat = y.flatten()
-            y_min, y_max = y_flat.min().item(), y_flat.max().item()
-            edges = torch.linspace(y_min, y_max, steps=num_bins + 1, device=self.device)
-            bin_idx = torch.bucketize(y_flat, edges, right=False) - 1
-            bin_idx = torch.clamp(bin_idx, min=0, max=num_bins-1).to(torch.long)
-            bin_counts = torch.bincount(bin_idx, minlength=num_bins).float()
-            inv_freq = torch.where(bin_counts == 0,
-                       torch.tensor(1.0, device=bin_counts.device),
-                       1.0 / bin_counts)
-            weights = inv_freq[bin_idx]
-            weights_train = weights*(len(y_flat)/weights.sum())
-        else:
-            weights_train = torch.ones(len(y), dtype=torch.float32)
+        weights_train = self._sample_weights(y)
 
         # Create dataset from tensors
         train_dataset = TensorDataset(X, y, weights_train)
@@ -413,6 +493,122 @@ class MLP_Regressor:
         print(f"Final model: best epoch {best_epoch}")
         return {**self._evaluate(X_test, y_test), **metrics}
 
+    def _sample_weights(self, y):
+        """Per-row weights of the 'weight' mode for a (N, 1) target tensor, normalised to a mean of 1 (ones when the
+        mode weights inside the loss instead)."""
+        if self.weight == 'instance':
+            # This uses the target value as the weight
+            weights = y
+            weights_train = weights*(len(y)/weights.sum())
+        elif self.weight == 'frequency':
+            # This uses bin-based inverse frequency weighting.
+            # Creates bins and counts data inside of them to assign a weight value to that bin of data.
+            # Bins that are less dense will have a higher weight value.
+            num_bins = 20
+            y_flat = y.flatten()
+            y_min, y_max = y_flat.min().item(), y_flat.max().item()
+            edges = torch.linspace(y_min, y_max, steps=num_bins + 1, device=self.device)
+            bin_idx = torch.bucketize(y_flat, edges, right=False) - 1
+            bin_idx = torch.clamp(bin_idx, min=0, max=num_bins-1).to(torch.long)
+            bin_counts = torch.bincount(bin_idx, minlength=num_bins).float()
+            inv_freq = torch.where(bin_counts == 0,
+                       torch.tensor(1.0, device=bin_counts.device),
+                       1.0 / bin_counts)
+            weights = inv_freq[bin_idx]
+            weights_train = weights*(len(y_flat)/weights.sum())
+        else:
+            weights_train = torch.ones(len(y), dtype=torch.float32)
+        return weights_train
+
+    def _prepare(self, X, y=None):
+        """Raw feature rows (and E values) -> model tensors on the device: feature expansion, frozen scaler and the
+        model's own target transform (log1p(E - y_min) for log models; E below y_min is clipped to y_min)."""
+        X = np.asarray(X)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if self.feature_engineer.mode != 'raw':
+            X = self.feature_engineer.transform(X)
+        X_t = torch.tensor(self.scaler.transform(X), dtype=torch.float32).to(self.device)
+        if y is None:
+            return X_t
+        y = np.asarray(y, dtype=np.float32)
+        if self.log_transform:
+            y = np.log1p(np.maximum(y - self.y_min, 0.0))
+        return X_t, torch.tensor(y, dtype=torch.float32).unsqueeze(1).to(self.device)
+
+    def _tensor_mae(self, X_t, y_t):
+        """MAE in E units of the current model on prepared tensors (None for no rows)."""
+        if len(y_t) == 0:
+            return None
+        loader = DataLoader(TensorDataset(X_t, y_t, torch.ones(len(y_t))), batch_size=8192, shuffle=False)
+        return float(self._loader_metrics(loader)[0])
+
+    def fine_tune(self, X_new, y_new, X_anchor, y_anchor, groups_new=None, new_weight=10, epochs=50, patience=5,
+                  lr_factor=0.1, holdout=0.2, anchor_tolerance=0.05, anchor_abs_tolerance=0.1, random_state=None, from_base=True,
+                  force_accept=False, verbose=False):
+        """
+        Short update with new simulations (see the fine-tuning note at the top of this module): starts from the
+        original weights (from_base) or the current ones and trains at most `epochs` epochs at lr_factor x the
+        learning rate on the anchor rows plus the new rows repeated new_weight times, early-stopped (patience) on
+        the held-out rows; the best epoch's weights are kept. X_* are raw feature rows (CSV column order), y_* the E
+        values; groups_new names the shape of each new row. Returns a report: accepted, MAE of the held-out new
+        shapes and anchor rows before/after, best epoch. force_accept keeps the update without the gate (used to
+        rebuild an update that was accepted before).
+        """
+        if self.model is None or self.scaler is None:
+            raise RuntimeError("Model is not trained. Please call train() or load_model() first.")
+        if getattr(self, "_base_state", None) is None:
+            self._base_state = copy.deepcopy(self.model.state_dict())
+        previous = copy.deepcopy(self.model.state_dict())
+        new_train, new_val, anchor_train, anchor_val = _fine_tune_split(len(y_new), groups_new, len(y_anchor), holdout, random_state)
+        Xn, yn = self._prepare(X_new, y_new)
+        Xa, ya = self._prepare(X_anchor, y_anchor)
+        to_t = lambda idx: torch.as_tensor(idx, dtype=torch.long, device=self.device)
+        if from_base:  # the reference of the gate: the original model (see the fine-tuning note)
+            self.model.load_state_dict(self._base_state)
+        before_new = self._tensor_mae(Xn[to_t(new_val)], yn[to_t(new_val)])
+        before_anchor = self._tensor_mae(Xa[to_t(anchor_val)], ya[to_t(anchor_val)])
+
+        repeat = max(1, int(round(new_weight)))
+        train_idx_new = np.tile(new_train, repeat)
+        X_train = torch.cat([Xa[to_t(anchor_train)], Xn[to_t(train_idx_new)]])
+        y_train = torch.cat([ya[to_t(anchor_train)], yn[to_t(train_idx_new)]])
+        # Early stopping watches the held-out NEW shapes (the region being learned); the anchors are protected by
+        # the gate. Without held-out new shapes the held-out anchors early-stop the update.
+        val_rows = (Xn[to_t(new_val)], yn[to_t(new_val)]) if len(new_val) else (Xa[to_t(anchor_val)], ya[to_t(anchor_val)])
+        if len(val_rows[1]) == 0:
+            val_rows = (X_train, y_train)
+        w_train = self._sample_weights(y_train).to(self.device)
+        w_val = self._sample_weights(val_rows[1]).to(self.device)
+        batch = max(2, min(self.batch_size, len(y_train)))
+        train_loader = DataLoader(TensorDataset(X_train, y_train, w_train), batch_size=batch, shuffle=True, drop_last=True)
+        val_loader = DataLoader(TensorDataset(val_rows[0], val_rows[1], w_val), batch_size=batch, shuffle=False)
+
+        if from_base:
+            self.model.load_state_dict(self._base_state)
+        saved = (self.learning_rate, self.epochs, self.patience)
+        self.learning_rate, self.epochs, self.patience = self.learning_rate * lr_factor, int(epochs), int(patience)
+        if random_state is not None:
+            torch.manual_seed(int(random_state))
+        try:
+            best_epoch = self._fit(train_loader, val_loader, verbose=False, freeze_batchnorm=True)
+        finally:
+            self.learning_rate, self.epochs, self.patience = saved
+        after_new = self._tensor_mae(Xn[to_t(new_val)], yn[to_t(new_val)])
+        after_anchor = self._tensor_mae(Xa[to_t(anchor_val)], ya[to_t(anchor_val)])
+        accepted = force_accept or _gate(before_new, after_new, before_anchor, after_anchor, anchor_tolerance,
+                                         anchor_abs_tolerance)
+        if not accepted:
+            self.model.load_state_dict(previous)
+        self.model.eval()
+        report = {"accepted": bool(accepted), "new_rows": int(len(y_new)), "new_held_out": int(len(new_val)),
+                  "anchor_rows": int(len(y_anchor)), "mae_new_before": before_new, "mae_new_after": after_new,
+                  "mae_anchor_before": before_anchor, "mae_anchor_after": after_anchor, "best_epoch": int(best_epoch)}
+        if verbose:
+            print(f"MLP fine-tune: {'kept' if accepted else 'rejected'} | held-out new MAE {before_new} -> {after_new} | "
+                  f"anchor MAE {before_anchor} -> {after_anchor} | best epoch {best_epoch}")
+        return report
+
     def _loader_metrics(self, loader):
         """(MAE, R2) of the current model on a DataLoader of (features, targets, weights), in E units."""
         self.model.eval()
@@ -428,7 +624,7 @@ class MLP_Regressor:
                 target.extend(targets)
         return mean_absolute_error(target, pred), r2_score(target, pred)
 
-    def _fit(self, train_loader, val_loader):
+    def _fit(self, train_loader, val_loader, verbose=True, freeze_batchnorm=False):
         '''
         Trains model on a given dataset, this method is for internal use.
         This method also contains and chooses custom or standard loss functions and handles early stopping.
@@ -489,6 +685,12 @@ class MLP_Regressor:
         for epoch in range(self.epochs):
             # Validation below switches to eval mode; without this, dropout would only act in the first epoch
             self.model.train()
+            if freeze_batchnorm:
+                # Fine-tuning: BatchNorm keeps normalising with the saved running statistics and does not update
+                # them (dropout still trains). Updating them from a few small batches wrecks a trained model.
+                for module in self.model.modules():
+                    if isinstance(module, nn.BatchNorm1d):
+                        module.eval()
 
             for features, targets, weights in train_loader:
                 features, targets, weights = features.to(self.device), targets.to(self.device), weights.to(self.device)
@@ -561,10 +763,11 @@ class MLP_Regressor:
             else:
                 early_stop_counter += 1
                 if early_stop_counter >= self.patience:
-                    print(f"Early stopping triggered at epoch {epoch + 1}. Best validation loss: {best_val_loss:.4f}")
+                    if verbose:
+                        print(f"Early stopping triggered at epoch {epoch + 1}. Best validation loss: {best_val_loss:.4f}")
                     break
 
-            if epoch % 100 == 0:
+            if verbose and epoch % 100 == 0:
                 print(f"Loss at epoch {epoch}: {val_loss.item():.4f}")
 
         # Restore the weights from the best validation-loss epoch
@@ -808,127 +1011,18 @@ class LGBM_Regressor:
         - data_path: Same path to csv file as _load_and_prepare_data()
         - refit: Train the final model after cross-validation (default True)
         """
-        
-        def custom_combo_objective(y_true, y_pred):
-            """
-            Analytical Gradient and Hessian for the combo_loss
-            (80% Huber Loss + 20% Exponentially Weighted MSE).
-            """
-            lam = 0.8
-            power = 3.5
-            
-            diff = y_pred - y_true
-            abs_diff = np.abs(diff)
-            
-            # Huber Loss Gradients and Hessians (delta = 1.0)
-            grad_huber = np.where(abs_diff < 1.0, diff, np.sign(diff))
-            hess_huber = np.where(abs_diff < 1.0, 1.0, 0.0)
-            
-            # Weighted MSE Gradients and Hessians
-            y_max = np.max(y_true)
-            y_max = y_max if y_max > 0 else 1e-8
-            normed = y_true / y_max
-            weights = np.exp(power * normed)
-            
-            grad_wmse = 2.0 * diff * weights
-            hess_wmse = 2.0 * weights
-            
-            # Combine
-            grad = lam * grad_huber + (1.0 - lam) * grad_wmse
-            hess = lam * hess_huber + (1.0 - lam) * hess_wmse
-            
-            return grad, hess
-
-        def custom_combo_eval(y_true, y_pred):
-            """
-            Evaluation metric corresponding to the custom_combo_objective.
-            """
-            lam = 0.8
-            power = 3.5
-            
-            diff = y_pred - y_true
-            abs_diff = np.abs(diff)
-            
-            # Huber Loss
-            huber_loss = np.where(abs_diff < 1.0, 0.5 * (diff**2), abs_diff - 0.5)
-            
-            # Weighted MSE
-            y_max = np.max(y_true)
-            y_max = y_max if y_max > 0 else 1e-8
-            normed = y_true / y_max
-            weights = np.exp(power * normed)
-            wmse_loss = (diff**2) * weights
-            
-            # Combined loss
-            loss = lam * huber_loss + (1.0 - lam) * wmse_loss
-            
-            return 'combo_loss', np.mean(loss), False
 
         # Load data
         X, y, X_test, y_test = self._load_and_prepare_data(data_path)
-        
-        # Choose the weight type
-        if self.weight == 'instance':
-            weights = y
-            weights_train = weights*(len(y)/weights.sum())
-        elif self.weight == 'frequency':
-            num_bins = 20
-            y_min, y_max = y.min().item(), y.max().item()
-            bin_indices = torch.bucketize(torch.tensor(y), torch.linspace(y_min, y_max, num_bins+1), right=False).numpy() - 1
-            bin_indices = np.clip(bin_indices, 0, num_bins - 1)
-            bin_counts = np.bincount(bin_indices, minlength=num_bins).astype(float)
-            inv_freq = np.where(bin_counts == 0, 1.0, 1.0/bin_counts)
-            weights = inv_freq[bin_indices]
-            weights_train = weights*(len(y)/weights.sum())
-        elif self.weight == 'linear':
-            ymin, ymax = y.min(), y.max()
-            alpha = 4
-            weights = 1 + alpha * (y - ymin) / (ymax - ymin)
-            weights_train = weights * len(y) / weights.sum()
-        elif self.weight == 'exponential':
-            beta = 2.0
-            weights = np.exp(beta * y / y.max())
-            weights_train = weights * len(y) / weights.sum()
-        elif self.weight == 'quantile':
-            q = 10
-            quantiles = np.linspace(0, 1, q + 1)
-            bin_edges = np.quantile(y, quantiles)
-            bin_edges = np.unique(bin_edges)
-            if len(bin_edges) < 2:
-                weights_train = np.ones_like(y, dtype=float)
-            else:
-                bin_indices = np.digitize(y, bin_edges, right=False)
-                bin_indices[y == bin_edges[-1]] = len(bin_edges) - 1
-                final_indices = bin_indices - 1
-                value_counts = np.bincount(final_indices)
-                value_counts = np.where(value_counts == 0, 1, value_counts)
-                weights_map = 1.0 / value_counts
-                weights = weights_map[final_indices]
-                weights_train = weights * len(y) / weights.sum()
-        elif self.weight == 'polynomial':
-            gamma = 3
-            weights = (y / y.max()) ** gamma
-            weights_train = weights * len(y) / weights.sum()
-        else:
-            weights_train = None
+        weights_train = self._sample_weights(y)
 
         # Scale Features
         self.scaler = StandardScaler()
         X = self.scaler.fit_transform(X)
         X_test = self.scaler.transform(X_test)
 
-        # Objective function mapping
-        if self.objective == 'combo':
-            lgbm_objective = custom_combo_objective
-            eval_metric = custom_combo_eval
-        else:
-            lgbm_objective = self.objective
-            if self.objective in ['regression_l2', 'regression_l1']:
-                eval_metric = 'mae'
-            elif self.objective in ['huber', 'quantile', 'logcosh']:
-                eval_metric = self.objective
-            else:
-                eval_metric = 'mae'
+        # Objective function mapping ('combo': custom 80% Huber + 20% exponentially weighted MSE)
+        lgbm_objective, eval_metric = _lgbm_objective_and_metric(self.objective)
 
         def fit_one(train_i, val_i):
             """A fresh model trained on train_i, early-stopped on val_i. Returns (model, best tree count, ran all trees)."""
@@ -989,6 +1083,125 @@ class LGBM_Regressor:
         self.model, best, ran_all = fit_one(train_i, val_i)
         print(f"Final model: {tree_note(best, ran_all)}")
         return {**self._evaluate(X_test, y_test), **metrics}
+
+    def _sample_weights(self, y):
+        """Per-row training weights of the 'weight' mode (None: unweighted), normalised to a mean of 1."""
+        y = np.asarray(y)
+        if self.weight == 'instance':
+            weights = y
+            weights_train = weights*(len(y)/weights.sum())
+            weights = y
+            weights_train = weights*(len(y)/weights.sum())
+        elif self.weight == 'frequency':
+            num_bins = 20
+            y_min, y_max = y.min().item(), y.max().item()
+            bin_indices = torch.bucketize(torch.tensor(y), torch.linspace(y_min, y_max, num_bins+1), right=False).numpy() - 1
+            bin_indices = np.clip(bin_indices, 0, num_bins - 1)
+            bin_counts = np.bincount(bin_indices, minlength=num_bins).astype(float)
+            inv_freq = np.where(bin_counts == 0, 1.0, 1.0/bin_counts)
+            weights = inv_freq[bin_indices]
+            weights_train = weights*(len(y)/weights.sum())
+        elif self.weight == 'linear':
+            ymin, ymax = y.min(), y.max()
+            alpha = 4
+            weights = 1 + alpha * (y - ymin) / (ymax - ymin)
+            weights_train = weights * len(y) / weights.sum()
+        elif self.weight == 'exponential':
+            beta = 2.0
+            weights = np.exp(beta * y / y.max())
+            weights_train = weights * len(y) / weights.sum()
+        elif self.weight == 'quantile':
+            q = 10
+            quantiles = np.linspace(0, 1, q + 1)
+            bin_edges = np.quantile(y, quantiles)
+            bin_edges = np.unique(bin_edges)
+            if len(bin_edges) < 2:
+                weights_train = np.ones_like(y, dtype=float)
+            else:
+                bin_indices = np.digitize(y, bin_edges, right=False)
+                bin_indices[y == bin_edges[-1]] = len(bin_edges) - 1
+                final_indices = bin_indices - 1
+                value_counts = np.bincount(final_indices)
+                value_counts = np.where(value_counts == 0, 1, value_counts)
+                weights_map = 1.0 / value_counts
+                weights = weights_map[final_indices]
+                weights_train = weights * len(y) / weights.sum()
+        elif self.weight == 'polynomial':
+            gamma = 3
+            weights = (y / y.max()) ** gamma
+            weights_train = weights * len(y) / weights.sum()
+        else:
+            weights_train = None
+        return weights_train
+
+    def _transform(self, X):
+        """Raw feature rows -> the scaled model inputs (feature expansion + frozen scaler)."""
+        X = np.asarray(X)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if self.feature_engineer.mode != 'raw':
+            X = self.feature_engineer.transform(X)
+        return self.scaler.transform(X)
+
+    def fine_tune(self, X_new, y_new, X_anchor, y_anchor, groups_new=None, new_weight=10.0, n_trees=300, lr_factor=0.5,
+                  stopping_rounds=30, holdout=0.2, anchor_tolerance=0.05, anchor_abs_tolerance=0.1, random_state=None, from_base=True,
+                  force_accept=False, verbose=False):
+        """
+        Short update with new simulations (see the fine-tuning note at the top of this module): continues boosting
+        from the original model (from_base) or the current one with up to n_trees extra trees at lr_factor x the
+        learning rate, on the new rows (sample weight new_weight) plus the anchor rows, early-stopped on the held-out
+        rows. X_* are raw feature rows (CSV column order), y_* the E values; groups_new names the shape of each new
+        row. Returns a report: accepted, MAE of the held-out new shapes and anchor rows before/after, trees added.
+        force_accept keeps the update without the gate (used to rebuild an update that was accepted before).
+        """
+        if self.model is None or self.scaler is None:
+            raise RuntimeError("Model is not trained. Please call train() or load_model() first.")
+        if getattr(self, "_base_model", None) is None:
+            self._base_model = self.model
+        previous = self.model
+        X_new, y_new = self._transform(X_new), np.asarray(y_new, dtype=np.float32)
+        X_anchor, y_anchor = self._transform(X_anchor), np.asarray(y_anchor, dtype=np.float32)
+        new_train, new_val, anchor_train, anchor_val = _fine_tune_split(len(y_new), groups_new, len(y_anchor), holdout, random_state)
+
+        def mae(model, X, y):
+            return float(mean_absolute_error(y, model.predict(X))) if len(y) else None
+
+        reference = self._base_model if from_base else previous   # the gate's reference (see the fine-tuning note)
+        before_new = mae(reference, X_new[new_val], y_new[new_val])
+        before_anchor = mae(reference, X_anchor[anchor_val], y_anchor[anchor_val])
+        X_train = np.vstack([X_anchor[anchor_train], X_new[new_train]])
+        y_train = np.concatenate([y_anchor[anchor_train], y_new[new_train]])
+        weights = np.concatenate([np.ones(len(anchor_train)), np.full(len(new_train), float(new_weight))])
+        base_weights = self._sample_weights(y_train)
+        if base_weights is not None:
+            weights = weights * base_weights
+        # Early stopping watches the held-out NEW shapes (the region being learned); the anchors are protected by
+        # the gate. Without held-out new shapes the held-out anchors early-stop the update.
+        val_idx_X, val_idx_y = (X_new[new_val], y_new[new_val]) if len(new_val) else (X_anchor[anchor_val], y_anchor[anchor_val])
+        objective, eval_metric = _lgbm_objective_and_metric(self.objective)
+        start = self._base_model if from_base else previous
+        candidate = lgb.LGBMRegressor(objective=objective, n_estimators=int(n_trees),
+                                      learning_rate=self.learning_rate * lr_factor, num_leaves=self.num_leaves,
+                                      max_depth=self.max_depth, random_state=self.random_state if random_state is None else random_state,
+                                      n_jobs=-1, verbosity=-1)
+        fit_kwargs = {}
+        if len(val_idx_y):
+            fit_kwargs = {**_lgbm_eval_kwargs(val_idx_X, val_idx_y), "eval_metric": eval_metric,
+                          "callbacks": [lgb.early_stopping(stopping_rounds, verbose=False)]}
+        candidate.fit(X_train, y_train, sample_weight=weights, init_model=start.booster_, **fit_kwargs)
+        after_new = mae(candidate, X_new[new_val], y_new[new_val])
+        after_anchor = mae(candidate, X_anchor[anchor_val], y_anchor[anchor_val])
+        accepted = force_accept or _gate(before_new, after_new, before_anchor, after_anchor, anchor_tolerance,
+                                         anchor_abs_tolerance)
+        self.model = candidate if accepted else previous
+        added = candidate.booster_.current_iteration() - start.booster_.current_iteration()
+        report = {"accepted": bool(accepted), "new_rows": int(len(y_new)), "new_held_out": int(len(new_val)),
+                  "anchor_rows": int(len(y_anchor)), "mae_new_before": before_new, "mae_new_after": after_new,
+                  "mae_anchor_before": before_anchor, "mae_anchor_after": after_anchor, "trees_added": int(added)}
+        if verbose:
+            print(f"LGBM fine-tune: {'kept' if accepted else 'rejected'} | held-out new MAE {before_new} -> {after_new} | "
+                  f"anchor MAE {before_anchor} -> {after_anchor} | {added} trees")
+        return report
 
     def _evaluate(self, X_test, y_test):
         '''

@@ -7,6 +7,7 @@ import pandas as pd
 from pathlib import Path
 from ai_support import SKNN_Regressor 
 from file_handling_support.model_names import pick_model_name
+from file_handling_support.dataset_names import dataset_folder, models_folder
 
 # === Directory configuration === #
 # Get the path to the src directory.
@@ -16,9 +17,9 @@ datasets_dir = project_root / "data" / "datasets"
 # Path to dataset
 dataset_num = "17.5" # text: decimal datasets are rebuilds (17.5 rebuilds 17)
 dataset_name = f"regressor_dataset_{dataset_num}"
-dataset_dir = datasets_dir / f"dataset_{dataset_num}"
+dataset_dir = dataset_folder(dataset_num, project_root)  # expansions (17.5.3) sit inside their parent
 training_file_dir = dataset_dir / f"{dataset_name}.csv"
-model_save_dir = project_root / "models" / f"dataset_{dataset_num}" / "sknn_regressor"
+model_save_dir = models_folder(dataset_num, project_root) / "sknn_regressor"
 # Verify that dataset exists
 os.makedirs(model_save_dir, exist_ok=True)
 if not os.path.exists(training_file_dir):
@@ -88,7 +89,7 @@ print("#"*60 + "\n")
 # === Final Saving and Reporting === #
 names = ["Andras", "Stolas", "Haagenti", "Amy", "Decarabia", "Hypnos", "Luonnotar"]
 # Avoids the names of models already saved for this dataset (any type, any version, old models included)
-best_mae_name = pick_model_name(names, project_root / "models" / f"dataset_{dataset_num}", kind="SKNN regressor")
+best_mae_name = pick_model_name(names, models_folder(dataset_num, project_root), kind="SKNN regressor")
 
 print("--- Saving Best Performing Model ---")
 if best_mae_info['model']:

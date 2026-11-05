@@ -3,6 +3,7 @@ from pathlib import Path
 
 from geometric_support import Airfoil_Generator
 from geometric_support.custom_graphs import plot_thickness_filter, plot_LE_slopes, plot_thickness_behavior, plot_camber_filter
+from geometric_support.filter_settings import filter_parameters
 
 utilities_dir = Path(__file__).resolve().parent
 src_dir = utilities_dir.parent
@@ -10,18 +11,8 @@ project_root = src_dir.parent
 support_files_dir = project_root / "data" / "support"
 single_files_dir = project_root / "data" / "singular_test_data" / "singular_airfoils"
 
-# Filter parameters, as used in the main pipeline
-geo_filt_parm = {
-    'threshold_max_t': 0.25,
-    'threshold_min_t': 0.03,
-    'threshold_t_x_max': 0.45,
-    'threshold_t_x_min': 0.18,
-    'activate_curvature_cont': True,
-    'threshold_rLE': 0.01,
-    'monotonic_activation': True,
-    'threshold_max_camber': 0.12,
-    'threshold_min_camber': -0.02
-}
+# Filter parameters, as used in the main pipeline (geometric_support/filter_settings.py, flat form for the plots)
+geo_filt_parm = filter_parameters()
 
 TF_COLORS = {
     'tf_airfoil': '#484C68',
