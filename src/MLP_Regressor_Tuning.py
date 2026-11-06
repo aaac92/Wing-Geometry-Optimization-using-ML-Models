@@ -114,7 +114,8 @@ def objective(trial):
     return mae
 
 # === Optuna Study Execution === #
-storage = f"sqlite:///{recovery_dir / f'optuna_study{mode_suffix}.db'}"
+# A storage object (not a URL) so the database connection can be closed before the file is deleted
+storage = optuna.storages.RDBStorage(url=f"sqlite:///{recovery_dir / f'optuna_study{mode_suffix}.db'}")
 study = optuna.create_study(study_name=dataset_name, storage=storage, direction='minimize', load_if_exists=True)
 
 if not status.get('optuna_complete', False):
@@ -153,8 +154,10 @@ if not status.get('finalized', False):
         best_params[f'n_units_l{i}'] for i in range(best_params['n_layers'])
     ]
 
-    # Retrain the final best model
-    print("\n--- Retraining and Saving the Best Model ---")
+    # Retrain the final best model. k=0: no cross-validation here, the Optuna trials already measured this
+    # configuration with 5 folds; only the final fit runs (80% train split, of which 10% early-stops it) and the
+    # 20% test split scores it.
+    print("\n--- Retraining and Saving the Best Model (final fit only, no cross-validation) ---")
     final_model = MLP_Regressor(
         hidden_layer_sizes=best_hidden_layer_sizes,
         dropout_rate=best_params['dropout_rate'],
@@ -163,18 +166,18 @@ if not status.get('finalized', False):
         patience=best_params['patience'],
         weight=best_params['weight'],
         log_trans=best_params['log_trans'],
-        feature_mode=FEATURE_MODE
+        feature_mode=FEATURE_MODE,
+        k=0
     )
     final_model.train(data_path=training_file_dir)
 
-    # Save parameters for best model (Dumping `best_params` inherently maps the entire dynamic architecture)
+    # Save model first, then its parameters (Dumping `best_params` inherently maps the entire dynamic architecture;
+    # a failed save leaves no parameters file without a model)
+    final_model.save_model(model_save_dir, best_mae_name)
     json_name = f"{best_mae_name}_regressor_model_parameters.json"
     param_file = os.path.join(model_save_dir, json_name)
     with open(param_file, 'w') as json_file:
         json.dump(best_params, json_file, indent=4)
-
-    # Save model
-    final_model.save_model(model_save_dir, best_mae_name)
 
     # Save all results
     results_df = study.trials_dataframe()
@@ -186,7 +189,11 @@ if not status.get('finalized', False):
     rec_json.save_recovery_status(status)
 
 # === Recovery Cleanup === #
-rec_json.recover_cleanup()
+# The Optuna database goes first and the recovery status last: if anything here fails, a rerun still finds the
+# status (optimization complete, model finalized) and only repeats this cleanup instead of a new search.
+# The connection is closed before deleting the file (Windows refuses to delete an open file).
+storage.engine.dispose()
 db_path = recovery_dir / f'optuna_study{mode_suffix}.db'
 if db_path.exists():
     db_path.unlink()
+rec_json.recover_cleanup()
