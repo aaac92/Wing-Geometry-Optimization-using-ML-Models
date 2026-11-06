@@ -669,6 +669,35 @@ def _load_regressor(name: str, folder: Path, mtype: str):
     return model
 
 
+LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/"
+
+
+def check_lfs_pointers(models: list, project_root: Path):
+    """
+    Stops with a clear message when a model file is a Git LFS pointer (a ~130-byte text file that stands in for the
+    real file until 'git lfs pull' downloads it). Unpickling a pointer otherwise fails with a cryptic
+    'KeyError: 118' (118 is the 'v' of 'version').
+    """
+    pointers = []
+    for folder, name in models:
+        for path in sorted(Path(folder).glob(f"{name}_*")):
+            if path.is_file() and path.stat().st_size < 1024:
+                with open(path, "rb") as f:
+                    if f.read(len(LFS_POINTER_PREFIX)) == LFS_POINTER_PREFIX:
+                        pointers.append(path)
+    if pointers:
+        print("\n" + "!" * 90)
+        print(f"[ERROR] {len(pointers)} model file(s) are Git LFS pointers, not the real files (the LFS content was "
+              f"never downloaded):")
+        for path in pointers:
+            print(f"        {path.relative_to(project_root) if path.is_relative_to(project_root) else path}")
+        print("        Download them from the project folder, then run this script again:")
+        print("            git lfs install")
+        print("            git lfs pull")
+        print("!" * 90)
+        sys.exit(1)
+
+
 def load_classifier(name: str, folder: Path):
     pth = folder / f"{name}_model.pth"
     if not pth.exists():
@@ -1634,6 +1663,8 @@ def main():
         if not Path(path).exists():
             raise FileNotFoundError(f"Required file not found: {path}")
     resolved = {name: resolve_regressor(name, paths.models_dir) for name in args.models}
+    check_lfs_pointers([(paths.classifier_dir, args.classifier)] + [(folder, name) for name, (folder, _) in resolved.items()],
+                       paths.project_root)
     print("\n# === Loading AI Models === #")
     with contextlib.redirect_stdout(io.StringIO()):
         classifier = load_classifier(args.classifier, paths.classifier_dir)
