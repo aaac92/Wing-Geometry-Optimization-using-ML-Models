@@ -557,6 +557,11 @@ class MLP_Regressor:
         """
         if self.model is None or self.scaler is None:
             raise RuntimeError("Model is not trained. Please call train() or load_model() first.")
+        if self.device.type == "cuda":
+            # Returns the GPU memory PyTorch keeps cached from earlier work (large prediction batches) to the
+            # driver: the backward pass creates its own cuBLAS handle outside PyTorch's cache, and on a small GPU
+            # that failed with CUBLAS_STATUS_ALLOC_FAILED while the cache held the memory.
+            torch.cuda.empty_cache()
         if getattr(self, "_base_state", None) is None:
             self._base_state = copy.deepcopy(self.model.state_dict())
         previous = copy.deepcopy(self.model.state_dict())

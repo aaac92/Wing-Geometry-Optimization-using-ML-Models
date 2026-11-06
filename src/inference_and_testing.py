@@ -102,9 +102,10 @@ LOCAL_TOP_K = 30               # distinct top-E dataset designs used as local se
 LOCAL_SIGMA_FRACTION = 0.10    # local noise std dev, as a fraction of each coefficient's window width
 EDGE_SIGMA_STEPS = 0.5         # edge-probe noise std dev on the extended coefficients, in grid steps
 EDGE_MIN_SHARE = 0.5           # a window edge is probed if at least this share of the top dataset designs sit on it
-# Rows per model call; keeps GPU/CPU memory bounded. A chunk close to the free GPU memory can print a harmless
-# out-of-memory WARNING from CUDACachingAllocator.cpp; only an OutOfMemoryError calls for a smaller value.
-PREDICT_CHUNK = 250_000
+# Rows per model call; keeps GPU/CPU memory bounded. PyTorch keeps the memory of the largest chunk cached after
+# prediction: 250k rows left ~2.5 GB cached on the 17.5 MLPs, which starved the model updates on a 4 GB GPU
+# (CUBLAS_STATUS_ALLOC_FAILED); 65,536 rows cache ~0.7 GB and predict just as fast.
+PREDICT_CHUNK = 65_536
 SEED_POOL_SIZE = 10000         # round seeds are drawn (without repetition) from [0, SEED_POOL_SIZE)
 MAX_MASTER_SEED = 0xFFFFFFFF   # upper limit of the master seed (8 hex digits)
 ELITE_PER_LANE = 2000          # shapes kept per round and lane (inside the window; a quarter of it from the edge probe)
