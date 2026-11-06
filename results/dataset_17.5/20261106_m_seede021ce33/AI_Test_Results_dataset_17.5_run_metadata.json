@@ -1,5 +1,5 @@
 {
-    "run_status": "running",
+    "run_status": "completed",
     "dataset": "17.5",
     "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv",
     "wing_mode": "Hossain_config",
@@ -164,5 +164,66 @@
             ]
         }
     ],
-    "started": "2026-11-06 12:49:26"
+    "started": "2026-11-06 12:49:26",
+    "resumed": [
+        "2026-11-06 15:23:06"
+    ],
+    "finished": "2026-11-06 16:57:15",
+    "active_run_time": "3:03:10",
+    "outcome": "SUCCESS??",
+    "lane_outcomes": {
+        "Marbas": "SUCCESS??",
+        "Odysseus_1.5": "SUCCESS??",
+        "Murata_1.5": "SUCCESS??",
+        "consensus": "SUCCESS??",
+        "random": "SUCCESS??"
+    },
+    "iterations": 6,
+    "stop_reason": "every lane converged",
+    "simulations": 975,
+    "expansion": {
+        "status": "saved",
+        "version": "17.5.6",
+        "dataset_dir": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/dataset_17.5.6",
+        "models_dir": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5/dataset_17.5.6",
+        "diverted_to_run_folder": false,
+        "new_rows": 2616,
+        "new_shapes": 872,
+        "below_laminar_limit": 10,
+        "models": {
+            "Marbas_1.0.6": {
+                "accepted": true,
+                "new_rows": 2616,
+                "new_held_out": 522,
+                "anchor_rows": 404040,
+                "mae_new_before": 2.4893251905865585,
+                "mae_new_after": 1.242527428364249,
+                "mae_anchor_before": 0.047276621916651586,
+                "mae_anchor_after": 0.04752062430116919,
+                "trees_added": 121
+            },
+            "Odysseus_1.5.6": {
+                "accepted": true,
+                "new_rows": 2616,
+                "new_held_out": 522,
+                "anchor_rows": 404040,
+                "mae_new_before": 3.1035697542387863,
+                "mae_new_after": 0.926377479143983,
+                "mae_anchor_before": 0.13936365923395536,
+                "mae_anchor_after": 0.17193854737460004,
+                "best_epoch": 7
+            },
+            "Murata_1.5.6": {
+                "accepted": true,
+                "new_rows": 2616,
+                "new_held_out": 522,
+                "anchor_rows": 404040,
+                "mae_new_before": 2.90199765026341,
+                "mae_new_after": 0.9600151434712026,
+                "mae_anchor_before": 0.10704231967950573,
+                "mae_anchor_after": 0.1879854566663719,
+                "best_epoch": 11
+            }
+        }
+    }
 }
