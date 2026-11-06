@@ -1,0 +1,51 @@
+
+# === Iteration 0: tracks and model updates === #
+Dataset best 26.6368, re-simulated 26.6587
+  Marbas: 2 track(s), best E 27.912 | T1 27.094 (dataset peak), T2 27.912 (dataset peak)
+  Odysseus_1.5: 2 track(s), best E 26.659 | T1 26.659 (dataset peak), T2 26.470 (dataset peak)
+  Murata_1.5: 2 track(s), best E 26.683 | T1 26.683 (dataset peak), T2 26.477 (dataset peak)
+  consensus: 2 track(s), best E 27.948 | T1 27.948 (dataset peak), T2 27.713 (dataset peak)
+  random: 2 track(s), best E 26.659 | T1 26.659 (dataset peak), T2 26.470 (dataset peak)
+  Marbas: Marbas update KEPT | 24 shapes (72 rows) | held-out new-shape MAE 1.203 -> 1.202 | anchor MAE 0.049 -> 0.050 | 0:00:12
+Traceback (most recent call last):
+  File "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/inference_and_testing.py", line 1905, in <module>
+    main()
+    ~~~~^^
+  File "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/inference_and_testing.py", line 1827, in main
+    fine_tune_lane(lane, ctx, 0)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/inference_and_testing.py", line 908, in fine_tune_lane
+    report = model.fine_tune(X_new, y_new, X_anchor, y_anchor, groups_new=groups, new_weight=FT_NEW_WEIGHT,
+                             random_state=seed, from_base=True)
+  File "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/ai_support/models.py", line 594, in fine_tune
+    best_epoch = self._fit(train_loader, val_loader, verbose=False, freeze_batchnorm=True)
+  File "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/ai_support/models.py", line 723, in _fit
+    loss.backward()
+    ~~~~~~~~~~~~~^^
+  File "/home/aaac92/Programs/miniconda/envs/ml_env/lib/python3.14/site-packages/torch/_tensor.py", line 623, in backward
+    torch.autograd.backward(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        self, gradient, retain_graph, create_graph, inputs=inputs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/aaac92/Programs/miniconda/envs/ml_env/lib/python3.14/site-packages/torch/autograd/__init__.py", line 395, in backward
+    _engine_run_backward(
+    ~~~~~~~~~~~~~~~~~~~~^
+        tensors,
+        ^^^^^^^^
+    ...<5 lines>...
+        accumulate_grad=True,
+        ^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/aaac92/Programs/miniconda/envs/ml_env/lib/python3.14/site-packages/torch/autograd/graph.py", line 979, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        t_outputs, *args, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )  # Calls into the C++ engine to run the backward pass
+    ^
+RuntimeError: CUDA error: CUBLAS_STATUS_ALLOC_FAILED when calling `cublasCreate(handle)`
+/home/aaac92/Programs/miniconda/envs/ml_env/lib/python3.14/multiprocessing/resource_tracker.py:475: UserWarning: resource_tracker: There appear to be 11 leaked semaphore objects to clean up at shutdown: {'/loky-2522004-9qrccx9g', '/loky-2522019-pw0csqhd', '/loky-2522009-vplrvyst', '/loky-2522014-ccaa5hu_', '/loky-2522039-a58ofx8x', '/loky-2522024-ld55klf2', '/loky-2522029-ydpo2604', '/loky-2522034-4j55amlx', '/loky-2521994-8119ctie', '/loky-2522044-exqbun06', '/loky-2521999-zlyfdxe2'}
+  warnings.warn(
