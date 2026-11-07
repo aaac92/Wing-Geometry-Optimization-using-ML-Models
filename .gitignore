@@ -1,7 +1,36 @@
+# Python build and cache files
 __pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Editors, assistants and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Simulation binaries: XFOIL and AVL are not distributed here, see README.md (bin/ holds them locally)
+bin/*
+!bin/.gitkeep
+*.exe
+
+# Archives and generated build data (large; Hossain_DB_Gen.py rebuilds them)
 *.rar
-*_69*
-+_67*
+*.zip
+*.7z
 data/dataset_build_data/
 data/singular_test_data/
-.vscode/
+
+# Test and smoke datasets
+data/datasets/dataset_67/
+data/datasets/dataset_69/
+data/datasets/dataset_smoke/
+data/logs/Dataset_67_*
+data/logs/Dataset_69_*
+data/logs/Dataset_smoke_*
+data/logs/dataset_smoke/
