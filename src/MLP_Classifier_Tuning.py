@@ -6,7 +6,7 @@ import json
 import random
 import platform
 from pathlib import Path
-from ai_support import Classifier
+from ai_support import Classifier, score_and_save
 from ux_support import recovery_json
 from file_handling_support.model_names import pick_model_name
 from file_handling_support.dataset_names import dataset_folder, models_folder
@@ -60,8 +60,9 @@ def objective(trial):
     lr = trial.suggest_float('learning_rate', 0.01, 0.1, log=True)
     epochs = trial.suggest_int('epochs', 400, 600)
     patience = trial.suggest_int('patience', 20, 60) # Exploring early stopping efficiency
+    batch_size = trial.suggest_categorical('batch_size', [1024, 2048])
 
-    print(f"PARAMETERS: Layers={hidden_layer_sizes}, Learning Rate={lr}, Epochs={epochs}, Patience={patience}")
+    print(f"PARAMETERS: Layers={hidden_layer_sizes}, Learning Rate={lr}, Epochs={epochs}, Patience={patience}, Batch Size={batch_size}")
     print("="*50)
 
     # Instantiate and train the classifier with dynamic architectures
@@ -69,7 +70,8 @@ def objective(trial):
         hidden_layer_sizes=hidden_layer_sizes,
         epochs=epochs,
         lr=lr,
-        patience=patience
+        patience=patience,
+        batch_size=batch_size
     )
 
     # refit=False: a trial only needs its cross-validation scores, not a saved model
@@ -136,6 +138,7 @@ if not status.get('finalized', False):
         epochs=best_params['epochs'],
         lr=best_params['learning_rate'],
         patience=best_params['patience'],
+        batch_size=best_params['batch_size'],
         k=0
     )
 
@@ -143,6 +146,10 @@ if not status.get('finalized', False):
 
     # Save the model first, then its parameters (a failed save leaves no parameters file without a model)
     final_model.save_model(model_save_dir, best_f1_name)
+    # Test score of the saved model on the test split (by shape), printed and saved next to the model
+    # (<name>_test_score.json / .txt); utilities/model_score.py gives the same numbers for any saved model.
+    score_and_save(final_model, "classifier", training_file_dir, model_save_dir, best_f1_name,
+                   seed=final_model.random_state, test_size=final_model.test_size)
     json_name = f"{best_f1_name}_parameters.json"
     param_file = os.path.join(model_save_dir, json_name)
     with open(param_file, 'w') as json_file:

@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import shutil
 import hashlib
@@ -20,6 +21,7 @@ from adjustText import adjust_text
 
 from cst_modeling.foil import check_validity
 from simulation_support import Xfoil_Polar_Creator as XPR, Key_Point_Extraction
+from simulation_support.alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_REVISIONS
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from geometric_support.filter_settings import DATASET_FILTERS, apply_filters
 
@@ -42,7 +44,10 @@ validation_polars_dir = validation_root / "polars"
 validation_results_dir = validation_root / "results"
 manifest_path = validation_root / "manifest.json"
 
-validation_temp_root = Path(r"C:\gpr_validation_temp")
+# Short temp path for XFOIL (it cuts long file names): drive root on Windows, a hidden home folder elsewhere
+IS_WINDOWS = sys.platform == "win32"
+validation_temp_root = Path(r"C:\gpr_validation_temp") if IS_WINDOWS else Path.home() / ".gpr_validation_temp"
+XFOIL_EXE = binaries_dir / ("xfoil.exe" if IS_WINDOWS else "xfoil")
 validation_temp_airfoils = validation_temp_root / "airfoils"
 validation_temp_polars = validation_temp_root / "polars"
 
@@ -61,6 +66,11 @@ CD_LOG_NOISE_FLOOR = 1e-4
 ASEQ = [-20, 20, 0.1]
 RE = 2.5e5
 MACH = 0.09281
+# Alpha sweep of the ground-truth polars: the pipeline default ('zero_out'), the sweep every dataset since 17.5 is
+# built with (simulation_support.alpha_sweep). Until 2026-11-10 this study was pinned to the legacy 'sequential'
+# sweep. The sweep and its revision are part of the cache signature, so polars cached with another sweep are
+# generated again.
+SWEEP_MODE = DEFAULT_SWEEP_MODE
 
 # Sparse resolutions to sweep during benchmarking
 RESOLUTION_STEPS_TO_TEST = sorted([0.1, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0])
@@ -151,6 +161,7 @@ def compute_data_signature(base_airfoil_path, n_cst, cmb_datalist, aseq, re, mac
     hasher.update(np.round(np.asarray(cmb_datalist, dtype=float), 8).tobytes())
     hasher.update(str(list(aseq)).encode())
     hasher.update(f"{re}_{mach}".encode())
+    hasher.update(f"sweep_{SWEEP_MODE}_rev{SWEEP_REVISIONS.get(SWEEP_MODE)}".encode())
     return hasher.hexdigest()
 
 def load_manifest(path):
@@ -168,6 +179,8 @@ def save_manifest(path, signature, n_airfoils, aseq, re, mach, n_cst):
         're': re,
         'mach': mach,
         'n_cst': n_cst,
+        'sweep_mode': SWEEP_MODE,
+        'sweep_revision': SWEEP_REVISIONS.get(SWEEP_MODE),
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     }
     with open(path, 'w') as f:
@@ -280,57 +293,24 @@ def gt_polar_worker(args):
     Worker function to run a single dense ground-truth XFOIL polar.
     Module-level for multiprocessing picklability.
 
-    Recovery logic ported from the project's production polar_worker
-    (Hossain_DB_Gen.py): if a polar file exists but is missing the
-    completion flag, resume from the last alpha value actually written --
-    parsed from the last data row that starts with a number -- instead of
-    restarting the whole alpha sequence from ASEQ[0]. Falls back to the
-    full sequence if the file doesn't exist or has no parseable data row.
-    This composes with generate_validation_polars' outer retry loop: each
-    successive retry now only asks XFOIL to cover the angles still
-    missing, rather than redoing the whole sweep and discarding whatever
-    progress the previous attempt made.
+    The polar is always swept whole. A zero_out sweep starts both of its branches at 0 deg and writes the polar
+    file only at the end, so there is no partial file to continue from; a polar file without the completion flag
+    (an earlier crash, or a file left by the legacy sequential sweep) is deleted and simulated again.
 
-    Validates completion on both ends: before running (to skip work
-    already done, or resume partial work) and after running (to catch a
-    silent failure where run_simulation returns without raising, but
-    XFOIL itself crashed, hung, or exited before finishing the requested
-    alpha sequence).
+    Validates completion on both ends: before running (to skip work already done) and after running (to catch a
+    silent failure where run_simulation returns without raising, but XFOIL itself crashed, hung, or exited before
+    finishing the requested alpha sequence).
     """
     (airfoil_path, polar_path, aseq, re, mach, xfoil_exe,
      temp_root, airfoil_dir, polar_dir) = args
 
     if polar_is_complete(polar_path):
         return polar_path, True  # already complete, skip
-
-    # --- Recovery logic: resume from the last alpha actually written --- #
     if os.path.exists(polar_path):
-        with open(polar_path, 'r') as f:
-            lines = f.readlines()
+        os.remove(polar_path)
 
-        last_alfa = None
-        for line in reversed(lines):
-            try:
-                last_alfa = float(line.strip().split()[0])
-                break
-            except (ValueError, IndexError):
-                continue
-
-        if last_alfa is not None:
-            start_angle = last_alfa + aseq[2]
-            num_steps = int((aseq[1] - start_angle) / aseq[2]) + 1
-            angles = [start_angle + j * aseq[2] for j in range(num_steps)]
-        else:  # file exists but is empty or has no parseable data row
-            num_steps = int((aseq[1] - aseq[0]) / aseq[2]) + 1
-            angles = [aseq[0] + j * aseq[2] for j in range(num_steps)]
-    else:  # file doesn't exist yet
-        num_steps = int((aseq[1] - aseq[0]) / aseq[2]) + 1
-        angles = [aseq[0] + j * aseq[2] for j in range(num_steps)]
-
-    if not angles:
-        # Data already covers the full requested range but the completion
-        # flag is somehow still missing -- nothing left to (re)compute.
-        return polar_path, polar_is_complete(polar_path)
+    num_steps = int(round((aseq[1] - aseq[0]) / aseq[2])) + 1
+    angles = [round(aseq[0] + j * aseq[2], 6) for j in range(num_steps)]
 
     try:
         xfoil_case = XPR(
@@ -340,14 +320,13 @@ def gt_polar_worker(args):
             polar_dir=polar_dir,
             verbose=False,
         )
-        # This script was intended to use with the original sequential alpha sweep, it has been updated to maintain intended behavior. To see how the type of sweep affect simulation refer to alpha_sweep.py
         xfoil_case.run_simulation(
             airfoil_file_path=airfoil_path,
             polar_file_path=polar_path,
             alfa_sequence=angles,
             visc=re,
             mach=mach,
-            sweep_mode="sequential",
+            sweep_mode=SWEEP_MODE,
         )
     except Exception as e:
         print(f"[ERROR] Ground-truth polar generation raised an exception for "
@@ -373,7 +352,9 @@ def generate_validation_polars(airfoil_paths, aseq, re, mach, temp_root, output_
     airfoil.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    xfoil_exe = str(binaries_dir / 'xfoil.exe')
+    xfoil_exe = str(XFOIL_EXE)
+    if not XFOIL_EXE.exists():
+        raise FileNotFoundError(f"XFOIL executable not found: {XFOIL_EXE} (see the README, Installation)")
 
     remaining = list(airfoil_paths)
     attempt = 0

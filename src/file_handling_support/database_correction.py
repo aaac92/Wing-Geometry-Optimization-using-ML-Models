@@ -1770,7 +1770,8 @@ class Dataset_Rectifier:
     Physical check
     --------------
     Every run records the minimum CD of its polar. Runs below `laminar_cd_limit(Re)` (fully laminar flat
-    plate friction) are physically implausible; they are counted in the reports but not excluded.
+    plate friction) are physically implausible. The rectification counts them as failed simulations, so their
+    rows are dropped (unless drop_failed is False); the diagnosis only reports them.
 
     Evaluation store
     ----------------
@@ -2039,13 +2040,15 @@ class Dataset_Rectifier:
 
     # --- Analysis --- #
 
-    def _row_decisions(self, key: str, runs: List[dict]) -> Dict[int, dict]:
-        """Majority decision for every dataset row of one airfoil, from its first n_runs runs."""
+    def _row_decisions(self, key: str, runs: List[dict], drop_below_limit: bool = False) -> Dict[int, dict]:
+        """Majority decision for every dataset row of one airfoil, from its first n_runs runs.
+        drop_below_limit: a run whose polar is below the laminar CD limit gives no value (it counts as a failed
+        simulation); the rectification uses it, the diagnosis keeps every value to describe what the chain produces."""
         runs = runs[:self.n_runs]
         decisions = {}
         for row in self.airfoils[key]["rows"]:
             identifier = self.row_config[row]
-            values = [r.get("E", {}).get(identifier) for r in runs]
+            values = [None if (drop_below_limit and self._below_cd_limit(r)) else r.get("E", {}).get(identifier) for r in runs]
             decisions[row] = majority_decision(values, self.n_runs, self.tol, float(self.E[row]))
             decisions[row]["runs_E"] = values
         return decisions
@@ -2252,7 +2255,7 @@ class Dataset_Rectifier:
             self.evaluate(requests, title=f"Dataset rectification - round {rnd}")
             outcomes = {"confirmed": 0, "corrected": 0, "unresolved": 0, "failed": 0}
             for key in keys:
-                decided[key] = self._row_decisions(key, self.runs_for(key))
+                decided[key] = self._row_decisions(key, self.runs_for(key), drop_below_limit=True)
                 for row, d in decided[key].items():
                     outcomes[d["outcome"]] += 1
                     if d["outcome"] in ("confirmed", "corrected"):
@@ -2312,7 +2315,7 @@ class Dataset_Rectifier:
                  f"  corrected   {totals['corrected']:>9,}   E replaced by the simulated value",
                  f"  confirmed   {totals['confirmed']:>9,}   dataset E reproduced",
                  f"  unresolved  {totals['unresolved']:>9,}   runs disagree, dataset E kept",
-                 f"  failed      {totals['failed']:>9,}   no simulation result, "
+                 f"  failed      {totals['failed']:>9,}   no simulation result or polar below the laminar CD limit, "
                  f"{'row dropped from the CSV' if self.drop_failed else 'dataset E kept'}",
                  f"Rows changed: {summary['rows_changed']:,} of {len(self.E):,}"
                  + (f" | rows dropped: {len(failed_rows):,}" if self.drop_failed else ""),
@@ -2447,7 +2450,8 @@ class Dataset_Rectifier:
                   f"Flagged rows before: {fi['rows_flagged']} | after: {ff['rows_flagged']} (the remaining ones were confirmed, unresolved or failed)",
                   f"Rows changed: {summary['rows_changed']} | failed rows dropped from the CSV: {summary['failed_rows_dropped']}",
                   f"Simulated airfoils with polar CDmin below the laminar limit ({summary['laminar_cd_limit']:.4f}): "
-                  f"{summary['airfoils_below_laminar_limit']} of {len(decided)} (reported, not excluded)",
+                  f"{summary['airfoils_below_laminar_limit']} of {len(decided)} (counted as failed: "
+                  f"{'rows dropped' if self.drop_failed else 'dataset E kept'})",
                   f"Dataset best E before: {summary['dataset_best_before']:.4f} | after: {summary['dataset_best_after']:.4f}",
                   "", "E distribution (rows)    before     after"]
         for lo, hi in ((50, np.inf), (45, 50), (40, 45), (30, 40), (-np.inf, 30)):

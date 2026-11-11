@@ -6,7 +6,7 @@ import json
 import random
 import platform
 from pathlib import Path
-from ai_support import MLP_Regressor, CSTFeatureEngineer
+from ai_support import MLP_Regressor, CSTFeatureEngineer, score_and_save
 from ux_support import recovery_json
 from file_handling_support.model_names import pick_model_name
 from file_handling_support.dataset_names import dataset_folder, models_folder
@@ -174,6 +174,10 @@ if not status.get('finalized', False):
     # Save model first, then its parameters (Dumping `best_params` inherently maps the entire dynamic architecture;
     # a failed save leaves no parameters file without a model)
     final_model.save_model(model_save_dir, best_mae_name)
+    # Test score of the saved model on the test split (by shape), printed and saved next to the model
+    # (<name>_test_score.json / .txt); utilities/model_score.py gives the same numbers for any saved model.
+    score_and_save(final_model, "regressor", training_file_dir, model_save_dir, best_mae_name,
+                   seed=final_model.random_state, test_size=final_model.test_split)
     json_name = f"{best_mae_name}_regressor_model_parameters.json"
     param_file = os.path.join(model_save_dir, json_name)
     with open(param_file, 'w') as json_file:

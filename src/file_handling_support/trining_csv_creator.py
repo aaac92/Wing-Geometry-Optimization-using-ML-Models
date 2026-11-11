@@ -9,7 +9,11 @@ class Training_Data_Generator:
     """
     A class to generate training data for both regression and classification models
     from airfoil simulation results.
+
+    Regression file:     one row per airfoil shape and wing configuration with a successful simulation.
+    Classification file: one row per airfoil shape; valid = 1 when the shape passed the geometric filters.
     """
+    CST_DECIMALS = 4   # decimals of the CST columns of the classification file (the .dat header precision)
 
     def __init__(self,
                  force_files_dir: str,
@@ -235,6 +239,15 @@ class Training_Data_Generator:
         
         return processed_data
 
+    def _filter_valid_csts(self) -> List[List[float]]:
+        """CST coefficients of every airfoil that passed the geometric filters: one .dat file each in airfoils_dir."""
+        rows = []
+        for dat_path in sorted(self.airfoils_dir.glob('*.dat')):
+            cst = self._extract_cst_from_dat(dat_path)
+            if cst:
+                rows.append(cst)
+        return rows
+
     def _process_invalid_airfoils(self) -> List[List[float]]:
         """Processes invalid airfoils and returns only their CST parameters."""
         self._log_and_print("--- Processing invalid airfoils ---")
@@ -312,12 +325,26 @@ class Training_Data_Generator:
             self._log_and_print("No valid data processed for regression file.", 'warning')
 
         # --- Generate the CLASSIFICATION file (combined data) ---
-        # Get CSTs from the valid data and add the 'valid=1' flag
-        valid_csts_for_classification = [row[:len(self.cst_headers)] + [1] for row in valid_data_for_regression]
-        
-        # Add the 'valid=0' flag to the invalid data
-        invalid_data_for_classification = [cst + [0] for cst in invalid_csts_for_classification]
-        
+        # One row per airfoil shape. valid = 1: the shape passed the geometric filters (it has a .dat file), whether
+        # or not its simulation succeeded later; valid = 0: the filters rejected it. The classifier is a model of the
+        # geometric filters only. Both classes are written with the same number of decimals (CST_DECIMALS).
+        # Until 2026-11-10 the valid rows were copied from the regression rows: one per wing configuration (three
+        # rows per shape) and with fewer decimals than the invalid rows.
+        n_cst_columns = len(self.cst_headers)
+        seen = set()
+
+        def one_per_shape(cst_rows, label):
+            rows = []
+            for cst in cst_rows:
+                key = tuple(round(float(v), self.CST_DECIMALS) + 0.0 for v in cst[:n_cst_columns])
+                if len(key) == n_cst_columns and key not in seen:
+                    seen.add(key)
+                    rows.append(list(key) + [label])
+            return rows
+
+        valid_csts_for_classification = one_per_shape(self._filter_valid_csts(), 1)
+        invalid_data_for_classification = one_per_shape(invalid_csts_for_classification, 0)
+
         all_classification_data = valid_csts_for_classification + invalid_data_for_classification
         self.row_counts = {"regression": len(valid_data_for_regression), "classification_valid": len(valid_csts_for_classification),
                            "classification_invalid": len(invalid_data_for_classification)}

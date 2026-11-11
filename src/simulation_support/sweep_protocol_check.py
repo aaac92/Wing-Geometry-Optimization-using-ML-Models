@@ -176,30 +176,50 @@ def polar_comparison(run_a: dict, run_b: dict):
     return [(a, cd, cd_b[a]) for a, cd in zip(pa["alpha"], pa["CD"]) if a in cd_b]
 
 
-def compare_runs(run: dict, reference: dict, configs=None) -> dict:
+def compare_runs(run: dict, reference: dict, configs=None, cd_limit: float = None) -> dict:
     """
     One airfoil's run against a reference run (normally cold):
       pre_stall_angles / pre_stall_same_branch  angles with |alpha| <= PRE_STALL compared, and the share on the same CD
                                                 branch (CD within CD_TOLERANCE)
-      E_ratio {config: run E / reference E};  E_agree  every ratio within E_TOLERANCE
-      verdict "agrees" (same pre-stall branch at >= 99% of angles and E agrees), "differs", or "no reference"
+      E_ratio {config: run E / reference E};  E_agree  every ratio within E_TOLERANCE (None: nothing to compare)
+      reference_status  the reference run's status ("below_laminar_limit" when its polar CDmin is under cd_limit)
+      verdict  "agrees"            same pre-stall branch at >= 99% of the angles AND E agrees in every configuration
+                                   the run has; both must actually be measured
+               "differs"           the reference is usable and one of the two conditions fails
+               "reference failed"  the reference was simulated but gives no usable E (key points or AVL failed, or
+                                   its polar is below the laminar CD limit): the design is NOT confirmed
+               "no reference"      there is no reference run at all
+    Only "agrees" counts as consistent. Until 2026-11-10 a reference without E counted as agreeing (its missing E
+    was read as "no disagreement"), e.g. design s3d6ae272c1 of run 20261106_m_seede021ce33.
     """
     configs = list(configs or CONFIGS)
     pairs = [(a, cd, ref) for a, cd, ref in polar_comparison(run, reference) if abs(a) <= PRE_STALL]
     same = [abs(cd / ref - 1) <= CD_TOLERANCE for _, cd, ref in pairs if ref]
+    share = float(np.mean(same)) if same else None
+    reference_status = (reference or {}).get("status")
+    below_limit = bool(reference and cd_limit is not None and reference.get("cd_min") is not None
+                       and reference["cd_min"] < cd_limit)
+    if below_limit:
+        reference_status = "below_laminar_limit"
+    run_E, reference_E = (run or {}).get("E", {}), ({} if below_limit else (reference or {}).get("E", {}))
     ratios = {}
     for config in configs:
-        e, e_ref = (run or {}).get("E", {}).get(config), (reference or {}).get("E", {}).get(config)
+        e, e_ref = run_E.get(config), reference_E.get(config)
         ratios[config] = (e / e_ref) if (e is not None and e_ref) else None
+    expected = [config for config in configs if run_E.get(config) is not None]
+    missing = [config for config in expected if ratios[config] is None]
     known = [r for r in ratios.values() if r is not None]
     e_agree = all(abs(r - 1) <= E_TOLERANCE for r in known) if known else None
-    share = float(np.mean(same)) if same else None
-    if share is None and e_agree is None:
+    if not reference:
         verdict = "no reference"
+    elif not expected:
+        verdict = "differs"   # the run itself has no E to confirm
+    elif missing or not known:
+        verdict = "reference failed"
     else:
-        verdict = "agrees" if (share is None or share >= 0.99) and e_agree is not False else "differs"
+        verdict = "agrees" if (share is not None and share >= 0.99 and e_agree) else "differs"
     return {"pre_stall_angles": len(same), "pre_stall_same_branch": share, "E_ratio": ratios, "E_agree": e_agree,
-            "verdict": verdict}
+            "reference_status": reference_status, "verdict": verdict}
 
 
 # =============================================================================================== #

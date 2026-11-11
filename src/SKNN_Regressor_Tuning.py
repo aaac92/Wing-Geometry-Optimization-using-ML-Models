@@ -5,7 +5,7 @@ import random
 import itertools
 import pandas as pd
 from pathlib import Path
-from ai_support import SKNN_Regressor 
+from ai_support import SKNN_Regressor, score_and_save
 from file_handling_support.model_names import pick_model_name
 from file_handling_support.dataset_names import dataset_folder, models_folder
 
@@ -104,6 +104,10 @@ if best_mae_info['model']:
         json.dump(best_result, json_file, indent=4)
         
     best_mae_info['model'].save_model(model_save_dir, best_mae_name)
+    # Test score of the saved model on the test split (by shape), printed and saved next to the model
+    # (<name>_test_score.json / .txt); utilities/model_score.py gives the same numbers for any saved model.
+    score_and_save(best_mae_info['model'], "regressor", training_file_dir, model_save_dir, best_mae_name,
+                   seed=best_mae_info['model'].random_state, test_size=best_mae_info['model'].test_split)
 else:
     print("No best MAE model was captured to save.")
 

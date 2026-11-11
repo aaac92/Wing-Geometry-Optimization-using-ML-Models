@@ -7,16 +7,21 @@ import torch.nn as nn
 import torch.optim as optim
 import lightgbm as lgb
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, fbeta_score, mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import make_pipeline
-from sklearn.model_selection import train_test_split, KFold, StratifiedKFold
 from torch.utils.data import DataLoader, Subset, TensorDataset
 import joblib
 import json
 from math import comb
 
+from .data_split import shape_groups, shapes_text, split_by_shape, kfold_by_shape
+from .scoring import classification_metrics
+
 # Training protocol shared by every model class (see each train()):
+#   Test split: test_split (default 20%) of the SHAPES, with every wing configuration of each, never used in
+#       training. Every split below is also by shape (ai_support.data_split explains why): a shape is never on
+#       both sides. Before 2026-11-10 all of them were by row.
 #   k >= 2 (default 5): k-fold cross-validation on the training split measures the configuration; the mean
 #       fold scores are returned as CV_* metrics (the tuning scripts rank on them).
 #   Final fit: one model trained on the whole training split except FINAL_VALIDATION_SHARE of it, which only
@@ -27,9 +32,15 @@ from math import comb
 FINAL_VALIDATION_SHARE = 0.1
 
 
-def _final_split(n, random_state, stratify=None):
-    """(train indices, early-stopping indices) of the final fit."""
-    return train_test_split(np.arange(n), test_size=FINAL_VALIDATION_SHARE, random_state=random_state, stratify=stratify)
+def _final_split(groups, random_state, stratify=None):
+    """(train indices, early-stopping indices) of the final fit, by shape (`groups`: shape number of every row)."""
+    return split_by_shape(groups, FINAL_VALIDATION_SHARE, random_state, stratify=stratify)
+
+
+def _split_note(groups, train_i, test_i, random_state):
+    """One console line that says what the data is and how it was split."""
+    print(f"Data: {shapes_text(groups)} | split by shape (seed {random_state}): "
+          f"{len(train_i):,} training rows, {len(test_i):,} test rows")
 
 
 def _lgbm_eval_kwargs(X_val, y_val):
@@ -349,14 +360,17 @@ class MLP_Regressor:
         features = self.feature_engineer.transform(feature_df.values)
         output = df.iloc[:, -1].values.astype(np.float32)
 
-        # Optional logarithmic output transformation and data split for testing
+        # Optional logarithmic output transformation
         if self.log_transform:
             self.y_min = float(output.min())
             output = np.log1p(output - self.y_min)
-            train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
-        else:
-            # Split data
-            train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
+
+        # Data split for testing, by shape (ai_support.data_split)
+        groups = shape_groups(feature_df)
+        train_i, test_i = split_by_shape(groups, self.test_split, self.random_state)
+        self.train_groups = groups[train_i]   # shape of every training row: folds and the final split use it
+        _split_note(groups, train_i, test_i, self.random_state)
+        train_data, test_data, train_targets, test_targets = features[train_i], features[test_i], output[train_i], output[test_i]
 
         # Normalization
         self.scaler = StandardScaler()
@@ -474,10 +488,10 @@ class MLP_Regressor:
 
         metrics = {}
         if self.k >= 2:
-            kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
+            folds = kfold_by_shape(self.train_groups, self.k, self.random_state)
             scores = {"MAE": [], "R2": []}
-            print(f"Starting regressor cross-validation: {self.k} folds, batch size {self.batch_size}...")
-            for fold, (train_i, val_i) in enumerate(kf.split(np.arange(len(y))), start=1):
+            print(f"Starting regressor cross-validation: {self.k} folds (by shape), batch size {self.batch_size}...")
+            for fold, (train_i, val_i) in enumerate(folds, start=1):
                 mae, r2, best_epoch = run(train_i, val_i)
                 print(f"Fold {fold}/{self.k}: MAE {mae:.4f}, R^2 {r2:.4f}, best epoch {best_epoch}")
                 scores["MAE"].append(mae)
@@ -487,7 +501,7 @@ class MLP_Regressor:
             if not refit:
                 return metrics
 
-        train_i, val_i = _final_split(len(y), self.random_state)
+        train_i, val_i = _final_split(self.train_groups, self.random_state)
         print(f"\nFinal fit on {len(train_i):,} rows (early stopping on {len(val_i):,})...")
         _, _, best_epoch = run(train_i, val_i)
         print(f"Final model: best epoch {best_epoch}")
@@ -994,10 +1008,13 @@ class LGBM_Regressor:
         self.feature_engineer.fit(feature_df.columns)
         features = self.feature_engineer.transform(feature_df.values)
 
-        # Data split for testing
-        train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
+        # Data split for testing, by shape (ai_support.data_split)
+        groups = shape_groups(feature_df)
+        train_i, test_i = split_by_shape(groups, self.test_split, self.random_state)
+        self.train_groups = groups[train_i]   # shape of every training row: folds and the final split use it
+        _split_note(groups, train_i, test_i, self.random_state)
 
-        return train_data, train_targets, test_data, test_targets
+        return features[train_i], output[train_i], features[test_i], output[test_i]
 
     def train(self, data_path, refit=True):
         """
@@ -1062,11 +1079,11 @@ class LGBM_Regressor:
 
         metrics = {}
         if self.k >= 2:
-            kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
+            folds = kfold_by_shape(self.train_groups, self.k, self.random_state)
             scores = {"MAE": [], "R2": []}
             capped = 0
-            print(f"Starting LGBM cross-validation: {self.k} folds, up to {self.n_estimators} trees...")
-            for fold, (train_i, val_i) in enumerate(kf.split(X), start=1):
+            print(f"Starting LGBM cross-validation: {self.k} folds (by shape), up to {self.n_estimators} trees...")
+            for fold, (train_i, val_i) in enumerate(folds, start=1):
                 model, best, ran_all = fit_one(train_i, val_i)
                 y_preds_fold = model.predict(X[val_i])
                 mae = mean_absolute_error(y[val_i], y_preds_fold)
@@ -1083,7 +1100,7 @@ class LGBM_Regressor:
             if not refit:
                 return metrics
 
-        train_i, val_i = _final_split(len(y), self.random_state)
+        train_i, val_i = _final_split(self.train_groups, self.random_state)
         print(f"\nFinal fit on {len(train_i):,} rows (early stopping on {len(val_i):,})...")
         self.model, best, ran_all = fit_one(train_i, val_i)
         print(f"Final model: {tree_note(best, ran_all)}")
@@ -1221,14 +1238,8 @@ class LGBM_Regressor:
         mae = mean_absolute_error(y_test, y_preds)
         r2 = r2_score(y_test, y_preds)
         
-        metrics = {'MAE': mae, 'R2_Score': r2}
-        
-        print("\n--- LGBM Regressor Evaluation on Test Set ---")
-        for name, value in metrics.items():
-            print(f"{name:<10}: {value:.4f}")
-        print("-------------------------------------------\n")
-        
-        return metrics
+        # The trainers (tuning scripts, ml_gym) print and save the full test report (ai_support.scoring.score_and_save)
+        return {'MAE': mae, 'R2_Score': r2}
 
     def predict(self, X):
         '''
@@ -1350,12 +1361,15 @@ class SKNN_Regressor:
         df = pd.read_csv(data_path)
 
         features = df.iloc[:, :-1].values.astype(np.float32)
-        output = df.iloc[:, -1].values.astype(np.float32) 
+        output = df.iloc[:, -1].values.astype(np.float32)
 
-        # Data split for testing
-        train_data, test_data, train_targets, test_targets = train_test_split(features, output, test_size=self.test_split, random_state=self.random_state)
+        # Data split for testing, by shape (ai_support.data_split)
+        groups = shape_groups(df.iloc[:, :-1])
+        train_i, test_i = split_by_shape(groups, self.test_split, self.random_state)
+        self.train_groups = groups[train_i]   # shape of every training row: the folds use it
+        _split_note(groups, train_i, test_i, self.random_state)
 
-        return train_data, train_targets, test_data, test_targets
+        return features[train_i], output[train_i], features[test_i], output[test_i]
     
     def train(self, data_path, refit=True):
         """
@@ -1425,10 +1439,10 @@ class SKNN_Regressor:
 
         metrics = {}
         if self.k >= 2:
-            kf = KFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
+            folds = kfold_by_shape(self.train_groups, self.k, self.random_state)
             scores = {"MAE": [], "R2": []}
-            print(f"Starting SKNN cross-validation: {self.k} folds, degree {self.degree} polynomial...")
-            for fold, (train_i, val_i) in enumerate(kf.split(X), start=1):
+            print(f"Starting SKNN cross-validation: {self.k} folds (by shape), degree {self.degree} polynomial...")
+            for fold, (train_i, val_i) in enumerate(folds, start=1):
                 model = fit_one(train_i)
                 y_preds_fold = model.predict(X[val_i])
                 mae = mean_absolute_error(y[val_i], y_preds_fold)
@@ -1459,14 +1473,8 @@ class SKNN_Regressor:
         mae = mean_absolute_error(y_test, y_preds)
         r2 = r2_score(y_test, y_preds)
         
-        metrics = {'MAE': mae, 'R2_Score': r2}
-        
-        print("\n--- SKNN Regressor Evaluation on Test Set ---")
-        for name, value in metrics.items():
-            print(f"{name:<10}: {value:.4f}")
-        print("-------------------------------------------\n")
-        
-        return metrics
+        # The trainers (tuning scripts) print and save the full test report (ai_support.scoring.score_and_save)
+        return {'MAE': mae, 'R2_Score': r2}
     
     def predict(self, X):
         """
@@ -1556,6 +1564,7 @@ class Classifier:
                  lr=0.075,
                  patience=40,
                  factor=0.5,
+                 batch_size=2048,
                  k=5,
                  test_size=0.2, 
                  random_state=42):
@@ -1566,6 +1575,9 @@ class Classifier:
         self.lr = lr
         self.patience = patience
         self.factor = factor
+        # Mini-batch size, a hyperparameter like the regressors'. Until 2026-11-11 the batch was the largest one
+        # that fitted in GPU memory (in practice the whole training set), so an epoch was a single gradient step.
+        self.batch_size = batch_size
 
         # Other training parameters
         self.k = k
@@ -1593,15 +1605,29 @@ class Classifier:
         if 'valid' not in df.columns:
             raise ValueError("Input CSV must contain a 'valid' column for classification.")
 
+        # One row per shape: classifier CSVs written before 2026-11-10 repeated every valid shape once per wing
+        # configuration, which put the same shape in the training, validation and test rows.
+        rows_read = len(df)
+        df = df.drop_duplicates().reset_index(drop=True)
+        if len(df) < rows_read:
+            print(f"[NOTE] {rows_read - len(df):,} repeated rows of '{os.path.basename(str(data_path))}' removed "
+                  f"({rows_read:,} -> {len(df):,}): a classifier dataset has one row per shape.")
+
         # Identify target and features
+        feature_df = df.drop(columns=['valid'])
         y = df['valid'].values.astype(np.float32)
-        X = df.drop(columns=['valid']).values.astype(np.float32)
+        X = feature_df.values.astype(np.float32)
 
         self.input_dim = X.shape[1]
-        self.feature_columns = df.drop(columns=['valid']).columns.tolist()
+        self.feature_columns = feature_df.columns.tolist()
 
-        # Split data
-        X, X_test, y, y_test = train_test_split(X, y, test_size=self.test_size, random_state=self.random_state, stratify=y)
+        # Split data by shape, keeping the share of valid and invalid shapes on both sides (ai_support.data_split)
+        groups = shape_groups(feature_df)
+        train_i, test_i = split_by_shape(groups, self.test_size, self.random_state, stratify=y)
+        self.train_groups = groups[train_i]   # shape of every training row: folds and the final split use it
+        _split_note(groups, train_i, test_i, self.random_state)
+        print(f"      valid shapes {int((y == 1).sum()):,} | invalid shapes {int((y == 0).sum()):,}")
+        X, X_test, y, y_test = X[train_i], X[test_i], y[train_i], y[test_i]
 
         # Scale features
         self.scaler = StandardScaler()
@@ -1615,59 +1641,6 @@ class Classifier:
         y_test = torch.from_numpy(y_test.reshape(-1, 1)).to(self.device)
 
         return X, y, X_test, y_test
-
-    def _find_max_batch_size(self, X_t, y_t):
-        """
-        Dynamically finds the maximum batch size that fits in GPU VRAM by
-        catching OutOfMemory exceptions and halving the batch size.
-        """
-        if self.device.type == 'cpu':
-            return len(X_t)
-            
-        print("Dynamically calculating maximum batch size...")
-        batch_size = len(X_t) 
-        
-        while batch_size > 0:
-            try:
-                torch.cuda.empty_cache()
-                
-                # Slice dummy batch
-                X_dummy = X_t[:batch_size]
-                y_dummy = y_t[:batch_size]
-                
-                # Initialize dummy model and optimizer
-                dummy_model = _PyTorchMLPClassifier(
-                    input_dim=self.input_dim,
-                    hidden_layer_sizes=self.hidden_layer_sizes
-                ).to(self.device)
-                
-                dummy_optimizer = optim.Adam(dummy_model.parameters(), lr=self.lr)
-                
-                # Dummy forward and backward pass
-                dummy_model.train()
-                dummy_optimizer.zero_grad()
-                
-                preds = dummy_model(X_dummy)
-                loss = nn.BCEWithLogitsLoss()(preds, y_dummy) 
-                loss.backward()
-                dummy_optimizer.step()
-                
-                del dummy_model, dummy_optimizer, X_dummy, y_dummy, preds, loss
-                torch.cuda.empty_cache()
-                
-                optimal_batch = int(batch_size * 0.9) 
-                print(f"Optimal batch size found: {optimal_batch}")
-                
-                return optimal_batch
-                
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    torch.cuda.empty_cache()
-                    batch_size //= 2
-                else:
-                    raise e
-                    
-        raise RuntimeError("Could not find a batch size that fits in GPU VRAM.")
 
     def train(self, data_path, refit=True):
         """
@@ -1686,11 +1659,8 @@ class Classifier:
         X, y, X_test, y_test = self._load_and_prepare_data(data_path)
         print(f"Data loaded successfully from {data_path}. Input features: {self.input_dim}")
 
-        # --- DYNAMIC BATCH SIZE INTEGRATION ---
-        calculated_batch_size = self._find_max_batch_size(X, y)
-
         # Detach tensors for Stratified K-Fold logic
-        X_np, y_np = X.cpu().numpy(), y.cpu().numpy().flatten()
+        y_np = y.cpu().numpy().flatten()
 
         def run(train_i, val_i, label):
             """Trains a fresh model on train_i, early-stopped on val_i. Returns (validation metrics, best epoch)."""
@@ -1698,8 +1668,8 @@ class Classifier:
             y_train_fold, y_val_fold = y[train_i], y[val_i]
 
             # Create dataloaders using the dynamically calculated batch size
-            train_loader = DataLoader(TensorDataset(X_train_fold, y_train_fold), batch_size=calculated_batch_size, shuffle=True)
-            val_loader = DataLoader(TensorDataset(X_val_fold, y_val_fold), batch_size=calculated_batch_size, shuffle=False)
+            train_loader = DataLoader(TensorDataset(X_train_fold, y_train_fold), batch_size=self.batch_size, shuffle=True)
+            val_loader = DataLoader(TensorDataset(X_val_fold, y_val_fold), batch_size=self.batch_size, shuffle=False)
 
             # Initialize model, optimizer, and scheduler
             self.model = _PyTorchMLPClassifier(input_dim=self.input_dim, hidden_layer_sizes=self.hidden_layer_sizes).to(self.device)
@@ -1781,18 +1751,19 @@ class Classifier:
                     y_val_true_list.extend(y_val_batch.cpu().numpy())
             y_true = np.array(y_val_true_list)
             val_pred_labels = np.array(val_pred_labels_list)
-            scores = {"Accuracy": accuracy_score(y_true, val_pred_labels),
-                      "Precision": precision_score(y_true, val_pred_labels, zero_division=0),
-                      "Recall": recall_score(y_true, val_pred_labels, zero_division=0),
-                      "F1": f1_score(y_true, val_pred_labels, zero_division=0)}
+            full = classification_metrics(y_true, val_pred_labels)
+            # Valid-class scores (the tuning script ranks on F1) plus the two that show the invalid class
+            scores = {"Accuracy": full["Accuracy"], "Precision": full["Precision"], "Recall": full["Recall"],
+                      "F1": full["F1-Score"], "Invalid_Recall": full["Invalid_Recall"],
+                      "Balanced_Accuracy": full["Balanced_Accuracy"]}
             return scores, best_epoch
 
         metrics = {}
         if self.k >= 2:
-            skf = StratifiedKFold(n_splits=self.k, shuffle=True, random_state=self.random_state)
-            scores = {"Accuracy": [], "Precision": [], "Recall": [], "F1": []}
-            print(f"Starting classifier cross-validation: {self.k} folds...")
-            for fold, (train_i, val_i) in enumerate(skf.split(X_np, y_np), start=1):
+            folds = kfold_by_shape(self.train_groups, self.k, self.random_state, stratify=y_np)
+            scores = {"Accuracy": [], "Precision": [], "Recall": [], "F1": [], "Invalid_Recall": [], "Balanced_Accuracy": []}
+            print(f"Starting classifier cross-validation: {self.k} folds (by shape, stratified), batch size {self.batch_size}...")
+            for fold, (train_i, val_i) in enumerate(folds, start=1):
                 fold_scores, best_epoch = run(train_i, val_i, f"Fold {fold}")
                 print(f"Fold {fold}/{self.k}: " + ", ".join(f"{k} {v:.4f}" for k, v in fold_scores.items()) + f", best epoch {best_epoch}")
                 for name, value in fold_scores.items():
@@ -1802,7 +1773,7 @@ class Classifier:
             if not refit:
                 return metrics
 
-        train_i, val_i = _final_split(len(y_np), self.random_state, stratify=y_np)
+        train_i, val_i = _final_split(self.train_groups, self.random_state, stratify=y_np)
         print(f"\nFinal fit on {len(train_i):,} rows (early stopping on {len(val_i):,})...")
         _, best_epoch = run(train_i, val_i, "Final fit")
         print(f"Final model: best epoch {best_epoch}")
@@ -1826,21 +1797,10 @@ class Classifier:
             y_pred_labels = (y_pred_probs > 0.5).cpu().numpy()
         
         y_true = y_test.cpu().numpy()
-        
-        metrics = {
-            "Accuracy": accuracy_score(y_true, y_pred_labels),
-            "Precision": precision_score(y_true, y_pred_labels),
-            "Recall": recall_score(y_true, y_pred_labels),
-            "F1-Score": f1_score(y_true, y_pred_labels),
-            "F2-Score": fbeta_score(y_true, y_pred_labels, beta=2.0),
-        }
-        
-        print("\n--- Model Evaluation on Test Set ---")
-        for name, value in metrics.items():
-            print(f"{name:<10}: {value:.4f}")
-        print("------------------------------------\n")
-        
-        return metrics
+
+        # Valid-class scores, invalid-class scores and the confusion matrix (ai_support.scoring). The trainers
+        # (tuning scripts, ml_gym) print and save the full test report with ai_support.scoring.score_and_save.
+        return classification_metrics(y_true, y_pred_labels)
 
     def predict(self, X):
         """

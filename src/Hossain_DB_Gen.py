@@ -729,11 +729,29 @@ def extract_key_points(kp_seed, cd_limit):
     key_points_partial.unlink(missing_ok=True)
     return [records[p.name] for p in polar_paths if p.name in records]
 
+def _dat_cst(dat_path: Path):
+    '''CST coefficients written in the first line of an airfoil .dat file (None if they cannot be read).'''
+    try:
+        with open(dat_path, encoding="utf-8") as f:
+            match = re.search(r"coefficients:\s*\[([^\]]*)\]", f.readline())
+        return [float(c) for c in match.group(1).split(",")] if match else None
+    except (OSError, ValueError):
+        return None
+
+def _below_limit_polars() -> dict:
+    '''{polar file name: lowest CD} of the polars dropped for being below the laminar CD limit (this run's log).'''
+    try:
+        with open(below_limit_path) as f:
+            return {entry["polar"]: entry["CD"] for entry in json.load(f)["polars"]}
+    except (OSError, ValueError, KeyError):
+        return {}
+
 def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
     '''
     Generates AVL's .geo files that build the wing geometry, this script focuses on replicating Hossain's experiment so there are 3 wing configurations.
     kp_seed fixes the random_state of the key-point GPR fit (None keeps the legacy unseeded fit).
-    Also checks every polar's lowest drag against the laminar flat-plate limit (see laminar_cd_limit).
+    Polars whose lowest drag is below the laminar flat-plate limit (see laminar_cd_limit) are dropped here: they
+    get no geometry file, so they never reach AVL or the dataset (until 2026-11-10 they were only reported).
     '''
     from simulation_support.airfoil_simulation import laminar_cd_limit
 
@@ -748,7 +766,21 @@ def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
     # --- Key points --- #
     cd_limit = laminar_cd_limit(reynolds)
     records = extract_key_points(kp_seed, cd_limit)
-    key_points_data = [r["result"] for r in records if r["result"] is not None]
+
+    # --- Physical check: polars whose lowest CD is below the laminar flat-plate limit are dropped --- #
+    # They get no geometry file, so no AVL run and no dataset row (non-physical XFOIL solution, see laminar_cd_limit).
+    below = [{"airfoil": r["file_path"].replace("polar_", "").replace(".txt", ""), "polar": r["file_path"], **r["cd_min"]}
+             for r in records if r["cd_min"] and r["cd_min"]["CD"] < cd_limit]
+    for entry in below:
+        entry["cst"] = _dat_cst(airfoils_temp_dir / f"{entry['airfoil']}.dat")
+    with open(below_limit_path, "w") as f:
+        json.dump({"laminar_cd_limit": cd_limit, "reynolds": reynolds,
+                   "rule": "polar CDmin < 2 x 1.328 / sqrt(Re) (laminar flat plate, both surfaces)",
+                   "action": "dropped: no geometry files, no AVL runs, no dataset rows",
+                   "polars_checked": sum(1 for r in records if r["cd_min"]), "polars": below}, f, indent=2)
+    below_polars = {entry["polar"] for entry in below}
+
+    key_points_data = [r["result"] for r in records if r["result"] is not None and r["file_path"] not in below_polars]
     kp_errors = Counter()
     with open(key_point_errors_path, "w", encoding="utf-8") as f:
         f.write("polar,error\n")
@@ -756,14 +788,6 @@ def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
             if r["result"] is None:
                 f.write(f"{r['file_path']},{str(r['error']).replace(',', ';')}\n")
                 kp_errors[re.sub(r"\d+", "N", str(r["error"]))[:110]] += 1
-
-    # --- Physical check: polars whose lowest CD is below the laminar flat-plate limit --- #
-    below = [{"airfoil": r["file_path"].replace("polar_", "").replace(".txt", ""), "polar": r["file_path"], **r["cd_min"]}
-             for r in records if r["cd_min"] and r["cd_min"]["CD"] < cd_limit]
-    with open(below_limit_path, "w") as f:
-        json.dump({"laminar_cd_limit": cd_limit, "reynolds": reynolds,
-                   "rule": "polar CDmin < 2 x 1.328 / sqrt(Re) (laminar flat plate, both surfaces)",
-                   "polars_checked": sum(1 for r in records if r["cd_min"]), "polars": below}, f, indent=2)
 
     # --- Geometry files, one progress window per wing configuration --- #
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
@@ -786,7 +810,8 @@ def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
                               len(geo_creator.airfoil_path_map), progress_queue, title=f"{identifier} geometry files",
                               header=f"Creating {identifier} AVL geometry files", details=False,
                               use_gui=USE_GUI, console_desc=f"{identifier} geo files", unit="file")
-            # Airfoils without key points are already listed in key_point_errors.csv
+            # Airfoils without key points are already listed in key_point_errors.csv (failed fit) or in
+            # polars_below_laminar_limit.json (dropped polar)
             other_errors = [e for e in geo_creator.errors if not e['error'].startswith("Key point data not found")]
             for e in other_errors:
                 geo_log.write(f"{identifier},{e['airfoil']},{e['error'].replace(',', ';')}\n")
@@ -800,7 +825,7 @@ def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
         f"Key points extracted:   {len(key_points_data):>9,}  ({pct(len(key_points_data), len(records))})",
         f"Key point failures:     {sum(kp_errors.values()):>9,}, most common:",
         *top_counts(kp_errors),
-        f"Polars below the laminar CD limit ({cd_limit:.5f} at Re = {reynolds:g}): {len(below):,} (reported, not excluded)",
+        f"Polars below the laminar CD limit ({cd_limit:.5f} at Re = {reynolds:g}): {len(below):,} (dropped: no geometry files)",
         "Geometry files:",
         *[f"    {identifier:<6} {count:>9,}  ({errors:,} error(s) besides missing key points)" for identifier, (count, errors) in geo_counts.items()],
     ]
@@ -921,6 +946,7 @@ def write_failed_airfoils_log(configs, skipped_force_files):
     identifiers = [identifier for _, identifier in configs]
     records = _load_key_point_records(key_points_file)
     geo_errors = {(r["config"], r["airfoil"]): r["error"] for r in read_csv_rows(geo_errors_path)}
+    below_limit = _below_limit_polars()
     skipped = {}
     for force_name, reason in skipped_force_files:
         stem = force_name.replace("force_", "", 1).replace(".txt", "")
@@ -938,6 +964,10 @@ def write_failed_airfoils_log(configs, skipped_force_files):
             stage = "Polar Formulation" if not record["complete"] else "AVL Geometric File Formation"
             reason = ("XFOIL did not finish the polar; key points: " if not record["complete"] else "key points: ") + str(record["error"])
             rows.append((name, stage, "all", reason))
+            continue
+        if f"polar_{name}.txt" in below_limit:
+            rows.append((name, "AVL Geometric File Formation", "all",
+                         f"polar dropped: lowest CD {below_limit[f'polar_{name}.txt']:.5f} is below the laminar limit"))
             continue
         for identifier in identifiers:
             geo = geo_files_temp_dir / f"{name}_{identifier}_geo.avl"
@@ -1000,7 +1030,8 @@ def Training_Files_Integration(dataset_dir, n_cst, configs):
     stage_summary(TRAINING_FILES_INTEGRATION, [
         f"Regressor rows:            {counts.get('regression', 0):>9,}  (airfoil x wing configuration)",
         f"Classifier rows:           {counts.get('classification_valid', 0) + counts.get('classification_invalid', 0):>9,}  "
-        f"({counts.get('classification_valid', 0):,} valid, {counts.get('classification_invalid', 0):,} invalid)",
+        f"(one per shape: {counts.get('classification_valid', 0):,} passed the geometric filters, "
+        f"{counts.get('classification_invalid', 0):,} rejected)",
         f"Force files left out:      {len(generator_eff.skipped):>9,}",
         f"Valid airfoils with a failure: {len({name for name, _, _, _ in failed}):,} of {valid_airfoils:,}, by first failed stage:",
         *[f"    {count:>8,}  {stage}" for stage, count in by_stage.most_common()],
@@ -1075,7 +1106,7 @@ def Database_Mending(dataset_dir, params, configs):
         f"    failed      {totals['failed']:>9,}  ({'dropped from the CSV' if rule['drop_failed'] else 'kept'})",
         f"Rounds: {len(result['rounds'])} | rows changed: {result['rows_changed']:,} | rows dropped: {result['failed_rows_dropped']:,}",
         f"Dataset best E: {result['dataset_best_before']:.2f} -> {result['dataset_best_after']:.2f}",
-        f"Re-simulated airfoils below the laminar CD limit: {result['airfoils_below_laminar_limit']:,}",
+        f"Re-simulated airfoils below the laminar CD limit: {result['airfoils_below_laminar_limit']:,}  (counted as failed)",
     ], [final_regressor, final_classifier, paths["report"], paths.get("below_laminar_limit")])
 
     return

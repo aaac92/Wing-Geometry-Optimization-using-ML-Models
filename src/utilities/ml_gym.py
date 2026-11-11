@@ -33,10 +33,14 @@ update and major-update also take:
                  to their own dataset). Example: dataset 17.5 rebuilds 17, its models start from the 17 ones.
 
 Every trained model also gets '<name>_training_info.json' (dataset, configuration, test metrics and,
-for updates, the model it replaced).
+for updates, the model it replaced) and its test score, '<name>_test_score.json' and '<name>_test_score.txt'
+(ai_support.scoring: the regressors' MAE and R2 overall and per wing configuration; the classifier's confusion
+matrix and the recall of the invalid class). utilities/model_score.py recomputes the same score for any saved
+model, and inference_and_testing.py compares it with the score of the models it fine-tunes.
 
 Training protocol: one final fit on the training split (10% of it early-stops the model), scored on the test
-split. --folds 0 (default) skips cross-validation; --folds 5 adds it (CV_* metrics), like the tuning scripts.
+split. Every split is by airfoil shape (ai_support.data_split): the wing configurations of one shape stay together.
+--folds 0 (default) skips cross-validation; --folds 5 adds it (CV_* metrics), like the tuning scripts.
 
 Examples
 --------
@@ -63,7 +67,7 @@ PROJECT_ROOT = SRC_DIR.parent
 sys.path.insert(0, str(SRC_DIR))
 
 import torch  # noqa: E402
-from ai_support import MLP_Regressor, LGBM_Regressor, Classifier, CSTFeatureEngineer  # noqa: E402
+from ai_support import MLP_Regressor, LGBM_Regressor, Classifier, CSTFeatureEngineer, score_and_save  # noqa: E402
 from file_handling_support.dataset_names import dataset_csv, dataset_number_arg, models_folder, parent_dataset  # noqa: E402
 
 # =============================================================================================== #
@@ -91,14 +95,14 @@ DEFAULTS = {
             "epochs": 500, "patience": 16, "weight": "None", "log_trans": False},
     "lgbm": {"n_estimators": 1000, "learning_rate": 0.1, "num_leaves": 20, "max_depth": 10, "objective": "regression_l2",
              "weight": "None", "lr_decay": None, "stopping_rounds": 100},
-    "classifier": {"layers": [128], "learning_rate": 0.075, "epochs": 400, "patience": 40},
+    "classifier": {"layers": [128], "learning_rate": 0.075, "batch_size": 2048, "epochs": 400, "patience": 40},
 }
 
 OLD_MODELS_DIR = "Old models"
 # Every file a model owns is '<name>_<suffix>'; matching whole suffixes keeps 'Murata' from claiming 'Murata_1.1'.
 MODEL_FILE_SUFFIXES = (
     "model.pth", "model.joblib", "scaler.joblib", "poly.joblib", "meta.json", "regressor_model_parameters.json",
-    "parameters.json", "optuna_search_results.csv", "training_info.json",
+    "parameters.json", "optuna_search_results.csv", "training_info.json", "test_score.json", "test_score.txt",
 )
 VERSION_PATTERN = re.compile(r"^(?P<base>.+)_(?P<major>\d+)\.(?P<minor>\d+)$")
 
@@ -291,8 +295,17 @@ def build_model(model_type: str, feature_mode: str, hyper: dict, protocol: dict)
                               k=protocol["folds"], test_size=protocol["test_split"], random_state=protocol["seed"],
                               feature_mode=feature_mode)
     return Classifier(hidden_layer_sizes=list(hyper["layers"]), epochs=hyper["epochs"], lr=hyper["learning_rate"],
-                      patience=hyper["patience"], k=protocol["folds"], test_size=protocol["test_split"],
-                      random_state=protocol["seed"])
+                      patience=hyper["patience"], batch_size=hyper["batch_size"], k=protocol["folds"],
+                      test_size=protocol["test_split"], random_state=protocol["seed"])
+
+
+SUMMARY_METRICS = ("MAE", "R2_Score", "CV_MAE", "CV_R2", "Accuracy", "Balanced_Accuracy", "F1-Score", "Invalid_Recall",
+                   "CV_F1", "CV_Invalid_Recall")
+
+
+def short_metrics(metrics: dict) -> str:
+    """The headline metrics on one line (the full report is in <name>_test_score.txt)."""
+    return ", ".join(f"{k} = {metrics[k]:.4f}" for k in SUMMARY_METRICS if k in metrics)
 
 
 def train_and_save(job: dict, csv_path: Path, protocol: dict, mode: str) -> dict:
@@ -308,13 +321,17 @@ def train_and_save(job: dict, csv_path: Path, protocol: dict, mode: str) -> dict
     folder = job["folder"]
     folder.mkdir(parents=True, exist_ok=True)
     model.save_model(folder, job["name"])
+    # Test score on the test split (by shape), printed and saved next to the model (<name>_test_score.json / .txt)
+    kind = "classifier" if job["type"] == "classifier" else "regressor"
+    score = score_and_save(model, kind, csv_path, folder, job["name"], seed=protocol["seed"], test_size=protocol["test_split"])
     with open(folder / parameters_file_name(job["type"], job["name"]), "w") as f:
         json.dump(params_to_json(job["type"], job["hyper"]), f, indent=4)
     base, major, minor = split_version(job["name"])
     info = {
         "name": job["name"], "base_name": base, "version": f"{major}.{minor}", "mode": mode,
         "previous_model": job.get("previous") or job.get("source_model"), "model_type": job["type"], "feature_mode": job["features"],
-        "dataset_csv": str(csv_path), "hyperparameters": job["hyper"], "protocol": protocol, "test_metrics": metrics,
+        "dataset_csv": str(csv_path), "hyperparameters": job["hyper"], "protocol": {**protocol, "split": "by shape"},
+        "test_metrics": metrics, "test_score": score,
         "started": started.strftime("%Y-%m-%d %H:%M:%S"), "duration_s": round(time.time() - t0, 1),
         "platform": platform.platform(), "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
         "command": " ".join(sys.argv),
@@ -325,7 +342,7 @@ def train_and_save(job: dict, csv_path: Path, protocol: dict, mode: str) -> dict
     if job.get("previous"):
         moved = retire(folder, job["previous"])
         print(f"Moved {len(moved)} file(s) of {job['previous']} to '{folder / OLD_MODELS_DIR}'.")
-    print(f"Saved {job['name']} in '{folder}' | test metrics: " + ", ".join(f"{k} = {v:.4f}" for k, v in metrics.items()))
+    print(f"Saved {job['name']} in '{folder}' | test metrics: {short_metrics(metrics)}")
     return metrics
 
 
@@ -559,7 +576,7 @@ def run_update(args, mode: str) -> None:
     print(f"{mode} summary")
     print("=" * 100)
     for old, new, metrics, error in results:
-        outcome = ", ".join(f"{k} = {v:.4f}" for k, v in metrics.items()) if metrics else f"FAILED ({error})"
+        outcome = short_metrics(metrics) if metrics else f"FAILED ({error})"
         print(f"  {old} {'(retrained in place)' if old == new else '-> ' + new}: {outcome}")
 
 

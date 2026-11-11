@@ -4,6 +4,7 @@
     "n_units_l1": 302,
     "n_units_l2": 297,
     "learning_rate": 0.036909210564138255,
+    "batch_size": 2048,
     "epochs": 522,
     "patience": 24
 }
