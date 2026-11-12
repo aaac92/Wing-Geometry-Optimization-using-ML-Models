@@ -1,8 +1,10 @@
 {
     "n_estimators": 15000,
     "learning_rate": 0.10336059706196284,
-    "max_depth": 20,
     "num_leaves": 100,
+    "max_depth": 20,
     "objective": "combo",
-    "weight": "instance"
+    "weight": "instance",
+    "lr_decay": null,
+    "stopping_rounds": 100
 }

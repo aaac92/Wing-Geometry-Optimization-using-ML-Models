@@ -1,0 +1,43 @@
+{
+    "model": "Agares_1.5",
+    "kind": "regressor",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv",
+    "split": {
+        "by": "shape",
+        "seed": 42,
+        "test_size": 0.2,
+        "rows": 404031,
+        "shapes": 134677,
+        "configurations": 3,
+        "incomplete_shapes": 0,
+        "test_rows": 80808,
+        "test_shapes": 26936,
+        "duplicate_rows_removed": 0
+    },
+    "scored": "2026-11-11 16:56:37",
+    "metrics": {
+        "MAE": 0.36970671229725227,
+        "R2_Score": 0.9773596825874579,
+        "Max_Error": 11.809718814408729
+    },
+    "per_configuration": {
+        "rec": {
+            "rows": 26936,
+            "MAE": 0.39391005989135425,
+            "R2_Score": 0.9775708849095767,
+            "Max_Error": 11.809718814408729
+        },
+        "flat": {
+            "rows": 26936,
+            "MAE": 0.3651885122147299,
+            "R2_Score": 0.9767976374453625,
+            "Max_Error": 10.99648204986508
+        },
+        "60DEG": {
+            "rows": 26936,
+            "MAE": 0.3500215647856726,
+            "R2_Score": 0.9770489921111196,
+            "Max_Error": 10.799698257342165
+        }
+    }
+}

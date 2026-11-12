@@ -2,8 +2,8 @@
     "name": "Calipso_1.5",
     "base_name": "Calipso",
     "version": "1.5",
-    "mode": "update",
-    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/classifier/Calipso",
+    "mode": "retrain",
+    "previous_model": null,
     "model_type": "classifier",
     "feature_mode": "raw",
     "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/classifier_dataset_17.5.csv",
@@ -14,24 +14,65 @@
             297
         ],
         "learning_rate": 0.036909210564138255,
+        "batch_size": 2048,
         "epochs": 522,
         "patience": 24
     },
     "protocol": {
-        "folds": 5,
+        "folds": 0,
         "test_split": 0.2,
-        "seed": 42
+        "seed": 42,
+        "split": "by shape"
     },
     "test_metrics": {
-        "Accuracy": 0.9999760039353546,
-        "Precision": 0.999987625140764,
-        "Recall": 0.999987625140764,
-        "F1-Score": 0.999987625140764,
-        "F2-Score": 0.999987625140764
+        "Accuracy": 1.0,
+        "Precision": 1.0,
+        "Recall": 1.0,
+        "F1-Score": 1.0,
+        "F2-Score": 1.0,
+        "Invalid_Recall": 1.0,
+        "Invalid_Precision": 1.0,
+        "Balanced_Accuracy": 1.0,
+        "Valid_as_Valid": 26954.0,
+        "Valid_as_Invalid": 0.0,
+        "Invalid_as_Valid": 0.0,
+        "Invalid_as_Invalid": 2538.0
     },
-    "started": "2026-11-03 20:44:35",
-    "duration_s": 3209.8,
+    "test_score": {
+        "model": "Calipso_1.5",
+        "kind": "classifier",
+        "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/classifier_dataset_17.5.csv",
+        "split": {
+            "by": "shape",
+            "seed": 42,
+            "test_size": 0.2,
+            "rows": 147456,
+            "shapes": 147456,
+            "configurations": 1,
+            "incomplete_shapes": 0,
+            "test_rows": 29492,
+            "test_shapes": 29492,
+            "duplicate_rows_removed": 0
+        },
+        "scored": "2026-11-11 16:56:30",
+        "metrics": {
+            "Accuracy": 1.0,
+            "Precision": 1.0,
+            "Recall": 1.0,
+            "F1-Score": 1.0,
+            "F2-Score": 1.0,
+            "Invalid_Recall": 1.0,
+            "Invalid_Precision": 1.0,
+            "Balanced_Accuracy": 1.0,
+            "Valid_as_Valid": 26954,
+            "Valid_as_Invalid": 0,
+            "Invalid_as_Valid": 0,
+            "Invalid_as_Invalid": 2538
+        }
+    },
+    "started": "2026-11-11 16:55:31",
+    "duration_s": 58.3,
     "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
     "device": "NVIDIA GeForce GTX 1050 Ti",
-    "command": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/utilities/ml_gym.py update --target /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17 --dataset 17.5 --version 1.5 --select Agares_1.1 Odysseus_1.1 Murata_1.1 Calipso"
+    "command": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/utilities/ml_gym.py retrain --target /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5 --dataset 17.5 --select Calipso_1.5 Marbas Agares_1.5 Odysseus_1.5 Murata_1.5"
 }

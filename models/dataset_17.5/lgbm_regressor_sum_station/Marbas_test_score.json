@@ -1,0 +1,43 @@
+{
+    "model": "Marbas",
+    "kind": "regressor",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv",
+    "split": {
+        "by": "shape",
+        "seed": 42,
+        "test_size": 0.2,
+        "rows": 404031,
+        "shapes": 134677,
+        "configurations": 3,
+        "incomplete_shapes": 0,
+        "test_rows": 80808,
+        "test_shapes": 26936,
+        "duplicate_rows_removed": 0
+    },
+    "scored": "2026-11-11 16:56:51",
+    "metrics": {
+        "MAE": 0.3283692651838732,
+        "R2_Score": 0.9797971469009126,
+        "Max_Error": 12.131112582572719
+    },
+    "per_configuration": {
+        "rec": {
+            "rows": 26936,
+            "MAE": 0.3510332315833559,
+            "R2_Score": 0.9798859259205517,
+            "Max_Error": 12.131112582572719
+        },
+        "flat": {
+            "rows": 26936,
+            "MAE": 0.32358790797422826,
+            "R2_Score": 0.9794676082224829,
+            "Max_Error": 11.193172691028021
+        },
+        "60DEG": {
+            "rows": 26936,
+            "MAE": 0.3104866559940353,
+            "R2_Score": 0.9794588690739584,
+            "Max_Error": 10.959876133177438
+        }
+    }
+}

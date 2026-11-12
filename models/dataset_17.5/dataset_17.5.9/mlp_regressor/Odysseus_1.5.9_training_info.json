@@ -1,0 +1,26 @@
+{
+    "name": "Odysseus_1.5.9",
+    "base_name": "Odysseus",
+    "version": "1.5.9",
+    "mode": "inference fine-tune",
+    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5/mlp_regressor/Odysseus_1.5",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/dataset_17.5.9/regressor_dataset_17.5.9.csv",
+    "run_folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/results/dataset_17.5/20261111_m_seede021ce33",
+    "iterations": 9,
+    "new_rows": 3075,
+    "new_shapes": 1025,
+    "fine_tune": {
+        "accepted": true,
+        "new_rows": 3075,
+        "new_held_out": 615,
+        "anchor_rows": 323223,
+        "mae_new_before": 3.1440468272542565,
+        "mae_new_after": 1.0814470306644595,
+        "mae_anchor_before": 0.2831685042121274,
+        "mae_anchor_after": 0.2494714711158511,
+        "best_epoch": 23
+    },
+    "created": "2026-11-11 19:33:00",
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti"
+}

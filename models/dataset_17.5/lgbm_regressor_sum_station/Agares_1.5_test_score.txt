@@ -1,0 +1,8 @@
+Model: Agares_1.5 (regressor)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv
+Test split: by shape, seed 42, 20% of 134,677 shapes (404,031 rows, 3 configuration(s) per shape) -> 26,936 shapes, 80,808 rows
+MAE 0.3697 | R2 0.97736 | largest error 11.810
+    rec      MAE 0.3939 | R2 0.97757 | largest error 11.810 | 26,936 rows
+    flat     MAE 0.3652 | R2 0.97680 | largest error 10.996 | 26,936 rows
+    60DEG    MAE 0.3500 | R2 0.97705 | largest error 10.800 | 26,936 rows
+Scored: 2026-11-11 16:56:37

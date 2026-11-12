@@ -1,0 +1,16 @@
+================================================================================================
+Dataset 17.5 cleanup - summary (2026-11-11 16:48:37)
+================================================================================================
+Grid: 147,456 CST combinations (Dataset_17.5_442368_data_points.log)
+
+Regressor CSV: 404,040 -> 404,031 rows (9 removed)
+  airfoils below the laminar CD limit (0.00531): 3
+    Test_20094   lowest CD 0.00504 | 3 row(s) removed | CST [-0.125,0.0417,0.0833,0.0833,0.0,0.0,0.125,0.125,0.0833,0.125]
+    Test_92960   lowest CD 0.00318 | 3 row(s) removed | CST [-0.0625,0.125,0.0833,0.0417,0.0,0.0,0.0,0.125,0.125,0.125]
+    Test_97559   lowest CD 0.00505 | 3 row(s) removed | CST [-0.0625,0.125,0.125,0.125,0.0,0.0,0.0,0.0833,0.125,0.0]
+
+Classifier CSV: 416,731 -> 147,456 rows (one per CST combination, 4 decimals)
+  valid   (passed the geometric filters)    134,765   (old file: 134,680 shapes in 404,040 rows)
+  invalid (rejected by the filters)          12,691   (old file: 12,691)
+  valid shapes without a regressor row           88   (simulation failed or polar dropped; they passed the filters, so they stay valid)
+================================================================================================

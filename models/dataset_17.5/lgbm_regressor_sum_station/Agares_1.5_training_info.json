@@ -2,8 +2,8 @@
     "name": "Agares_1.5",
     "base_name": "Agares",
     "version": "1.5",
-    "mode": "update",
-    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17/lgbm_regressor_sum_station/Agares_1.1",
+    "mode": "retrain",
+    "previous_model": null,
     "model_type": "lgbm",
     "feature_mode": "sum_station",
     "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv",
@@ -18,17 +18,61 @@
         "stopping_rounds": 100
     },
     "protocol": {
-        "folds": 5,
+        "folds": 0,
         "test_split": 0.2,
-        "seed": 42
+        "seed": 42,
+        "split": "by shape"
     },
     "test_metrics": {
-        "MAE": 0.13469552298786164,
-        "R2_Score": 0.9961102353323535
+        "MAE": 0.36971031825659645,
+        "R2_Score": 0.9773595910598808
     },
-    "started": "2026-11-03 21:38:05",
-    "duration_s": 448.1,
+    "test_score": {
+        "model": "Agares_1.5",
+        "kind": "regressor",
+        "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv",
+        "split": {
+            "by": "shape",
+            "seed": 42,
+            "test_size": 0.2,
+            "rows": 404031,
+            "shapes": 134677,
+            "configurations": 3,
+            "incomplete_shapes": 0,
+            "test_rows": 80808,
+            "test_shapes": 26936,
+            "duplicate_rows_removed": 0
+        },
+        "scored": "2026-11-11 16:56:37",
+        "metrics": {
+            "MAE": 0.36970671229725227,
+            "R2_Score": 0.9773596825874579,
+            "Max_Error": 11.809718814408729
+        },
+        "per_configuration": {
+            "rec": {
+                "rows": 26936,
+                "MAE": 0.39391005989135425,
+                "R2_Score": 0.9775708849095767,
+                "Max_Error": 11.809718814408729
+            },
+            "flat": {
+                "rows": 26936,
+                "MAE": 0.3651885122147299,
+                "R2_Score": 0.9767976374453625,
+                "Max_Error": 10.99648204986508
+            },
+            "60DEG": {
+                "rows": 26936,
+                "MAE": 0.3500215647856726,
+                "R2_Score": 0.9770489921111196,
+                "Max_Error": 10.799698257342165
+            }
+        }
+    },
+    "started": "2026-11-11 16:56:30",
+    "duration_s": 7.4,
     "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
     "device": "NVIDIA GeForce GTX 1050 Ti",
-    "command": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/utilities/ml_gym.py update --target /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17 --dataset 17.5 --version 1.5 --select Agares_1.1 Odysseus_1.1 Murata_1.1 Calipso"
+    "command": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/src/utilities/ml_gym.py retrain --target /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5 --dataset 17.5 --select Calipso_1.5 Marbas Agares_1.5 Odysseus_1.5 Murata_1.5"
 }
