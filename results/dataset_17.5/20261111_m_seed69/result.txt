@@ -42,7 +42,7 @@ random: validated design s9b942877ab E = 27.9138 (rec) | cold-start: agrees | wi
 Loop iterations completed: 9 | stop: every lane converged
 Finished 22:35:37 earlier than the 24 h ceiling (active run time 1:24:23).
 New versions: dataset 17.5.9 (2409 new rows) and its models in /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/results/dataset_17.5/20261111_m_seed69/dataset_17.5.9/models
-Final models on the dataset's test split (by shape, seed 42, 80,808 rows the models never saw): original -> final, what the fine-tuning made them forget
+Final models on the dataset's test split (by shape, seed 42, 80,808 rows the models never saw): original -> final, a lower MAE means the fine-tuning improved the model on unseen shapes
     Marbas -> Marbas_1.0.9: test split: MAE 0.3284 -> 0.3283 (-0.0000) | R2 0.97980 -> 0.97973
     Odysseus_1.5 -> Odysseus_1.5.9: test split: MAE 0.2935 -> 0.2964 (+0.0029) | R2 0.98154 -> 0.98167
     Murata_1.5 -> Murata_1.5.9: test split: MAE 0.3141 -> 0.2750 (-0.0391) | R2 0.98121 -> 0.98203

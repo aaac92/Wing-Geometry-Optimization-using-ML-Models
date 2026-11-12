@@ -165,7 +165,7 @@ python src/inference_and_testing.py --classifier Calipso_1.5 --models Marbas Ody
 - **Stop rule.** A lane stops when its best E improves by less than 0.5% for 2 iterations in a row.
 - **Final check.** At the end, each lane's top 3 designs are re-simulated with a history-free (cold-start) XFOIL sweep.
 - **Verdict.** A lane is a `SUCCESS!!` when one of its top 3 designs beats the dataset best, agrees with its cold-start simulation and passes every geometric filter. It is a `SUCCESS??` when its best design beats the dataset best but none passes all three checks.
-- **Test split.** The fine-tuning never uses the dataset's test shapes (`--test-split-seed`, default 42, the models' training seed). The final models are scored on them, next to the score of the original models: the difference is what the fine-tuning made them forget.
+- **Test split.** The fine-tuning never uses the dataset's test shapes (`--test-split-seed`, default 42, the models' training seed). The final models are scored on them, next to the score of the original models: a lower MAE means the fine-tuning improved them on unseen shapes.
 - **Output.** The results go to `results/dataset_<N>/<date>_m_seed<seed>/`. The run also writes the expanded dataset (`dataset_<N>.<i>`) and the fine-tuned models (`<Name>_<version>.<i>`), where `i` is the number of iterations.
 - **Resume.** Continue a stopped run with `--resume <run folder>`.
 
@@ -179,32 +179,35 @@ Dataset 17 was simulated with a sequential alpha sweep that produced a non-physi
 - **Mending:** flagged 1,701 rows, and re-simulation confirmed all of them.
 - **Dataset best:** E = 26.64.
 
-Test-split MAE of E, measured with the earlier split by row. These values are optimistic for unseen shapes; the models are being retrained with the split by shape and the table will be replaced:
+Test split by shape (seed 42): 80,808 rows from 26,936 shapes the models never saw.
 
-| Model | Type | Test MAE of E |
-| --- | --- | --- |
-| Murata_1.5 | MLP, `sum_station` | 0.131 |
-| Agares_1.5 | LightGBM, `sum_station` | 0.135 |
-| Odysseus_1.5 | MLP, `raw` | 0.162 |
+| Model | Type | Test MAE of E | R² | Max error |
+| --- | --- | --- | --- | --- |
+| Odysseus_1.5 | MLP, `raw` | 0.293 | 0.9815 | 11.9 |
+| Murata_1.5 | MLP, `sum_station` | 0.314 | 0.9812 | 11.3 |
+| Marbas | LightGBM, `sum_station` | 0.328 | 0.9798 | 12.1 |
+| Agares_1.5 | LightGBM, `sum_station` | 0.370 | 0.9774 | 11.8 |
 
-All three have R² ≥ 0.995. The classifier Calipso_1.5 is also being retrained: its earlier dataset repeated every valid shape three times, so its earlier score (F1 = 0.99999) was not a real test.
+The earlier split by row put the other configurations of a test shape in the training rows, which gave optimistic scores (MAE 0.13–0.16). The classifier Calipso_1.5 learns the geometric filters; it classified all 29,492 test shapes correctly.
 
 ### Iterative inference
 
-Run `results/dataset_17.5/20261106_m_seede021ce33`: 6 iterations, 3 h. Every lane converged. The run predates the split by shape and the retraining, and will be repeated with the same seed.
+Three runs with the models retrained with the split by shape, on the same dataset, with seeds `e021ce33`, `67` and `69` (`results/dataset_17.5/20261111_m_seed*`). Each took 8–9 iterations and 1.4–2.0 h. Every lane beat the dataset best (target E = 26.66, re-simulated) in every run.
 
-| Lane | Verdict | Best E | vs dataset best | Shapes simulated to beat it | Cold-start E of the best design |
-| --- | --- | --- | --- | --- | --- |
-| Marbas (LightGBM) | SUCCESS!! | 29.31 | +9.9% | 8 | 29.01 |
-| Odysseus_1.5 (MLP) | SUCCESS!! | 29.24 | +9.7% | 19 | 28.58 |
-| Murata_1.5 (MLP) | SUCCESS?? | 29.24 | +9.7% | 7 | failed |
-| consensus | SUCCESS?? | 29.17 | +9.4% | 6 | 28.69 |
-| random (control) | SUCCESS?? | 29.34 | +10.1% | 32 | 23.21 |
+| Lane | Verdicts (e021ce33 / 67 / 69) | Best E, mean ± SD | vs target | Shapes simulated to beat the target |
+| --- | --- | --- | --- | --- |
+| Marbas (LightGBM) | !! / !! / !! | 29.54 ± 0.31 | +10.8% | 7 / 7 / 6 |
+| Odysseus_1.5 (MLP) | ?? / ?? / !! | 29.19 ± 0.26 | +9.5% | 23 / 35 / 25 |
+| Murata_1.5 (MLP) | !! / ?? / ?? | 28.50 ± 0.41 | +6.9% | 30 / 30 / 30 |
+| consensus | ?? / !! / ?? | 29.71 ± 1.03 | +11.4% | 18 / 11 / 7 |
+| random (control) | ?? / !! / !! | 28.56 ± 0.77 | +7.1% | 32 / 30 / 34 |
 
-- **Speed.** The model lanes beat the dataset best after 6–19 simulated shapes. The random control needed 32.
-- **Cold start.** The best designs of Marbas, Odysseus and consensus lose 1.0–2.2% of E in the cold-start check. The random lane's best design loses 21%.
-- **Validated designs.** Three designs pass the full validation: Marbas `s1c023d7829` (E 29.27, +9.8%) and `s13496103a7` (E 29.18, +9.5%), and Odysseus `sc1ca28d413` (E 28.96, +8.6%). They give those two lanes their `SUCCESS!!`.
-- **Outside the dataset.** The best designs lie 0.6–2 grid steps outside the dataset window, mostly in the trailing-edge coefficients. The next dataset should widen those bounds.
+- **Speed.** Marbas beats the dataset best after about 7 simulated shapes in every run; the random control needs about 30.
+- **One optimum region.** 10 of the 15 lane winners lie within about 1 grid step of another winner (E 28.2–29.5, rec configuration), outside the dataset window with cst_l_1, cst_l_5 and cst_u_5 above the grid. The next dataset should widen those bounds.
+- **Best validated design.** Marbas `s5b1f793f71` (seed 69): E 29.90 (+12.2%), cold-start agrees, filters pass.
+- **Murata_1.5.** Its iteration-0 picks are predicted at E ≈ 34 but simulate at ≈ 19 in every run, and its last iteration is wrong the same way. Its lane stops on these failed picks, not at an optimum.
+- **Verdicts vary between seeds.** The cold-start check needs ≥ 99% of about 32 pre-stall angles on the same branch, so one angle decides it. The curvature filter rejects 19 of the 45 top-3 designs, including random-lane designs. Compare lanes by best E and shapes simulated, not by the verdict.
+- **Fine-tuning.** On the test split, Murata_1.5 improved in every run (MAE 0.314 → 0.274–0.285), Odysseus_1.5 in two (0.294 → 0.260, +0.003 in the third), and Marbas did not change.
 
 ## License
 

@@ -38,7 +38,8 @@ Flow:
     Test split (--test-split-seed, default 42: the seed the models were trained with): the dataset's test shapes
         (split by airfoil shape, ai_support.data_split) are never used here. The fine-tuning takes its dataset
         ("anchor") rows from the training shapes only, and every final model is scored on the test split, next to
-        the score saved when the original model was trained: the difference is what the fine-tuning made it forget.
+        the score saved when the original model was trained: a lower MAE means the fine-tuning improved the model on
+        unseen shapes, a higher one that it lost accuracy there.
 
 Recovery (power cuts, accidental shutdowns): every finished simulation is appended to simulations.jsonl and forced
 to disk at once; the run state (lanes, tracks, picks, stop counters) is written atomically at every phase of every
@@ -1529,7 +1530,7 @@ def write_reports(ctx, lanes: list, designs: dict, reach: dict, expansion: dict,
         if expansion.get("test_scores"):
             split = expansion["test_split"]
             lines.append(f"Final models on the dataset's test split (by shape, seed {split['seed']}, {split['rows']:,} rows the "
-                         f"models never saw): original -> final, what the fine-tuning made them forget")
+                         f"models never saw): original -> final, a lower MAE means the fine-tuning improved the model on unseen shapes")
             for new_name, score in expansion["test_scores"].items():
                 lines.append(f"    {score['original_model']} -> {new_name}: {test_score_text(score)}")
     else:
