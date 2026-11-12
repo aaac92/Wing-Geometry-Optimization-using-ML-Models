@@ -1,0 +1,26 @@
+{
+    "name": "Marbas_1.0.9",
+    "base_name": "Marbas",
+    "version": "1.0.9",
+    "mode": "inference fine-tune",
+    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5/lgbm_regressor_sum_station/Marbas",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/results/dataset_17.5/20261111_m_seed69/dataset_17.5.9/data/regressor_dataset_17.5.9.csv",
+    "run_folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/results/dataset_17.5/20261111_m_seed69",
+    "iterations": 9,
+    "new_rows": 2409,
+    "new_shapes": 803,
+    "fine_tune": {
+        "accepted": true,
+        "new_rows": 2409,
+        "new_held_out": 483,
+        "anchor_rows": 323223,
+        "mae_new_before": 2.3602354960618603,
+        "mae_new_after": 1.0322182901282508,
+        "mae_anchor_before": 0.24413232892887296,
+        "mae_anchor_after": 0.2432514243923245,
+        "trees_added": 92
+    },
+    "created": "2026-11-11 23:04:59",
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti"
+}

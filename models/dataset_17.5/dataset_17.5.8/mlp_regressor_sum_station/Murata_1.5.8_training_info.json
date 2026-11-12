@@ -1,0 +1,26 @@
+{
+    "name": "Murata_1.5.8",
+    "base_name": "Murata",
+    "version": "1.5.8",
+    "mode": "inference fine-tune",
+    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5/mlp_regressor_sum_station/Murata_1.5",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/dataset_17.5.8/regressor_dataset_17.5.8.csv",
+    "run_folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/results/dataset_17.5/20261111_m_seed67",
+    "iterations": 8,
+    "new_rows": 2976,
+    "new_shapes": 992,
+    "fine_tune": {
+        "accepted": true,
+        "new_rows": 2976,
+        "new_held_out": 594,
+        "anchor_rows": 323223,
+        "mae_new_before": 6.184500886133624,
+        "mae_new_after": 0.9574883297236279,
+        "mae_anchor_before": 0.299065812735521,
+        "mae_anchor_after": 0.2580255838546558,
+        "best_epoch": 3
+    },
+    "created": "2026-11-11 21:40:23",
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti"
+}

@@ -1,0 +1,8 @@
+Model: Marbas_1.0.8 (regressor)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv
+Test split: by shape, seed 42, 20% of 134,677 shapes (404,031 rows, 3 configuration(s) per shape) -> 26,936 shapes, 80,808 rows
+MAE 0.3270 | R2 0.97977 | largest error 12.195
+    rec      MAE 0.3495 | R2 0.97988 | largest error 12.195 | 26,936 rows
+    flat     MAE 0.3224 | R2 0.97943 | largest error 11.270 | 26,936 rows
+    60DEG    MAE 0.3091 | R2 0.97943 | largest error 11.038 | 26,936 rows
+Scored: 2026-11-11 21:39:32

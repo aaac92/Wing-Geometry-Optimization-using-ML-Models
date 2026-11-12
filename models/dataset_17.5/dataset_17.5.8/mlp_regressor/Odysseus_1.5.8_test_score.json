@@ -1,0 +1,43 @@
+{
+    "model": "Odysseus_1.5.8",
+    "kind": "regressor",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.5/regressor_dataset_17.5.csv",
+    "split": {
+        "by": "shape",
+        "seed": 42,
+        "test_size": 0.2,
+        "rows": 404031,
+        "shapes": 134677,
+        "configurations": 3,
+        "incomplete_shapes": 0,
+        "test_rows": 80808,
+        "test_shapes": 26936,
+        "duplicate_rows_removed": 0
+    },
+    "scored": "2026-11-11 21:40:04",
+    "metrics": {
+        "MAE": 0.25971862158376463,
+        "R2_Score": 0.9828435736696048,
+        "Max_Error": 11.570738315582275
+    },
+    "per_configuration": {
+        "rec": {
+            "rows": 26936,
+            "MAE": 0.2753544734768931,
+            "R2_Score": 0.9830115628650623,
+            "Max_Error": 11.570738315582275
+        },
+        "flat": {
+            "rows": 26936,
+            "MAE": 0.2584356782478835,
+            "R2_Score": 0.9824051673460541,
+            "Max_Error": 10.795787811279297
+        },
+        "60DEG": {
+            "rows": 26936,
+            "MAE": 0.2453657130265173,
+            "R2_Score": 0.9826116991210512,
+            "Max_Error": 10.37626028060913
+        }
+    }
+}
