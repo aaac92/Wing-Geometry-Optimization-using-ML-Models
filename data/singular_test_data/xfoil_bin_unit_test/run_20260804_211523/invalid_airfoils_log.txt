@@ -1,0 +1,48 @@
+UnitTest_1.dat: cmb_l = [-0.0625      0.04166667  0.125       0.08333333  0.        ], cmb_u = [0.125      0.04166667 0.         0.08333333 0.        ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_5.dat: cmb_l = [-0.125       0.125       0.08333333  0.08333333  0.125     ], cmb_u = [0.125 0.    0.125 0.    0.   ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_5.dat: cmb_l = [-0.125       0.125       0.08333333  0.08333333  0.125     ], cmb_u = [0.0625     0.04166667 0.04166667 0.08333333 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_5.dat: cmb_l = [-0.125       0.08333333  0.125       0.04166667  0.125     ], cmb_u = [0.0625     0.04166667 0.04166667 0.08333333 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_9.dat: cmb_l = [-0.125       0.125       0.08333333  0.04166667  0.        ], cmb_u = [0.125      0.04166667 0.125      0.04166667 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_9.dat: cmb_l = [0.         0.125      0.125      0.04166667 0.        ], cmb_u = [0.125      0.         0.04166667 0.125      0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_13.dat: cmb_l = [-0.0625      0.125       0.04166667  0.          0.        ], cmb_u = [0.125      0.         0.         0.08333333 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_33.dat: cmb_l = [-0.125       0.08333333  0.125       0.          0.125     ], cmb_u = [0.125      0.04166667 0.04166667 0.04166667 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_35.dat: cmb_l = [-0.0625      0.125       0.          0.08333333  0.        ], cmb_u = [0.125 0.    0.    0.125 0.125] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_44.dat: cmb_l = [-0.125  0.125  0.125  0.     0.125], cmb_u = [0.0625     0.04166667 0.08333333 0.         0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_47.dat: cmb_l = [-0.125       0.125       0.125       0.08333333  0.        ], cmb_u = [0.0625     0.         0.08333333 0.08333333 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_70.dat: cmb_l = [-0.125       0.08333333  0.125       0.125       0.125     ], cmb_u = [0.0625     0.08333333 0.         0.04166667 0.        ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_71.dat: cmb_l = [-0.125       0.125       0.125       0.04166667  0.        ], cmb_u = [0.125      0.08333333 0.         0.08333333 0.        ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_79.dat: cmb_l = [-0.125  0.125  0.     0.125  0.   ], cmb_u = [0.125      0.         0.08333333 0.         0.        ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_121.dat: cmb_l = [-0.0625      0.08333333  0.125       0.          0.        ], cmb_u = [0.0625     0.         0.         0.04166667 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_130.dat: cmb_l = [-0.125       0.08333333  0.125       0.125       0.        ], cmb_u = [0.0625     0.08333333 0.04166667 0.         0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_150.dat: cmb_l = [-0.0625  0.125   0.125   0.      0.    ], cmb_u = [0.0625     0.         0.04166667 0.         0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_152.dat: cmb_l = [0.         0.08333333 0.125      0.         0.        ], cmb_u = [0.125 0.    0.    0.    0.   ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_162.dat: cmb_l = [-0.0625  0.125   0.125   0.      0.125 ], cmb_u = [0.125      0.         0.04166667 0.04166667 0.        ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_166.dat: cmb_l = [0.         0.125      0.125      0.04166667 0.125     ], cmb_u = [0.125      0.04166667 0.         0.04166667 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_175.dat: cmb_l = [-0.125       0.125       0.125       0.04166667  0.125     ], cmb_u = [0.0625     0.04166667 0.         0.125      0.        ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_177.dat: cmb_l = [-0.0625      0.08333333  0.125       0.04166667  0.125     ], cmb_u = [0.125      0.08333333 0.         0.08333333 0.125     ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_183.dat: cmb_l = [-0.125       0.          0.125       0.08333333  0.        ], cmb_u = [0.125      0.         0.04166667 0.04166667 0.        ] | Reason: Maximum thickness location found further front than 0.18
+
+UnitTest_191.dat: cmb_l = [-0.125       0.04166667  0.125       0.          0.        ], cmb_u = [0.125      0.04166667 0.04166667 0.125      0.        ] | Reason: Maximum thickness location found further front than 0.18
+

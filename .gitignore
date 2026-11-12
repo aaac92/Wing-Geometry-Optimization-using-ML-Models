@@ -24,7 +24,6 @@ bin/*
 *.zip
 *.7z
 data/dataset_build_data/
-data/singular_test_data/
 
 # Test and smoke datasets
 data/datasets/dataset_67/

@@ -1,0 +1,15 @@
+{
+  "signature": "483820cbbfcf62068e1e42ce86408eab81903a5740aba28b8c44acac845e1633",
+  "n_airfoils": 32,
+  "aseq": [
+    -20,
+    20,
+    0.1
+  ],
+  "re": 250000.0,
+  "mach": 0.09281,
+  "n_cst": 5,
+  "sweep_mode": "zero_out",
+  "sweep_revision": 3,
+  "generated_at": "2026-11-12 00:32:41"
+}

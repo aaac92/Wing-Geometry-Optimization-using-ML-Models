@@ -1,0 +1,11 @@
+airfoil,elapsed_sec,points_written,points_requested,fully_converged,exhausted_or_partial_but_flagged,crashed_unflagged,unhandled_exception
+UnitTest_1,7.5,81,81,True,False,False,False
+UnitTest_2,7.2,80,81,False,True,False,False
+UnitTest_3,8.5,77,81,False,True,False,False
+UnitTest_4,51.4,8,81,False,True,False,False
+UnitTest_5,8.3,77,81,False,True,False,False
+UnitTest_6,6.5,82,81,True,False,False,False
+UnitTest_7,7.0,80,81,False,True,False,False
+UnitTest_8,6.7,80,81,False,True,False,False
+UnitTest_9,6.3,82,81,True,False,False,False
+UnitTest_10,8.7,77,81,False,True,False,False
