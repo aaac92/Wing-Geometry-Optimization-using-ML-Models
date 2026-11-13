@@ -1,11 +1,11 @@
 # Wing Geometry Optimization using ML Models
 
-Machine-learning surrogates that search for airfoil shapes that maximize the aerodynamic efficiency (E = CL/CD) of a finite wing. They aim to beat the best design of a simulated dataset while running far fewer simulations than a blind search.
+Machine-learning surrogates that search for wing configurations/shapes that maximize the aerodynamic efficiency (E = CL/CD) of a finite wing. They aim to beat the best design of a simulated dataset while running far fewer simulations than a blind search.
 
 Each design is labeled by a simulation chain:
 
 ```
-10 CST coefficients ─► airfoil (.dat) ─► XFOIL polar ─► key points (GPR fit) ─► AVL wing, 3 configurations ─► CL, CD, E
+'n' CST coefficients ─► airfoil (.dat) ─► XFOIL polar ─► key points (GPR fit) ─► AVL wing configuration/s ─► CL, CD, E
 ```
 
 - A **classifier** predicts whether a shape passes the geometric filters.
@@ -33,7 +33,7 @@ src/        packages, drivers and utilities
    ```
 2. **Patch `cst_modeling`.** The code expects two additions to `cst_modeling/foil.py` (package `cst_modeling3d` 0.2.8) that the PyPI release lacks:
    - A `verbose=True` argument that silences the error prints of `check_validity`. `FoilGeoFeatures` and `FoilModification` also take it and pass it on.
-   - `FoilGeoFeatures.get_minimum_camber()`: the counterpart of `get_maximum_camber` for negative camber.
+   - `FoilGeoFeatures.get_minimum_camber()`: the counterpart of `get_maximum_camber` used for negative camber, since `get_minimum_camber` reads as 0 when the camber becomes negative.
 3. **XFOIL and AVL** (Mark Drela and Harold Youngren, MIT, GPL):
    - Get them from the official pages: [XFOIL](https://web.mit.edu/drela/Public/web/xfoil/) and [AVL](https://web.mit.edu/drela/Public/web/avl/). Download the Windows executables, or build from source on Linux.
    - Place them in `bin/` as `xfoil` and `avl`, with the `.exe` extension on Windows.
@@ -45,6 +45,7 @@ src/        packages, drivers and utilities
      python src/simulation_support/avl_simulation.py
      ```
    - XFOIL cuts file names at 64 characters and AVL cuts force-file names at 80 (`simulation_support/file_names.py`). The drivers therefore work in short temporary folders (`C:\` on Windows, `~/.<name>` on Linux).
+   - To reprodue dataset 17 and 17.5 use [RobotLocomotion](https://github.com/RobotLocomotion)'s CMake compilation in Linux. This will compile older versions of both XFOIL (6.97) and AVL (3.32). Make sure double precision is on. AVL 3.32 takes `CDCL` arguments per section and cannot take them per surface, while AVL 3.40 can use both notations.
 4. **RAR command line** (`Rar.exe` from WinRAR on Windows, `rar` on Linux). The dataset builder uses it to archive each stage.
 5. **Git LFS** (`git lfs install`) before cloning, so the LightGBM `.joblib` models download in full.
 
@@ -69,18 +70,18 @@ src/        packages, drivers and utilities
 | `utilities/dataset_rectification.py` | Diagnoses and rectifies an existing dataset |
 | `Database_Generation.py`, `AI_Airfoil_Tests.py` | Legacy drivers (datasets ≤ 16), kept for reference |
 
-Reusable modules keep their former command line as a self-test under `if __name__ == "__main__"`.
+Reusable modules use command line functionality for self-tests under `if __name__ == "__main__"`.
 
 ## Creating a study
 
 ### 1. Choose a case
 
 A case needs three things:
-- a reference wing, ideally with experimental data to validate the AVL model against;
+- a reference wing, ideally with experimental data to avoid unrealistic results during simulation;
 - a fixed flight condition (Re, Mach);
 - an objective that the AVL output can compute.
 
-This work replicates the wind-tunnel wing of Hossain et al. (2011)[^hossain]: chord 0.121 m, Re = 2.5×10⁵, Mach = 0.0928. It uses three configurations: `rec` (no winglet), `flat` (flat winglet) and `60DEG` (60° winglet). Before building a dataset, check that the base airfoil reproduces the reference results.
+This work replicates the wind-tunnel wing of Hossain et al. (2011)[^hossain]: chord 0.121 m, Re = 2.5×10⁵, Mach = 0.0928. It uses three configurations: `rec` (no winglet), `flat` (flat winglet) and `60DEG` (60° winglet). Before building a dataset, check that the base airfoil reproduces the reference results. In this case results cannot be replicated since AVL's Vortex Lattice method cannot represent correctly how a winglet performs on a wing. Using AVL the results where opposite of what is expected of a wing using a winglet, and the rectangular configuration outperformed the other two in almost all airfoil shapes.
 
 ### 2. Describe the wing in AVL
 
@@ -94,7 +95,7 @@ Then:
 - register its identifier in `GEO_CREATORS_BY_IDENTIFIER` (`simulation_support/airfoil_simulation.py`), which the mending, the sweep check and the inference use to re-simulate;
 - put the AVL run case (flight condition) in `data/support/`, like `Hossain_sqwing_case.run`.
 
-The identifier becomes the configuration's one-hot column in the regressor dataset.
+In this case the identifier becomes the configuration's one-hot column in the regressor dataset. If using a continuous feature like geometric twist or taper ratio then the column should not be a one-hot column.
 
 ### 3. Define the shape limits
 
@@ -146,7 +147,7 @@ Models are saved as `models/dataset_<N>/<type>/<Name>_*`, with a name drawn from
 
 To train one known configuration, or to update saved models on a new dataset (the update becomes version `Name_1.1`), use `utilities/ml_gym.py`. Its docstring has examples.
 
-- **Split by shape.** The test split (20%), the cross-validation folds and the early-stopping slice are all split by airfoil shape (`ai_support/data_split.py`). The three wing configurations of one shape have almost proportional E values, so a split by row would test the models on shapes they have already seen.
+- **Split by shape.** The test split (20%), the cross-validation folds and the early-stopping slice are all split by airfoil shape (`ai_support/data_split.py`). A split by row could test the models on shapes they have already seen.
 - **Test score.** Every trained model gets its test-split score saved next to it, as `<Name>_test_score.txt` and `.json`. Regressors get MAE and R², overall and per wing configuration. The classifier gets its confusion matrix and the recall of the invalid class.
 - **Scoring later.** Score any saved model again, for example with another split seed:
 
