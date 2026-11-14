@@ -41,6 +41,22 @@ COLORS = {
     'cf_camber': '#808080',
     'cf_max_c': '#D62728',
     'cf_min_c': '#FF7F0E',
+
+    # plot_convergence ('cv_<lane name>' sets a lane's color; lanes without one use the matplotlib color cycle)
+    'cv_dataset_best': '#2CA02C',
+    'cv_target': '#808080',
+
+    # plot_parity ('pp_<model name>' sets a model's color; models without one use the matplotlib color cycle)
+    'pp_perfect': '#808080',
+    'pp_dataset_best': '#2CA02C',
+}
+
+# Font sizes of the inference plots (plot_convergence, plot_parity); None keeps the matplotlib default.
+# Swap values here or pass `font_sizes`, e.g. larger ones for figures printed at half the page width.
+FONT_SIZES = {
+    'label': None,
+    'tick': None,
+    'legend': 8,
 }
 
 def plot_LE_slopes(x, zu, zl, geo_filt_parm, n_points=10, colors=None, zoom_margin=0.15):
@@ -363,3 +379,94 @@ def plot_camber_filter(x, zu, zl, geo_filt_parm, colors=None):
 
     plt.tight_layout()
     plt.show()
+
+def _apply_font_sizes(ax, fs):
+    """Axis-label and tick font sizes of an inference plot (None keeps the matplotlib default)."""
+    if fs['label'] is not None:
+        ax.xaxis.label.set_size(fs['label'])
+        ax.yaxis.label.set_size(fs['label'])
+    if fs['tick'] is not None:
+        ax.tick_params(labelsize=fs['tick'])
+
+def plot_convergence(curves, dataset_best, target, labels=None, styles=None, colors=None, ylim=None, font_sizes=None):
+    """
+    Convergence of an iterative inference run (inference_and_testing.py): best simulated E against the number of
+    shapes each lane simulated, one step line per lane, plus horizontal lines at the dataset best and the target.
+    Spanish-labelled version of the run's convergence.png (inference_and_testing.save_plots); the caller builds the
+    curves with inference_and_testing.simulations_to_reach.
+
+    Parameters:
+        curves       : {lane name: (shape counts, best simulated E so far)}, in drawing order
+        dataset_best : best E of the dataset
+        target       : E the run had to beat
+        labels       : optional {lane name: legend label} (default: the lane name)
+        styles       : optional {lane name: extra ax.step kwargs}, e.g. {'random': {'linestyle': '--'}}
+        colors       : optional dict overriding entries in the module COLORS dict
+        ylim         : optional (low, high), to share the y axis between runs
+        font_sizes   : optional dict overriding entries in the module FONT_SIZES dict
+    Returns the figure (the caller saves or shows it).
+    """
+    c = {**COLORS, **(colors or {})}
+    fs = {**FONT_SIZES, **(font_sizes or {})}
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for lane, (counts, best) in curves.items():
+        kwargs = {'linewidth': 2, **(styles or {}).get(lane, {})}
+        ax.step(counts, best, where='post', color=c.get(f'cv_{lane}'), label=(labels or {}).get(lane, lane), **kwargs)
+
+    ax.axhline(dataset_best, color=c['cv_dataset_best'], linestyle='--', linewidth=1.5,
+               label=f'Mejor de la base de datos ({dataset_best:.2f})')
+    ax.axhline(target, color=c['cv_target'], linestyle=':', linewidth=1.5, label=f'Objetivo ({target:.2f})')
+
+    ax.set_xlabel('Formas simuladas por el carril\n(cada una en las tres configuraciones alares)')
+    ax.set_ylabel('Mejor eficiencia simulada, $E$')
+    _apply_font_sizes(ax, fs)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='lower right', fontsize=fs['legend'])
+
+    plt.tight_layout()
+    return fig
+
+def plot_parity(points, dataset_best, labels=None, colors=None, xlim=None, ylim=None, font_sizes=None):
+    """
+    Predicted against simulated E of an iterative inference run (inference_and_testing.py): for every pick of every
+    lane, each model's prediction when the shape was picked against the simulated E, one point per wing
+    configuration, plus the perfect-prediction diagonal and a horizontal line at the dataset best.
+    Spanish-labelled version of the run's parity.png (inference_and_testing.save_plots).
+
+    Parameters:
+        points       : {model name: (predicted E values, simulated E values)}, in drawing order
+        dataset_best : best E of the dataset
+        labels       : optional {model name: legend label} (default: the model name)
+        colors       : optional dict overriding entries in the module COLORS dict
+        xlim, ylim   : optional (low, high) of each axis, to share them between runs (default: the data range)
+        font_sizes   : optional dict overriding entries in the module FONT_SIZES dict
+    Returns the figure (the caller saves or shows it).
+    """
+    c = {**COLORS, **(colors or {})}
+    fs = {**FONT_SIZES, **(font_sizes or {})}
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for model, (predicted, simulated) in points.items():
+        ax.scatter(predicted, simulated, s=20, alpha=0.5, color=c.get(f'pp_{model}'), label=(labels or {}).get(model, model))
+
+    xlim = xlim if xlim is not None else ax.get_xlim()
+    ylim = ylim if ylim is not None else ax.get_ylim()
+    diagonal = (max(xlim[0], ylim[0]), min(xlim[1], ylim[1]))
+    ax.plot(diagonal, diagonal, linestyle='--', color=c['pp_perfect'], linewidth=1.5, label='Predicción perfecta')
+    ax.axhline(dataset_best, color=c['pp_dataset_best'], linewidth=1.5, label='Mejor de la base de datos')
+
+    ax.set_xlabel('$E$ predicha (al seleccionar)')
+    ax.set_ylabel('$E$ simulada')
+    _apply_font_sizes(ax, fs)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best', fontsize=fs['legend'], markerscale=2)
+
+    plt.tight_layout()
+    return fig

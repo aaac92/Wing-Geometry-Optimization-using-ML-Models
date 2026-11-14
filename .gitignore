@@ -33,3 +33,6 @@ data/logs/Dataset_67_*
 data/logs/Dataset_69_*
 data/logs/Dataset_smoke_*
 data/logs/dataset_smoke/
+
+# Thesis figures redrawn by src/utilities/results_plotter.py
+figures_es/
