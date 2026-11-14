@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle, Arc
+from scipy.interpolate import make_interp_spline
 from cst_modeling.foil import FoilGeoFeatures
 from .custom_filters import compute_true_thickness, LE_angular_curvature_continuity, monotonic_airfoil_thickness
 
@@ -41,6 +42,18 @@ COLORS = {
     'cf_camber': '#808080',
     'cf_max_c': '#D62728',
     'cf_min_c': '#FF7F0E',
+
+    # plot_airfoil
+    'af_airfoil': '#000000',
+    'af_fill': '#D3D3D3',
+
+    # plot_cst_comparison (Airfoil_Generator.generate(show_plot=True))
+    'cc_base': '#808080',
+    'cc_modified': '#0000FF',
+
+    # plot_cst_comparison_smooth (Airfoil_Generator.generate(show_fancy_plot=True))
+    'cs_base': '#4D4D4D',
+    'cs_modified': '#3EB489',
 
     # plot_convergence ('cv_<lane name>' sets a lane's color; lanes without one use the matplotlib color cycle)
     'cv_dataset_best': '#2CA02C',
@@ -470,3 +483,95 @@ def plot_parity(points, dataset_best, labels=None, colors=None, xlim=None, ylim=
 
     plt.tight_layout()
     return fig
+
+def plot_airfoil(x, zu, zl, title=None, colors=None):
+    """
+    Plot one airfoil the way the filter plots draw it (same size, fill, axes, limits and legend), without any filter.
+
+    Parameters:
+        x, zu, zl   : arrays of x and z coordinates
+        title       : optional title
+        colors      : optional dict overriding entries in the module COLORS dict
+    """
+    c = {**COLORS, **(colors or {})}
+
+    _, ax = plt.subplots(figsize=(10, 6))
+
+    ax.plot(x, zu, color=c['af_airfoil'], linewidth=1.5, label='Perfil Aerodinámico', zorder=4)
+    ax.plot(x, zl, color=c['af_airfoil'], linewidth=1.5, zorder=4)
+    ax.fill_between(x, zu, zl, color=c['af_fill'], alpha=0.4, zorder=1)
+
+    # Axii
+    ax.axvline(0, linestyle='--', linewidth=1, color='black', zorder=2)
+    ax.axhline(0, linestyle='--', linewidth=1, color='black', zorder=2)
+
+    ax.set_xlabel('x/c')
+    ax.set_ylabel('z/c')
+    if title:
+        ax.set_title(title)
+    ax.legend(loc='upper right', fontsize=8)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(-0.25, 0.25)
+    ax.set_xlim(-0.05, 1.05)
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_cst_comparison(x_base, zu_base, zl_base, x_mod, zu_mod, zl_mod, colors=None):
+    """
+    Plot a base airfoil (dashed) and its CST modification, as Airfoil_Generator.generate(show_plot=True) does.
+
+    Parameters:
+        x_base, zu_base, zl_base : coordinates of the base airfoil (its CST reconstruction)
+        x_mod, zu_mod, zl_mod    : coordinates of the modified airfoil
+        colors                   : optional dict overriding entries in the module COLORS dict
+    """
+    c = {**COLORS, **(colors or {})}
+
+    plt.figure(figsize=(15, 6))
+    plt.plot(x_base, zu_base, label='CST Airfoil', color=c['cc_base'], linestyle='--')
+    plt.plot(x_base, zl_base, color=c['cc_base'], linestyle='--')
+    plt.plot(x_mod, zu_mod, label='Modified Airfoil', color=c['cc_modified'])
+    plt.plot(x_mod, zl_mod, color=c['cc_modified'])
+    plt.axis('equal')
+    plt.grid(True)
+    plt.legend()
+    plt.title('Airfoil Visualization')
+    plt.xlabel('x/c')
+    plt.ylabel('z/c')
+    plt.show()
+
+def plot_cst_comparison_smooth(x_base, zu_base, zl_base, x_mod, zu_mod, zl_mod, colors=None):
+    """
+    Plot a base airfoil (dashed) and its CST modification with the modified curves smoothed by a cubic spline
+    (500 points), for exports; as Airfoil_Generator.generate(show_fancy_plot=True) does.
+
+    Parameters:
+        x_base, zu_base, zl_base : coordinates of the base airfoil (its CST reconstruction)
+        x_mod, zu_mod, zl_mod    : coordinates of the modified airfoil
+        colors                   : optional dict overriding entries in the module COLORS dict
+    """
+    c = {**COLORS, **(colors or {})}
+
+    # --- Smoothing the Modified Airfoil Data --- #
+    x_smooth = np.linspace(min(x_mod), max(x_mod), 500)
+    zu_smooth = make_interp_spline(x_mod, zu_mod, k=3)(x_smooth)
+    zl_smooth = make_interp_spline(x_mod, zl_mod, k=3)(x_smooth)
+
+    # --- Plotting --- #
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.plot(x_base, zu_base, label='CST Airfoil', color=c['cs_base'], linestyle='--')
+    ax.plot(x_base, zl_base, color=c['cs_base'], linestyle='--')
+    ax.plot(x_smooth, zu_smooth, label='Modified Airfoil', color=c['cs_modified'])
+    ax.plot(x_smooth, zl_smooth, color=c['cs_modified'])
+
+    # --- Aesthetics and Formatting --- #
+    fig.patch.set_facecolor('white')
+    ax.set_facecolor('white')
+    # Equal aspect ratio, so the airfoil shape is not distorted
+    ax.axis('equal')
+    ax.grid(True)
+    ax.legend()
+    ax.set_xlabel('$x/c$')
+    ax.set_ylabel('$z/c$')
+    plt.show()

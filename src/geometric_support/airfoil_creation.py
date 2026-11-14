@@ -1,7 +1,5 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import os
-from scipy.interpolate import make_interp_spline
 from cst_modeling.section import cst_foil_fit, cst_foil
 from cst_modeling.foil import FoilModification, check_validity
 from .Airfoil_Data_Extract import Airfoil_Tools_Exctract
@@ -12,7 +10,7 @@ class Airfoil_Generator:
 
     This class takes a base airfoil from a .csv file, applies CST parameterization,
     modifies it with given coefficients, and saves the new airfoil to a .dat file.
-    It can also optionally display a plot of the original and modified airfoils.
+    It can also optionally display a plot of the original and modified airfoils (drawn by custom_graphs.py).
 
     Args:
         base_airfoil_csv (str): The file path for the base airfoil .csv file.
@@ -112,53 +110,11 @@ class Airfoil_Generator:
             print(f"Successfully created airfoil file: {file_path}")
 
     def _plot_airfoils(self, x_mod, yu_mod, yl_mod):
-        """Helper method to visualize the airfoils."""
-        plt.figure(figsize=(15, 6))
-        plt.plot(self.x_cst, self.z_cst_u, label='CST Airfoil', color='gray', linestyle='--')
-        plt.plot(self.x_cst, self.z_cst_l, color='gray', linestyle='--')
-        plt.plot(x_mod, yu_mod, label='Modified Airfoil', color='blue')
-        plt.plot(x_mod, yl_mod, color='blue')
-        plt.axis('equal')
-        plt.grid(True)
-        plt.legend()
-        plt.title('Airfoil Visualization')
-        plt.xlabel('x/c')
-        plt.ylabel('z/c')
-        plt.show()
+        """Base (CST reconstruction) and modified airfoil; drawn by custom_graphs.plot_cst_comparison."""
+        from .custom_graphs import plot_cst_comparison  # imported here: geometric_support loads this module first
+        plot_cst_comparison(self.x_cst, self.z_cst_u, self.z_cst_l, x_mod, yu_mod, yl_mod)
 
     def _fancy_plot_airfoils(self, x_mod, yu_mod, yl_mod):
-        '''
-        Plots airfoil to compare changes, this version uses an interpolation for smoother curves in case an export is requierd.
-        '''
-        # --- Smoothing the Modified Airfoil Data --- #
-        # 300 points is double of standard resolution, should be enough for a very smooth curve.
-        x_smooth = np.linspace(min(x_mod), max(x_mod), 500)
-        spline_u = make_interp_spline(x_mod, yu_mod, k=3)
-        spline_l = make_interp_spline(x_mod, yl_mod, k=3)
-        yu_smooth = spline_u(x_smooth)
-        yl_smooth = spline_l(x_smooth)
-
-        # --- Plotting --- #
-        fig, ax = plt.subplots(figsize=(12, 7))
-
-        # Plot the original CST airfoil
-        ax.plot(self.x_cst, self.z_cst_u, label='CST Airfoil', color='#4D4D4D', linestyle='--')
-        ax.plot(self.x_cst, self.z_cst_l, color='#4D4D4D', linestyle='--')
-
-        # Plot the new, smoothed modified airfoil
-        ax.plot(x_smooth, yu_smooth, label='Modified Airfoil', color="#3EB489") # Navy Blue: #0966BD, Mint: #3EB489
-        ax.plot(x_smooth, yl_smooth, color='#3EB489') 
-
-        # --- Aesthetics and Formatting --- #
-        # Background color
-        fig.patch.set_facecolor('white')
-        ax.set_facecolor('white')
-
-        # Set axis aspect ratio to 'equal' to ensure the airfoil shape is not distorted.
-        ax.axis('equal')
-        ax.grid(True)
-        ax.legend()
-        ax.set_xlabel('$x/c$')
-        ax.set_ylabel('$z/c$')
-
-        plt.show()
+        """Same comparison with the modified airfoil smoothed for exports; drawn by custom_graphs.plot_cst_comparison_smooth."""
+        from .custom_graphs import plot_cst_comparison_smooth
+        plot_cst_comparison_smooth(self.x_cst, self.z_cst_u, self.z_cst_l, x_mod, yu_mod, yl_mod)
