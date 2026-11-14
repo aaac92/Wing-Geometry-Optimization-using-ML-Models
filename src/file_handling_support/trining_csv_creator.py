@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 from pathlib import Path
@@ -81,7 +82,12 @@ class Training_Data_Generator:
         getattr(logging, level)(message)
 
     def _extract_force_data(self, file_path: Path) -> Optional[Tuple[str, float, float]]:
-        """Extracts airfoil name, CL, and CD from a force file."""
+        """
+        Extracts airfoil name, CL, and CD from a force file. CL = 0 is a valid result (e.g. a symmetric section at
+        zero incidence, E = 0); only a missing or non-numeric value makes the file unreadable. Until 2026-11-13 a
+        zero value counted as missing, which dropped the symmetric airfoils of dataset 17.5 (Test_257, Test_49281
+        and the base airfoil Test_98305) as "force file could not be read".
+        """
         airfoil, cl_tot, cd_tot = None, None, None
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -92,7 +98,7 @@ class Training_Data_Generator:
                         cl_tot = float(line.split('=')[1].strip())
                     elif 'CDtot =' in line:
                         cd_tot = float(line.split('=')[1].strip())
-            if all((airfoil, cl_tot, cd_tot)):
+            if airfoil and cl_tot is not None and cd_tot is not None and math.isfinite(cl_tot) and math.isfinite(cd_tot):
                 return airfoil, cl_tot, cd_tot
             self._log_and_print(f"Incomplete data in {file_path}. Skipping.", 'warning')
             return None
@@ -231,7 +237,7 @@ class Training_Data_Generator:
                     self._log_and_print(f"CD is zero for {airfoil_name}, cannot compute E. Skipping.", "warning")
                     self.skipped.append((force_file_path.name, "CD is zero"))
                     continue
-                performance_metric = [cl / cd]
+                performance_metric = [cl / cd + 0.0]   # + 0.0 stores E = -0.0 (CL = -0.0) as 0.0
             else:  # 'Coefficients'
                 performance_metric = [cl, cd]
             
