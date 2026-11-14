@@ -45,7 +45,7 @@ src/        packages, drivers and utilities
      python src/simulation_support/avl_simulation.py
      ```
    - XFOIL cuts file names at 64 characters and AVL cuts force-file names at 80 (`simulation_support/file_names.py`). The drivers therefore work in short temporary folders (`C:\` on Windows, `~/.<name>` on Linux).
-   - To reprodue dataset 17 and 17.5 use [RobotLocomotion](https://github.com/RobotLocomotion)'s CMake compilation in Linux. This will compile older versions of both XFOIL (6.97) and AVL (3.32). Make sure double precision is on. AVL 3.32 takes `CDCL` arguments per section and cannot take them per surface, while AVL 3.40 can use both notations.
+   - To reproduce dataset 17 and 17.5 use [RobotLocomotion](https://github.com/RobotLocomotion)'s CMake compilation in Linux. This will compile older versions of both XFOIL (6.97) and AVL (3.32). Make sure double precision is on. AVL 3.32 takes `CDCL` arguments per section and cannot take them per surface, while AVL 3.40 can use both notations.
 4. **RAR command line** (`Rar.exe` from WinRAR on Windows, `rar` on Linux). The dataset builder uses it to archive each stage.
 5. **Git LFS** (`git lfs install`) before cloning, so the LightGBM `.joblib` models download in full.
 
