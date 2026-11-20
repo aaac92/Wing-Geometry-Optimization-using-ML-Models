@@ -1,7 +1,9 @@
 import os
+import re
 import warnings
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
 from tqdm import tqdm
@@ -274,3 +276,69 @@ class Key_Point_Extraction:
             else:
                 f.write("None\n")
             f.write("\n" + "=" * 60 + "\n")
+
+# =============================================================================================== #
+# === Key-point files: the CDCL polar of the AVL winglet sections (read by geo_file_creation) === #
+# Moved here from utilities/kp_extraction.py (2026-11-16) so utilities/airfoil_kp_exporter.py uses them too.
+# =============================================================================================== #
+
+KEY_POINT_FILE_HEADER = "CLmin CDCLmin CLCDmin CDmin CLmax CDCLmax"  # line 2 of a key-point file
+
+
+def extract_polar_metadata(polar_path: Path) -> dict:
+    """Extracts aerodynamic flow regime metadata from the XFOIL polar file header."""
+    metadata = {'name': 'Unknown', 'mach': '0.0', 're': '0.0', 'ncrit': '0.0'}
+    
+    with open(polar_path, "r", encoding="utf-8") as f:
+        # Limit search to the first 15 lines to avoid scanning the entire data array
+        for _ in range(15):
+            line = f.readline()
+            if not line:
+                break
+            
+            # Extract airfoil name
+            if "Calculated polar for:" in line:
+                metadata['name'] = line.split("Calculated polar for:")[1].strip()
+            
+            # Extract flow regime parameters
+            if "Mach =" in line and "Re =" in line:
+                mach_match = re.search(r"Mach\s*=\s*([0-9\.]+)", line)
+                re_match = re.search(r"Re\s*=\s*([0-9\.\s]+e\s*[0-9]+|[0-9\.]+)", line)
+                ncrit_match = re.search(r"Ncrit\s*=\s*([0-9\.]+)", line)
+                
+                if mach_match:
+                    metadata['mach'] = mach_match.group(1).strip()
+                if ncrit_match:
+                    metadata['ncrit'] = ncrit_match.group(1).strip()
+                if re_match:
+                    # Strip internal whitespace from scientific notation
+                    raw_re = re_match.group(1).replace(" ", "")
+                    try:
+                        re_float = float(raw_re)
+                        metadata['re'] = f"{re_float:g}"  # Formats to standard float representation
+                    except ValueError:
+                        metadata['re'] = raw_re
+                        
+    return metadata
+
+
+def write_key_points_file(result_dict: dict, output_path: Path, meta: dict):
+    """Writes the extracted key points and regime metadata to a text file."""
+    with open(output_path, "w", encoding="utf-8") as f:
+        # Line 1: Flow regime metadata header
+        f.write(f"{meta['name']} Mach={meta['mach']} Re={meta['re']} Ncrit={meta['ncrit']}\n")
+        
+        # Line 2: Data structure header
+        f.write(KEY_POINT_FILE_HEADER + "\n")
+        
+        # Line 3: Extracted aerodynamic values in raw floating-point format
+        cl_min = result_dict['min_cl_point']['CL']
+        cd_cl_min = result_dict['min_cl_point']['CD']
+        
+        cl_cd_min = result_dict['min_cd_point']['CL']
+        cd_min = result_dict['min_cd_point']['CD']
+        
+        cl_max = result_dict['max_cl_point']['CL']
+        cd_cl_max = result_dict['max_cl_point']['CD']
+        
+        f.write(f"{cl_min} {cd_cl_min} {cl_cd_min} {cd_min} {cl_max} {cd_cl_max}\n")

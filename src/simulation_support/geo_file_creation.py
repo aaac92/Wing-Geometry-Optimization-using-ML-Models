@@ -385,7 +385,7 @@ class HossainWingRec_Creation:
 
 class HossainWing60DEG_Creation:
     """
-    Creates AVL geometry files for Hossain's wing with flat winglets.
+    Creates AVL geometry files for Hossain's wing with 60° winglets.
     """
 
     def __init__(self, key_points_data: list, airfoil_abs_paths: list, naca_key_points_data: str, output_dir: str, verbose=False, pb=False):
@@ -573,7 +573,7 @@ class HossainWing60DEG_Creation:
 
 class HossainWingFlat_Creation:
     """
-    Creates AVL geometry files for Hossin's wing with 60° winglets.
+    Creates AVL geometry files for Hossain's wing with flat winglets.
     """
 
     def __init__(self, key_points_data: list, airfoil_abs_paths: list, naca_key_points_data: str, output_dir: str, verbose=False, pb=False):
@@ -757,4 +757,4 @@ class HossainWingFlat_Creation:
             f.write(f"--- Encountered {len(self.errors)} Error(s) ---" + "-" * 26 + "\n")
             for i, error_info in enumerate(self.errors, 1):
                 f.write(f"{i}. Airfoil: {error_info['airfoil']}\n")
-                f.write(f"   Error: {error_info['error']}\n")
+                f.write(f"   Error: {error_info['error']}\n")
