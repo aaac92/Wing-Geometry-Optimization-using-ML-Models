@@ -1,0 +1,78 @@
+{
+    "name": "Marbas_1.6",
+    "base_name": "Marbas",
+    "version": "1.6",
+    "mode": "update",
+    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5/lgbm_regressor_sum_station/Marbas",
+    "model_type": "lgbm",
+    "feature_mode": "sum_station",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv",
+    "hyperparameters": {
+        "n_estimators": 15000,
+        "learning_rate": 0.10336059706196284,
+        "num_leaves": 100,
+        "max_depth": 20,
+        "objective": "combo",
+        "weight": "instance",
+        "lr_decay": null,
+        "stopping_rounds": 100
+    },
+    "protocol": {
+        "folds": 0,
+        "test_split": 0.2,
+        "seed": 42,
+        "split": "by shape"
+    },
+    "test_metrics": {
+        "MAE": 0.26894041321041934,
+        "R2_Score": 0.9794626161601336
+    },
+    "test_score": {
+        "model": "Marbas_1.6",
+        "kind": "regressor",
+        "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv",
+        "split": {
+            "by": "shape",
+            "seed": 42,
+            "test_size": 0.2,
+            "rows": 404040,
+            "shapes": 134680,
+            "configurations": 3,
+            "incomplete_shapes": 0,
+            "test_rows": 80808,
+            "test_shapes": 26936,
+            "duplicate_rows_removed": 0
+        },
+        "scored": "2026-11-25 14:16:05",
+        "metrics": {
+            "MAE": 0.26894186375264995,
+            "R2_Score": 0.9794625363832652,
+            "Max_Error": 10.191695956737579
+        },
+        "per_configuration": {
+            "rec": {
+                "rows": 26936,
+                "MAE": 0.2836030829289726,
+                "R2_Score": 0.9767368163161023,
+                "Max_Error": 9.863969229491877
+            },
+            "flat": {
+                "rows": 26936,
+                "MAE": 0.267303086128945,
+                "R2_Score": 0.9804533308960278,
+                "Max_Error": 10.191695956737579
+            },
+            "60DEG": {
+                "rows": 26936,
+                "MAE": 0.25591942220003217,
+                "R2_Score": 0.9807548644748589,
+                "Max_Error": 9.651315586042394
+            }
+        }
+    },
+    "started": "2026-11-25 14:15:52",
+    "duration_s": 13.5,
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti",
+    "command": "src/utilities/ml_gym.py update --target models/dataset_17.5 --dataset 17.6 --version 1.6 --select Marbas Odysseus_1.5 Murata_1.5 Calipso_1.5"
+}

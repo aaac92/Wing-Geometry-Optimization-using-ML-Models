@@ -1,0 +1,56 @@
+====================================================================================================
+Model scores, dataset 17.6 (2026-11-25 14:27:46)
+Test split: by airfoil shape, seed 42, 20% of the shapes
+====================================================================================================
+
+Regressor                     MAE        R2  Largest error
+Odysseus_1.6               0.2457   0.98070          9.267
+Marbas_1.6                 0.2689   0.97946         10.192
+Murata_1.6                 0.2753   0.98030          9.026
+
+Classifier                Accuracy  Balanced acc.  Invalid recall  Valid recall
+Calipso_1.6                1.00000        1.00000         1.00000       1.00000
+
+----------------------------------------------------------------------------------------------------
+Model: Marbas_1.6 (regressor)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv
+Test split: by shape, seed 42, 20% of 134,680 shapes (404,040 rows, 3 configuration(s) per shape) -> 26,936 shapes, 80,808 rows
+MAE 0.2689 | R2 0.97946 | largest error 10.192
+    rec      MAE 0.2836 | R2 0.97674 | largest error 9.864 | 26,936 rows
+    flat     MAE 0.2673 | R2 0.98045 | largest error 10.192 | 26,936 rows
+    60DEG    MAE 0.2559 | R2 0.98075 | largest error 9.651 | 26,936 rows
+Scored: 2026-11-25 14:27:44
+
+----------------------------------------------------------------------------------------------------
+Model: Murata_1.6 (regressor)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv
+Test split: by shape, seed 42, 20% of 134,680 shapes (404,040 rows, 3 configuration(s) per shape) -> 26,936 shapes, 80,808 rows
+MAE 0.2753 | R2 0.98030 | largest error 9.026
+    rec      MAE 0.2862 | R2 0.97765 | largest error 9.026 | 26,936 rows
+    flat     MAE 0.2760 | R2 0.98135 | largest error 8.741 | 26,936 rows
+    60DEG    MAE 0.2637 | R2 0.98146 | largest error 8.428 | 26,936 rows
+Scored: 2026-11-25 14:27:45
+
+----------------------------------------------------------------------------------------------------
+Model: Odysseus_1.6 (regressor)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv
+Test split: by shape, seed 42, 20% of 134,680 shapes (404,040 rows, 3 configuration(s) per shape) -> 26,936 shapes, 80,808 rows
+MAE 0.2457 | R2 0.98070 | largest error 9.267
+    rec      MAE 0.2301 | R2 0.97913 | largest error 8.915 | 26,936 rows
+    flat     MAE 0.2641 | R2 0.98075 | largest error 9.267 | 26,936 rows
+    60DEG    MAE 0.2430 | R2 0.98190 | largest error 8.638 | 26,936 rows
+Scored: 2026-11-25 14:27:45
+
+----------------------------------------------------------------------------------------------------
+Model: Calipso_1.6 (classifier)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/classifier_dataset_17.6.csv
+Test split: by shape, seed 42, 20% of 147,456 shapes (147,456 rows, 1 configuration(s) per shape) -> 29,492 shapes, 29,492 rows
+Accuracy 1.00000 | balanced accuracy 1.00000
+Valid shapes:   recall 1.00000, precision 1.00000, F1 1.00000, F2 1.00000
+Invalid shapes: recall 1.00000, precision 1.00000
+Confusion matrix (rows: true class, columns: predicted class)
+                  pred. valid  pred. invalid
+true valid             26,954              0
+true invalid                0          2,538
+Scored: 2026-11-25 14:27:46
+====================================================================================================

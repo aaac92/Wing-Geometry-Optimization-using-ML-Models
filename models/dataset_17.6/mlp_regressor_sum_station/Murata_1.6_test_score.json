@@ -1,0 +1,43 @@
+{
+    "model": "Murata_1.6",
+    "kind": "regressor",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv",
+    "split": {
+        "by": "shape",
+        "seed": 42,
+        "test_size": 0.2,
+        "rows": 404040,
+        "shapes": 134680,
+        "configurations": 3,
+        "incomplete_shapes": 0,
+        "test_rows": 80808,
+        "test_shapes": 26936,
+        "duplicate_rows_removed": 0
+    },
+    "scored": "2026-11-25 14:26:27",
+    "metrics": {
+        "MAE": 0.27528892229760044,
+        "R2_Score": 0.9802988095654626,
+        "Max_Error": 9.025998592376709
+    },
+    "per_configuration": {
+        "rec": {
+            "rows": 26936,
+            "MAE": 0.28619732684884114,
+            "R2_Score": 0.977653582066582,
+            "Max_Error": 9.025998592376709
+        },
+        "flat": {
+            "rows": 26936,
+            "MAE": 0.2760125466142921,
+            "R2_Score": 0.9813471139454947,
+            "Max_Error": 8.740530490875244
+        },
+        "60DEG": {
+            "rows": 26936,
+            "MAE": 0.2636568934296681,
+            "R2_Score": 0.9814618871183793,
+            "Max_Error": 8.428035259246826
+        }
+    }
+}

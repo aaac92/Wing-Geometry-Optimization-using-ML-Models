@@ -1,0 +1,84 @@
+{
+    "name": "Odysseus_1.6",
+    "base_name": "Odysseus",
+    "version": "1.6",
+    "mode": "update",
+    "previous_model": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.5/mlp_regressor/Odysseus_1.5",
+    "model_type": "mlp",
+    "feature_mode": "raw",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv",
+    "hyperparameters": {
+        "layers": [
+            223,
+            383,
+            360,
+            423,
+            408
+        ],
+        "dropout_rate": 0.02115941846760873,
+        "learning_rate": 0.0010405415346508645,
+        "batch_size": 2048,
+        "epochs": 500,
+        "patience": 35,
+        "weight": "instance",
+        "log_trans": true
+    },
+    "protocol": {
+        "folds": 0,
+        "test_split": 0.2,
+        "seed": 42,
+        "split": "by shape"
+    },
+    "test_metrics": {
+        "MAE": 0.24571410152106318,
+        "R2_Score": 0.9806950463308951
+    },
+    "test_score": {
+        "model": "Odysseus_1.6",
+        "kind": "regressor",
+        "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv",
+        "split": {
+            "by": "shape",
+            "seed": 42,
+            "test_size": 0.2,
+            "rows": 404040,
+            "shapes": 134680,
+            "configurations": 3,
+            "incomplete_shapes": 0,
+            "test_rows": 80808,
+            "test_shapes": 26936,
+            "duplicate_rows_removed": 0
+        },
+        "scored": "2026-11-25 14:21:38",
+        "metrics": {
+            "MAE": 0.2457140874206578,
+            "R2_Score": 0.9806950470357862,
+            "Max_Error": 9.267432689666748
+        },
+        "per_configuration": {
+            "rec": {
+                "rows": 26936,
+                "MAE": 0.23007161414744484,
+                "R2_Score": 0.9791331244300685,
+                "Max_Error": 8.915160655975342
+            },
+            "flat": {
+                "rows": 26936,
+                "MAE": 0.26408547651027375,
+                "R2_Score": 0.9807528159856461,
+                "Max_Error": 9.267432689666748
+            },
+            "60DEG": {
+                "rows": 26936,
+                "MAE": 0.24298517160425484,
+                "R2_Score": 0.9819047956632941,
+                "Max_Error": 8.637532234191895
+            }
+        }
+    },
+    "started": "2026-11-25 14:16:05",
+    "duration_s": 332.3,
+    "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "device": "NVIDIA GeForce GTX 1050 Ti",
+    "command": "src/utilities/ml_gym.py update --target models/dataset_17.5 --dataset 17.6 --version 1.6 --select Marbas Odysseus_1.5 Murata_1.5 Calipso_1.5"
+}

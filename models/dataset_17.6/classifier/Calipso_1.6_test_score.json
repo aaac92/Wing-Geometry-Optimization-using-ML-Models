@@ -1,0 +1,32 @@
+{
+    "model": "Calipso_1.6",
+    "kind": "classifier",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/classifier_dataset_17.6.csv",
+    "split": {
+        "by": "shape",
+        "seed": 42,
+        "test_size": 0.2,
+        "rows": 147456,
+        "shapes": 147456,
+        "configurations": 1,
+        "incomplete_shapes": 0,
+        "test_rows": 29492,
+        "test_shapes": 29492,
+        "duplicate_rows_removed": 0
+    },
+    "scored": "2026-11-25 14:15:52",
+    "metrics": {
+        "Accuracy": 1.0,
+        "Precision": 1.0,
+        "Recall": 1.0,
+        "F1-Score": 1.0,
+        "F2-Score": 1.0,
+        "Invalid_Recall": 1.0,
+        "Invalid_Precision": 1.0,
+        "Balanced_Accuracy": 1.0,
+        "Valid_as_Valid": 26954,
+        "Valid_as_Invalid": 0,
+        "Invalid_as_Valid": 0,
+        "Invalid_as_Invalid": 2538
+    }
+}
