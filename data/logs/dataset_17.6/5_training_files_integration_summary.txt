@@ -1,0 +1,18 @@
+================================================================================
+Training Files Integration - summary (2026-11-25 11:42:50)
+================================================================================
+Regressor rows:              404,040  (airfoil x wing configuration)
+Classifier rows:             147,456  (one per shape: 134,765 passed the geometric filters, 12,691 rejected)
+Force files left out:              0
+Forces of the regressor rows:
+    config    CL mean    CL min    CL max   CD mean    CD min    CD max    E mean     E min     E max
+    rec        0.1516   -0.0171    0.3203   0.01382   0.00820   0.08359    11.078    -1.788    20.439
+    flat       0.1449   -0.0175    0.3073   0.01255   0.00825   0.06560    11.635    -1.861    21.787
+    60DEG      0.1576   -0.0189    0.3352   0.01413   0.00930   0.07350    11.224    -1.788    21.004
+Valid airfoils with a failure: 85 of 134,765, by first failed stage:
+          85  AVL Geometric File Formation
+
+Files:
+  data/datasets/dataset_17.6/training_files_dataset_17.6.rar
+  data/logs/dataset_17.6/failed_airfoils.csv
+================================================================================

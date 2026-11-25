@@ -1,0 +1,40 @@
+==============================================================================================================
+Dataset rectification: regressor_dataset_17.6.csv
+==============================================================================================================
+Pipeline: {"n_cst": 5, "aseq": [-20, 20, 0.5], "reynolds": 250000.0, "mach": 0.09281, "base_airfoil": "naca0012_unit.csv", "naca_kp_file": "naca_0012_M0-093_RE250000_zero_out_s42.txt", "case_file": "Hossain_sqwing_case.run", "sweep_mode": "zero_out", "kp_seed": 42, "xfoil_iter": 200, "sweep_revision": 3, "naca_kp_hash": "002360262d7e"}
+Signature: 0b8ea478cd0a | runs per airfoil: 1 | agreement tolerance: 5.0%
+Flag rule: |E - neighbour median| > max(3.5 x 1.4826 x neighbour MAD, 2)
+
+Round Flagged rows New airfoils Reused Confirmed Corrected Unresolved Failed
+    1         1709          589      0      1767         0          0      0
+
+Flagged rows before: 1709 | after: 1709 (the remaining ones were confirmed, unresolved or failed)
+Rows changed: 0 | failed rows dropped from the CSV: 0
+Simulated airfoils with polar CDmin below the laminar limit (0.0053): 0 of 589 (counted as failed: rows dropped)
+Dataset best E before: 21.7872 | after: 21.7872
+
+E distribution (rows)    before     after
+E >= 50                       0         0
+45 <= E < 50                  0         0
+40 <= E < 45                  0         0
+30 <= E < 40                  0         0
+E < 30                   404040    404040
+
+--- Top 15 rows after rectification -------------------------------------------------------------------------
+    Row Cfg    Dataset E Rectified  Status
+ 263595 flat     21.7872   21.7872  not flagged
+ 263563 flat     21.7870   21.7870  not flagged
+ 263783 flat     21.7574   21.7574  not flagged
+ 263527 flat     21.6669   21.6669  not flagged
+ 263686 flat     21.5772   21.5772  not flagged
+ 263474 flat     21.5686   21.5686  not flagged
+ 263413 flat     21.5489   21.5489  not flagged
+ 262808 flat     21.5419   21.5419  not flagged
+ 263295 flat     21.5297   21.5297  not flagged
+ 263389 flat     21.5178   21.5178  not flagged
+ 263571 flat     21.4389   21.4389  not flagged
+ 263401 flat     21.4384   21.4384  not flagged
+ 263431 flat     21.4335   21.4335  not flagged
+ 260750 flat     21.3927   21.3927  not flagged
+ 263128 flat     21.3766   21.3766  not flagged
+==============================================================================================================

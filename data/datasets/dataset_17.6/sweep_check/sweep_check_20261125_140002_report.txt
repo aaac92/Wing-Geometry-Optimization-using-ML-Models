@@ -1,0 +1,42 @@
+================================================================================
+SWEEP PROTOCOL CHECK (2026-11-25 14:00)
+================================================================================
+Airfoils: 50 (flagged 20, top 10, control 20)
+Reference: cold (fresh XFOIL process per angle) | E agree within 5% | CD on a different branch when off by more than 5%
+
+cold        simulated   50 of 50 | polar CDmin below the laminar limit (0.00531): 0
+zero_out    simulated   50 of 50 | polar CDmin below the laminar limit (0.00531): 0
+sequential  simulated   50 of 50 | polar CDmin below the laminar limit (0.00531): 26
+Label check: zero_out reproduces the dataset E in 150 of 150 rows (100.0%); the dataset was built with zero_out, so this should be ~100%.
+
+--- zero_out vs cold ------------------------------------------------------------
+E rows agreeing: 122 of 150 (81.3%)
+E ratio zero_out/cold: median 1.005, max 1.129
+Angles on a different CD branch: 296 of 3811 (7.8%) in 50 airfoil(s)
+    flagged  E agree  83.3% of 60 rows, median ratio 1.002
+    top      E agree  60.0% of 30 rows, median ratio 1.039
+    control  E agree  90.0% of 60 rows, median ratio 1.002
+    different-branch angles: 0 within +-5 deg, 27 at 5-10 deg, 269 beyond 10 deg
+    key point that moved most where E disagrees: CLneg (4), CDneg (3), CDpos (3)  [CLneg/CDneg: negative-stall point, CLpos/CDpos: positive-stall point]
+    pre-stall polar (|alpha| <= 8 deg): same CD branch at 100.0% of 1602 angles
+
+--- sequential vs cold ------------------------------------------------------------
+E rows agreeing: 60 of 150 (40.0%)
+E ratio sequential/cold: median 1.697, max 2.928
+Angles on a different CD branch: 1532 of 3775 (40.6%) in 50 airfoil(s)
+    flagged  E agree   0.0% of 60 rows, median ratio 2.004
+    top      E agree  50.0% of 30 rows, median ratio 1.043
+    control  E agree  75.0% of 60 rows, median ratio 1.009
+    different-branch angles: 523 within +-5 deg, 534 at 5-10 deg, 475 beyond 10 deg
+    key point that moved most where E disagrees: CDmin (25), CDpos (2), CDneg (2), CLneg (1)  [CLneg/CDneg: negative-stall point, CLpos/CDpos: positive-stall point]
+    pre-stall polar (|alpha| <= 8 deg): same CD branch at 47.6% of 1590 angles
+
+RESULT: before stall, zero_out polars match the history-free reference (100.0% of angles).
+[NOTE] E differs by more than 5% in 19% of rows. When the pre-stall polars agree, the difference enters through the key points, which are fitted over the whole polar, including the post-stall angles where every protocol is history-dependent (key point line above).
+
+Files:
+  data/datasets/dataset_17.6/sweep_check/sweep_check_20261125_140002_report.txt
+  data/datasets/dataset_17.6/sweep_check/sweep_check_20261125_140002_rows.csv
+  data/datasets/dataset_17.6/sweep_check/sweep_check_20261125_140002_angles.csv
+  data/datasets/dataset_17.6/sweep_check/sweep_check_20261125_140002.json
+================================================================================

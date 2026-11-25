@@ -1,0 +1,66 @@
+{
+  "laminar_cd_limit": 0.005312,
+  "reynolds": 250000.0,
+  "rule": "polar CDmin < 2 x 1.328 / sqrt(Re) (laminar flat plate, both surfaces)",
+  "action": "dropped: no geometry files, no AVL runs, no dataset rows",
+  "polars_checked": 134765,
+  "polars": [
+    {
+      "airfoil": "Test_20094",
+      "polar": "polar_Test_20094.txt",
+      "CD": 0.00504,
+      "alpha": 6.0,
+      "CL": 0.9737,
+      "cst": [
+        -0.125,
+        0.0417,
+        0.0833,
+        0.0833,
+        0.0,
+        0.0,
+        0.125,
+        0.125,
+        0.0833,
+        0.125
+      ]
+    },
+    {
+      "airfoil": "Test_92960",
+      "polar": "polar_Test_92960.txt",
+      "CD": 0.00318,
+      "alpha": 3.5,
+      "CL": 0.8165,
+      "cst": [
+        -0.0625,
+        0.125,
+        0.0833,
+        0.0417,
+        0.0,
+        0.0,
+        0.0,
+        0.125,
+        0.125,
+        0.125
+      ]
+    },
+    {
+      "airfoil": "Test_97559",
+      "polar": "polar_Test_97559.txt",
+      "CD": 0.00505,
+      "alpha": 5.0,
+      "CL": 0.7929,
+      "cst": [
+        -0.0625,
+        0.125,
+        0.125,
+        0.125,
+        0.0,
+        0.0,
+        0.0,
+        0.0833,
+        0.125,
+        0.0
+      ]
+    }
+  ]
+}
