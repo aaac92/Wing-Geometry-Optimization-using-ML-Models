@@ -2,7 +2,7 @@
 Reference simulation of one airfoil with the dataset simulation chain, to compare designs against it.
 
 By default it simulates the unmodified base airfoil (NACA 0012: every CST increment 0) in the three Hossain wing
-configurations, with the dataset 17 / 17.5 chain, and reports CL, CD and E per configuration and alpha-sweep protocol.
+configurations, with the dataset chain, and reports CL, CD and E per configuration and alpha-sweep protocol.
 The base airfoil is missing from dataset 17.5: it is Test_98305 of the generation grid, one of the valid airfoils
 that failed later in the pipeline (failed_airfoils.csv), so the script reports any failure loudly instead of hiding it.
 
@@ -66,8 +66,8 @@ sys.path.insert(0, str(src_dir))
 
 from geometric_support import Airfoil_Generator, create_modification_combinations  # noqa: E402
 from geometric_support.filter_settings import check_airfoil  # noqa: E402
-from file_handling_support.dataset_names import dataset_csv, dataset_number_arg  # noqa: E402
-from simulation_support import (GEO_CREATORS_BY_IDENTIFIER, SWEEP_MODES, compare_runs, jsonable,  # noqa: E402
+from file_handling_support.dataset_names import CURRENT_DATASET, dataset_csv, dataset_number_arg  # noqa: E402
+from simulation_support import (GEO_CREATORS_BY_IDENTIFIER, SWEEP_MODES, check_dataset_kp_file, compare_runs, jsonable,  # noqa: E402
                                 laminar_cd_limit, protocol_settings, simulate_shapes)
 from simulation_support.sweep_protocol_check import CONFIGS, REFERENCE, default_temp_root  # noqa: E402
 from ux_support.recovery import atomic_write_json  # noqa: E402
@@ -271,8 +271,8 @@ def zero_lift(run: dict, configs) -> bool:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Reference simulation of one airfoil with the dataset simulation chain.")
-    parser.add_argument('--dataset', type=dataset_number_arg, default="17.5",
-                        help="Dataset whose runs, grid and logs are compared (default: 17.5).")
+    parser.add_argument('--dataset', type=dataset_number_arg, default=CURRENT_DATASET,
+                        help=f"Dataset whose runs, grid and logs are compared (default: {CURRENT_DATASET}).")
     parser.add_argument('--cst', type=float, nargs='+', default=None,
                         help="CST increments on the base airfoil, lower surface first (default: all 0, the base airfoil).")
     parser.add_argument('--base-airfoil', default=None, help="Base airfoil CSV (default: data/support/naca0012_unit.csv).")
@@ -293,6 +293,7 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    check_dataset_kp_file(args.dataset, project_root)
     protocols = list(dict.fromkeys(args.protocols))
     configs = list(dict.fromkeys(args.configs))
     default_settings = protocol_settings(protocols[0], project_root)

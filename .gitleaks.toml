@@ -3,11 +3,11 @@
 [extend]
 useDefault = true
 
-# The NACA 0012 key-points file name (data/support/naca_kp/) appears next to names such as
+# The NACA 0012 key-points file names (data/support/naca_kp/) appears next to names such as
 # "naca_key_points_file" in run metadata and logs, and its entropy is above the generic-api-key
-# threshold. It is a file name, not a secret.
+# threshold. They are file names, not secrets.
 [[allowlists]]
 description = "NACA 0012 key-points file name"
 targetRules = ["generic-api-key"]
 regexTarget = "secret"
-regexes = ['''^naca_0012_M0-9281_RE250k_M0-093_RE250000\.txt$''']
+regexes = ['''^naca_0012_M0-9281_RE250k_M0-093_RE250000\.txt$''', '''^naca_0012_M0-093_RE250000_zero_out_s42\.txt$''']

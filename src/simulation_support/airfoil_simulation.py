@@ -15,6 +15,7 @@ Moved here from file_handling_support/database_correction.py (2026-11-04) so eve
 import hashlib
 import json
 import math
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -28,7 +29,8 @@ from geometric_support import Airfoil_Generator
 from .alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_REVISIONS
 from .avl_simulation import AVL_Run_Case
 from .geo_file_creation import HossainWingRec_Creation, HossainWingFlat_Creation, HossainWing60DEG_Creation
-from .key_point_processing import Key_Point_Extraction
+from .geometry_checks import GeometryCheckError, reference_check
+from .key_point_processing import Key_Point_Extraction, key_points_hash, key_points_result
 from .polar_creation import Xfoil_Polar_Creator as XPR
 
 GEO_CREATORS_BY_IDENTIFIER: Dict[str, Type] = {
@@ -36,6 +38,7 @@ GEO_CREATORS_BY_IDENTIFIER: Dict[str, Type] = {
     "flat": HossainWingFlat_Creation,
     "60DEG": HossainWing60DEG_Creation,
 }
+LEGACY_KP_HASH = "4a054da99275"  # key points of datasets 17 and 17.5 (LEGACY_NACA_KP_FILE)
 KEY_POINT_NAMES: List[str] = ["CLneg", "CDneg", "CLcdmin", "CDmin", "CLpos", "CDpos"]
 
 
@@ -44,7 +47,8 @@ class Simulation_Settings:
     """
     Everything that defines one simulation of an airfoil: flow regime, support files, binaries and the
     optional pipeline variants (alpha sweep mode and key-point fit seed). The signature (see `signature`)
-    excludes machine-specific paths, so stored runs stay reusable on another machine.
+    excludes machine-specific paths, so stored runs stay reusable on another machine. The winglet key points are part
+    of it by file name and by value, so a file rewritten under the same name does not reuse runs of the old one.
     """
     n_cst: int
     aseq: List[float]
@@ -74,6 +78,11 @@ class Simulation_Settings:
         revision = SWEEP_REVISIONS.get(self.sweep_mode, 1)
         if revision > 1:
             signature["sweep_revision"] = revision
+        # Left out for the legacy key points, so signatures stored with them keep their id
+        if Path(self.naca_kp_file).exists():
+            kp_hash = key_points_hash(self.naca_kp_file)
+            if kp_hash != LEGACY_KP_HASH:
+                signature["naca_kp_hash"] = kp_hash
         return signature
 
     def signature_id(self) -> str:
@@ -110,7 +119,7 @@ def jsonable(value):
 
 
 # --- Worker process state (one airfoil task at a time per process) --- #
-WORKER_STATE = {"slot": 0, "progress": None, "status": None, "generators": {}}
+WORKER_STATE = {"slot": 0, "progress": None, "status": None, "generators": {}, "checked_wings": set()}
 
 
 def worker_init(slot_queue, progress_queue, status_list) -> None:
@@ -167,6 +176,14 @@ def read_force_file(force_path: Path) -> Tuple[float, float]:
     return cl_tot, cd_tot
 
 
+def read_span_efficiency(force_path: Path) -> float:
+    """Span efficiency e of an AVL force file (Trefftz plane; inviscid Oswald factor); NaN if it is missing."""
+    if not Path(force_path).exists():
+        return math.nan
+    match = re.search(r"CYff\s*=\s*\S+\s+e\s*=\s*([-+0-9.Ee]+)", Path(force_path).read_text(encoding="utf-8", errors="ignore"))
+    return float(match.group(1)) if match else math.nan
+
+
 def polar_key_points(polar_path: Path, seed: Optional[int]) -> List[float]:
     """The six key points (KEY_POINT_NAMES order) of a polar, from the same GPR fit the dataset used."""
     low_cl, high_cl, min_cd = Key_Point_Extraction([str(polar_path)], random_state=seed)._interpolate_and_extract(str(polar_path))
@@ -194,7 +211,7 @@ def simulate_airfoil_once(settings: Simulation_Settings, airfoil_id: str, cst: L
     """
     t0 = time.time()
     record = {"status": "ok", "error": None, "polar_points": 0, "polar_hash": None, "cd_min": None, "key_points": None,
-              "kp_refits": [], "CL": {}, "CD": {}, "E": {}, "seconds": None}
+              "kp_refits": [], "CL": {}, "CD": {}, "E": {}, "e": {}, "seconds": None}
     if store_files:
         record["files"] = {}
     if run_dir.exists():
@@ -233,12 +250,7 @@ def simulate_airfoil_once(settings: Simulation_Settings, airfoil_id: str, cst: L
         record["key_points"] = kp
         record["kp_refits"] = [polar_key_points(polar_path, settings.kp_seed) for _ in range(kp_refits)]
 
-        placeholder = [{
-            'file_path': f"{airfoil_id}.txt",
-            'min_cl_point': {'CL': kp[0], 'CD': kp[1]},
-            'max_cl_point': {'CL': kp[4], 'CD': kp[5]},
-            'min_cd_point': {'CL': kp[2], 'CD': kp[3]},
-        }]
+        placeholder = [{'file_path': f"{airfoil_id}.txt", **key_points_result(kp)}]
         case_copy = run_dir / Path(settings.case_file).name
         shutil.copy(settings.case_file, case_copy)
         for identifier in configs:
@@ -251,6 +263,9 @@ def simulate_airfoil_once(settings: Simulation_Settings, airfoil_id: str, cst: L
             force_path = force_dir / f"force_{airfoil_id}_{identifier}.txt"
             cl_tot = cd_tot = math.nan
             if geo_path.exists():
+                if identifier not in WORKER_STATE["checked_wings"]:  # once per process and configuration
+                    reference_check(geo_path)
+                    WORKER_STATE["checked_wings"].add(identifier)
                 AVL_Run_Case(geo_files=[str(geo_path)], case_file=str(case_copy), avl_exe_path=settings.avl_exe,
                              output_dir=force_dir).run()
                 cl_tot, cd_tot = read_force_file(force_path)
@@ -258,11 +273,15 @@ def simulate_airfoil_once(settings: Simulation_Settings, airfoil_id: str, cst: L
             record["CL"][identifier] = None if math.isnan(cl_tot) else cl_tot
             record["CD"][identifier] = None if math.isnan(cd_tot) else cd_tot
             record["E"][identifier] = None if math.isnan(e) else e
+            span_efficiency = read_span_efficiency(force_path)
+            record["e"][identifier] = None if math.isnan(span_efficiency) else span_efficiency
             if store_files:
                 record["files"][identifier] = {"avl": _read_text(geo_path), "force": _read_text(force_path)}
         if any(v is None for v in record["E"].values()):
             record["status"] = "avl_failed" if all(v is None for v in record["E"].values()) else "partial"
         return record
+    except GeometryCheckError:  # the code builds a wrong wing: never a result of one airfoil
+        raise
     except Exception as e:
         record.update(status="error", error=f"{type(e).__name__}: {e}")
         return record

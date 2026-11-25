@@ -3,7 +3,7 @@ Parallel airfoil simulations with any alpha-sweep protocol, and the check of whe
 alpha-sweep protocol (convergence history).
 
 Reusable functions (exported by simulation_support):
-  protocol_settings(protocol)   Simulation_Settings of the dataset 17 / 17.5 pipeline with that sweep protocol
+  protocol_settings(protocol)   Simulation_Settings of the dataset pipeline with that sweep protocol
   simulate_shapes(...)          many airfoils x protocols in a process pool (one XFOIL run per airfoil and protocol,
                                 one AVL run per wing configuration), records reported as they finish
   polar_comparison(a, b)        per-angle CD of two runs of the same airfoil
@@ -53,10 +53,12 @@ if __package__ in (None, ""):  # run as a script (unit test): make the src packa
     sys.path.insert(0, str(SRC_DIR))
 
 from simulation_support.airfoil_simulation import (  # noqa: E402
-    KEY_POINT_NAMES, Simulation_Settings, WORKER_STATE, jsonable, laminar_cd_limit, simulate_airfoil_once,
+    GEO_CREATORS_BY_IDENTIFIER, KEY_POINT_NAMES, Simulation_Settings, WORKER_STATE, jsonable, laminar_cd_limit, simulate_airfoil_once,
     worker_init, worker_progress, worker_status,
 )
 from simulation_support.alpha_sweep import SWEEP_MODES  # noqa: E402
+from simulation_support.geometry_checks import check_wings  # noqa: E402
+from simulation_support.support_files import BASE_AIRFOIL, CASE_FILE, check_dataset_kp_file, naca_kp_path  # noqa: E402
 from ux_support.progress import run_with_progress  # noqa: E402
 
 PROTOCOLS = ("cold", "zero_out", "sequential")
@@ -68,8 +70,6 @@ E_TOLERANCE = 0.05
 # Angles up to this |alpha| count as before stall (operating range); beyond it XFOIL solutions are
 # history-dependent for every protocol, so only this range decides whether a protocol picks the right branch
 PRE_STALL = 8.0
-NACA_KP_FILE = "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"
-CASE_FILE = "Hossain_sqwing_case.run"
 CONFIGS = ["rec", "flat", "60DEG"]
 
 
@@ -79,13 +79,13 @@ def default_temp_root() -> Path:
 
 
 def protocol_settings(protocol: str, project_root: Path = PROJECT_ROOT) -> Simulation_Settings:
-    """Simulation settings of the dataset 17 / 17.5 pipeline (Re 2.5e5, Mach 0.09281, -20..20 deg every 0.5 deg,
+    """Simulation settings of the dataset pipeline (Re 2.5e5, Mach 0.09281, -20..20 deg every 0.5 deg,
     key-point seed 42) with the given alpha-sweep protocol."""
     exe = ".exe" if sys.platform == "win32" else ""
     support = Path(project_root) / "data" / "support"
     return Simulation_Settings(
         n_cst=5, aseq=[-20.0, 20.0, 0.5], reynolds=2.5e5, mach=0.09281,
-        base_airfoil=str(support / "naca0012_unit.csv"), naca_kp_file=str(support / "naca_kp" / NACA_KP_FILE),
+        base_airfoil=str(support / BASE_AIRFOIL), naca_kp_file=str(naca_kp_path(project_root)),
         case_file=str(support / CASE_FILE), xfoil_exe=str(Path(project_root) / "bin" / f"xfoil{exe}"),
         avl_exe=str(Path(project_root) / "bin" / f"avl{exe}"), sweep_mode=protocol, kp_seed=42,
     )
@@ -134,6 +134,8 @@ def simulate_shapes(shapes: dict, protocols, workers: int, configs=None, setting
     results = {}
     if not tasks:
         return results
+    for kp_file in {task["settings"]["naca_kp_file"] for task in tasks}:  # stops here if a wing is built wrong
+        check_wings({c: GEO_CREATORS_BY_IDENTIFIER[c] for c in configs}, kp_file)
     # Cold polars take longest; starting them first keeps every worker busy until the end
     tasks.sort(key=lambda t: t["protocol"] != "cold")
     workers = max(1, min(workers, len(tasks)))
@@ -399,12 +401,12 @@ def _summary_lines(chosen, results, rows: pd.DataFrame, angles: pd.DataFrame, pr
 # =============================================================================================== #
 
 if __name__ == "__main__":
-    from file_handling_support.dataset_names import dataset_folder, dataset_number_arg
+    from file_handling_support.dataset_names import CURRENT_DATASET, dataset_folder, dataset_number_arg
 
     parser = argparse.ArgumentParser(description="Sweep protocol check: does an XFOIL label depend on the alpha-sweep history?",
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog="See the module docstring for the protocols and outputs.")
-    parser.add_argument("--dataset", type=dataset_number_arg, default="17.5", help="Dataset whose airfoils are sampled (top and control groups).")
+    parser.add_argument("--dataset", type=dataset_number_arg, default=CURRENT_DATASET, help="Dataset whose airfoils are sampled (top and control groups).")
     parser.add_argument("--csv", help="Explicit regressor CSV instead of the dataset's.")
     parser.add_argument("--flagged-from", help="Rectification rows CSV for the 'flagged' group (default: latest dataset 17 rectification).")
     parser.add_argument("--flagged", type=int, default=20, help="Airfoils from the rectification with the largest E drop.")
@@ -415,6 +417,7 @@ if __name__ == "__main__":
                         help=f"Protocols to run; '{REFERENCE}' is always included as the reference.")
     parser.add_argument("--workers", type=int, default=max(1, multiprocessing.cpu_count() - 1), help="Parallel processes.")
     args = parser.parse_args()
+    check_dataset_kp_file(args.dataset)
     protocols = [REFERENCE] + [p for p in args.protocols if p != REFERENCE]
     missing = [p for p in protocols if p not in SWEEP_MODES]
     if missing:

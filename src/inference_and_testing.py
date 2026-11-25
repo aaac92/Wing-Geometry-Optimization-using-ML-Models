@@ -3,10 +3,10 @@ Iterative inference and simulation-based validation of the trained AI models (tr
 
 Usage:
     python inference_and_testing.py --classifier <name> --models <name1> [<name2> ...]
-                                    [--dataset 17.5] [--lane NAME] [--no-update] [--hours 24] [--workers N]
+                                    [--dataset 17.6] [--lane NAME] [--no-update] [--hours 24] [--workers N]
                                     [--wing-mode Hossain_config] [--seed HEX [--decimal]] [--csv PATH]
                                     [--test-split-seed 42]
-    python inference_and_testing.py --resume <run folder> [--dataset 17.5] [--hours H] [--workers N]
+    python inference_and_testing.py --resume <run folder> [--dataset 17.6] [--hours H] [--workers N]
 
 Lanes (searches that run side by side, each with its own copies of the models, its own tracks and its own data):
     one lane per regressor given (e.g. Agares = LGBM, Odysseus = MLP raw, Murata = MLP sum_station), 'consensus'
@@ -32,9 +32,9 @@ Flow:
         target, agrees with its cold-start simulation and passes every geometric filter (the filters gate nothing
         during the search itself).
     Versions (not with --no-update): after i loop iterations the dataset and the models get a third version part:
-        data/datasets/dataset_17.5/dataset_17.5.i/regressor_dataset_17.5.i.csv  (dataset + every valid new simulation
+        data/datasets/dataset_17.6/dataset_17.6.i/regressor_dataset_17.6.i.csv  (dataset + every valid new simulation
         of every lane that passes the laminar CD limit; no geometric filters, no classifier CSV) and
-        models/dataset_17.5/dataset_17.5.i/<type folders>/<Name>_1.5.i_* (one final fine-tune of each model on it).
+        models/dataset_17.6/dataset_17.6.i/<type folders>/<Name>_1.6.i_* (one final fine-tune of each model on it).
     Test split (--test-split-seed, default 42: the seed the models were trained with): the dataset's test shapes
         (split by airfoil shape, ai_support.data_split) are never used here. The fine-tuning takes its dataset
         ("anchor") rows from the training shapes only, and every final model is scored on the test split, next to
@@ -78,9 +78,11 @@ import torch
 from scipy.spatial import cKDTree
 from cst_modeling.foil import check_validity
 
-from simulation_support import Simulation_Settings, simulate_shapes, compare_runs, laminar_cd_limit, jsonable
+from simulation_support import (Simulation_Settings, simulate_shapes, compare_runs, laminar_cd_limit, jsonable,
+                                check_dataset_kp_file, naca_kp_path)
+from simulation_support.key_point_processing import key_points_hash
 from geometric_support import Airfoil_Generator, check_airfoil
-from file_handling_support.dataset_names import (dataset_number_arg, dataset_csv, models_folder, parent_dataset,
+from file_handling_support.dataset_names import (CURRENT_DATASET, dataset_number_arg, dataset_csv, models_folder, parent_dataset,
                                                  expansion_number, dataset_folder)
 from file_handling_support.model_names import base_name, expanded_model_name, model_version
 from ai_support import Dataset_Peaks, Trust_Region, Lane_Monitor, diverse_top
@@ -102,7 +104,6 @@ warnings.filterwarnings("ignore", message="X does not have valid feature names")
 ASEQ = [-20, 20, 0.5]
 RE = 2.5e5
 MACH = 0.09281
-NACA_KP_FILE = "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"  # AVL 3.32 section-local CDCL reference
 SWEEP_MODE = "zero_out"   # alpha sweep, see simulation_support.alpha_sweep
 KP_SEED = 42              # random_state of the key-point GPR fit
 
@@ -228,7 +229,8 @@ def parse_master_seed(raw: str, decimal: bool) -> int:
 def parse_args():
     parser = argparse.ArgumentParser(description="Iterative inference (trust-region search) and simulation-based validation "
                                                  "of trained AI models.")
-    parser.add_argument('--dataset', type=dataset_number_arg, default="17.5", help="Dataset number, e.g. 17.5 (default: 17.5).")
+    parser.add_argument('--dataset', type=dataset_number_arg, default=CURRENT_DATASET,
+                        help=f"Dataset number, e.g. 17.6 (default: {CURRENT_DATASET}).")
     parser.add_argument('--wing-mode', choices=[HOSSAIN_MODE, SINGLE_MODE], default=None,
                         help=f"'{HOSSAIN_MODE}': one-hot rec/flat/60DEG configurations (default).")
     parser.add_argument('--classifier', default=None,
@@ -302,7 +304,7 @@ def build_paths(dataset_num: str) -> SimpleNamespace:
         training_file=dataset_csv(dataset_num, project_root),
         case_file=support_files_dir / "Hossain_sqwing_case.run",
         base_airfoil=support_files_dir / "naca0012_unit.csv",
-        naca_kp_file=support_files_dir / "naca_kp" / NACA_KP_FILE,
+        naca_kp_file=naca_kp_path(project_root),  # AVL 3.32 section-local CDCL reference
         xfoil_bin=binaries_dir / f"xfoil{exe_ext}",
         avl_bin=binaries_dir / f"avl{exe_ext}",
         models_dir=models_dir,
@@ -391,11 +393,12 @@ def model_fingerprint(folder: Path, name: str) -> str:
 
 
 def check_resume_fingerprints(previous: dict, current: dict):
-    """Stops a resume if the dataset CSV or a model changed since the run started."""
+    """Stops a resume if the dataset CSV, a model or the simulation settings changed since the run started."""
     old = previous.get('fingerprints', {})
     pairs = [("the dataset CSV", old.get('dataset_csv'), current['dataset_csv']),
              (f"classifier {previous['classifier']['name']}", old.get('classifier'), current['classifier'])]
     pairs += [(f"model {n}", old.get('models', {}).get(n), f) for n, f in current['models'].items()]
+    pairs += [(f"the {p} simulation settings", old.get('simulation', {}).get(p), s) for p, s in current['simulation'].items()]
     changed = [label for label, before, now in pairs if before != now]
     if changed:
         sys.exit(f"[ERROR] Cannot resume: {', '.join(changed)} changed since this run started (retrained or "
@@ -1619,6 +1622,7 @@ def main():
     start_time = datetime.now()
     dataset_num = args.dataset
     paths = build_paths(dataset_num)
+    check_dataset_kp_file(dataset_num, paths.project_root)
     if args.csv:
         paths.training_file = Path(args.csv).resolve()
     hours = float(args.hours if args.hours is not None else DEFAULT_HOURS)
@@ -1667,9 +1671,15 @@ def main():
         print("\nNo usable regressors remain. There is nothing left to calculate. Congratulations.")
         sys.exit(1)
     model_names = list(models)
+    base_settings = dict(n_cst=n_cst, aseq=[float(a) for a in ASEQ], reynolds=RE, mach=MACH, base_airfoil=str(paths.base_airfoil),
+                         naca_kp_file=str(paths.naca_kp_file), case_file=str(paths.case_file), xfoil_exe=str(paths.xfoil_bin),
+                         avl_exe=str(paths.avl_bin), kp_seed=KP_SEED)
+    settings = {SWEEP_MODE: Simulation_Settings(**base_settings, sweep_mode=SWEEP_MODE),
+                "cold": Simulation_Settings(**base_settings, sweep_mode="cold")}
     fingerprints = {"dataset_csv": file_fingerprint([paths.training_file]),
                     "classifier": model_fingerprint(paths.classifier_dir, args.classifier),
-                    "models": {n: model_fingerprint(resolved[n][0], n) for n in models}}
+                    "models": {n: model_fingerprint(resolved[n][0], n) for n in models},
+                    "simulation": {p: s.signature_id() for p, s in settings.items()}}
     if previous is not None:
         check_resume_fingerprints(previous, fingerprints)
 
@@ -1688,11 +1698,7 @@ def main():
                           test_split_seed=args.test_split_seed,
                           model_names=model_names, model_info=model_info, resolved=resolved,
                           airfoil_creator=Airfoil_Generator(base_airfoil_csv=paths.base_airfoil, n_cst=n_cst, verbose=False))
-    base_settings = dict(n_cst=n_cst, aseq=[float(a) for a in ASEQ], reynolds=RE, mach=MACH, base_airfoil=str(paths.base_airfoil),
-                         naca_kp_file=str(paths.naca_kp_file), case_file=str(paths.case_file), xfoil_exe=str(paths.xfoil_bin),
-                         avl_exe=str(paths.avl_bin), kp_seed=KP_SEED)
-    ctx.settings = {SWEEP_MODE: Simulation_Settings(**base_settings, sweep_mode=SWEEP_MODE),
-                    "cold": Simulation_Settings(**base_settings, sweep_mode="cold")}
+    ctx.settings = settings
     geometry_cache = {}
 
     def geometry_ok(cst) -> bool:
@@ -1745,6 +1751,7 @@ def main():
                      "validation": {"cold_top": VALIDATION_TOP, "robust_designs": ROBUST_DESIGNS,
                                     "robust_perturbations": ROBUST_PERTURBATIONS, "robust_sigma_steps": ROBUST_SIGMA_STEPS},
                      "simulation": {"ASEQ": ASEQ, "Re": RE, "Mach": MACH, "sweep_mode": SWEEP_MODE, "kp_seed": KP_SEED,
+                                    "naca_kp_file": paths.naca_kp_file.name, "naca_kp_hash": key_points_hash(paths.naca_kp_file),
                                     "laminar_cd_limit": ctx.cd_limit}},
         "peaks": ctx.peaks,
     })

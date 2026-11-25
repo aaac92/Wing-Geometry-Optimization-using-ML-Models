@@ -53,6 +53,16 @@ class compression_Alma:
             if verbose:
                 print(f"Error during compression:\n{e.stderr}")
 
+    def extract_file(self, rar_path: Path, member: str, destination_dir: Path):
+        """
+        Extracts one file from the root of a .rar archive. Raises RuntimeError if it could not be extracted.
+        """
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        command = [self.rar_executable, 'e', '-o+', str(rar_path), member, str(destination_dir) + os.sep]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0 or not (destination_dir / member).exists():
+            raise RuntimeError(f"Could not extract {member} from {rar_path}:\n{result.stdout}\n{result.stderr}")
+
     def decompress_archive(self, rar_path: Path, destination_dir: Path, verbose: bool = False):
         """
         Decompresses a .rar file into a destination folder.

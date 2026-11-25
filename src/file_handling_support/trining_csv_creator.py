@@ -49,6 +49,7 @@ class Training_Data_Generator:
         self.verbose = verbose
         self.skipped = []
         self.row_counts = {}
+        self.forces = {}   # {configuration: [(CL, CD), ...]} of the regression rows, see force_table
         self.output_mode = output_mode
         self.append_kp = append_kp
 
@@ -241,9 +242,24 @@ class Training_Data_Generator:
             else:  # 'Coefficients'
                 performance_metric = [cl, cd]
             
+            self.forces.setdefault(self.config_headers[config_encoding.index(1)], []).append((cl, cd))
             processed_data.append(cst_params + kp_data + config_encoding + performance_metric)
         
         return processed_data
+
+    def force_table(self) -> List[str]:
+        """Mean, minimum and maximum of CL, CD and E per wing configuration. The regression file only keeps E, where a
+        wrong wing can go unnoticed: the CL and CD of the configurations must be comparable."""
+        lines = [f"    {'config':<7}" + "".join(f"{q + ' mean':>10}{q + ' min':>10}{q + ' max':>10}" for q in ('CL', 'CD', 'E'))]
+        for config in self.config_headers:
+            pairs = [(cl, cd) for cl, cd in self.forces.get(config, []) if cd != 0]
+            if not pairs:
+                continue
+            line = f"    {config:<7}"
+            for values, digits in (([p[0] for p in pairs], 4), ([p[1] for p in pairs], 5), ([p[0] / p[1] for p in pairs], 3)):
+                line += "".join(f"{v:>10.{digits}f}" for v in (sum(values) / len(values), min(values), max(values)))
+            lines.append(line)
+        return lines
 
     def _filter_valid_csts(self) -> List[List[float]]:
         """CST coefficients of every airfoil that passed the geometric filters: one .dat file each in airfoils_dir."""
@@ -311,6 +327,7 @@ class Training_Data_Generator:
         """
         self._log_and_print("--- Starting data generation ---")
         self.skipped = []
+        self.forces = {}
         
         valid_data_for_regression = self._process_valid_airfoils(progress_callback)
         invalid_csts_for_classification = self._process_invalid_airfoils()

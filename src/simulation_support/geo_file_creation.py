@@ -249,6 +249,12 @@ class SkyeyeGeo_Creation:
 class HossainWingRec_Creation:
     """
     Creates AVL geometry files for Hossain's wing without winglets.
+
+    The tip section sits at half of Bref (y = 0.33) because YDUPLICATE mirrors the surface. Until 2026-11-24 it was
+    written at y = 0.66, so AVL solved a wing of twice the span: the rec labels of datasets 17 and 17.5 come from it.
+    To recreate those datasets, put 0.66 back in the tip section below and set NACA_KP_FILE to the name in
+    LEGACY_NACA_KP_FILE (support_files.py). Give the new dataset its own number, because stored simulations do not
+    record the tip position. geometry_checks.py refuses that wing, so its checks have to be skipped too.
     """
 
     def __init__(self, key_points_data: list, airfoil_abs_paths: list, naca_key_points_data: str, output_dir: str, verbose=False, pb=False):
@@ -345,7 +351,7 @@ class HossainWingRec_Creation:
                     geo.write(f"{CLmin} {CDCLmin}  {CLCDmin} {CDmin}  {CLmax} {CDCLmax}\n")
                     geo.write(f"\n")
                     geo.write(f"SECTION\n")
-                    geo.write(f"  0.0  0.66  0.0  0.121  0.0\n")
+                    geo.write(f"  0.0  0.33  0.0  0.121  0.0\n") # half of Bref, see the class docstring
                     geo.write(f"AFIL\n")
                     geo.write(f"{airfoil_dat_path}\n")
                     geo.write(f"CDCL\n")

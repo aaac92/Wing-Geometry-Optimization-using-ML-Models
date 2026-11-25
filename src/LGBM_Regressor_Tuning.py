@@ -9,7 +9,7 @@ from pathlib import Path
 from ai_support import LGBM_Regressor, CSTFeatureEngineer, score_and_save
 from ux_support import recovery_json
 from file_handling_support.model_names import pick_model_name
-from file_handling_support.dataset_names import dataset_folder, models_folder
+from file_handling_support.dataset_names import CURRENT_DATASET, dataset_folder, models_folder
 
 # === LightGBM Logger Deduplication === #
 # Two LightGBM Info-level messages are printed on every fit() call / every boosting
@@ -70,7 +70,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 datasets_dir = project_root / "data" / "datasets"
 # Path to dataset
-dataset_num = "17.5" # text: decimal datasets are rebuilds (17.5 rebuilds 17)
+dataset_num = CURRENT_DATASET # text: decimal datasets are rebuilds (17.6 rebuilds 17.5)
 dataset_name = f"regressor_dataset_{dataset_num}"
 dataset_dir = dataset_folder(dataset_num, project_root)  # expansions (17.5.3) sit inside their parent
 training_file_dir = dataset_dir / f"{dataset_name}.csv"

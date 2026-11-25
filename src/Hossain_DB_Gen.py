@@ -12,12 +12,15 @@ Usage
     python src/Hossain_DB_Gen.py               # builds dataset DATASET_NUM (set below)
     python src/Hossain_DB_Gen.py --smoke 40    # every stage on 40 airfoils, as dataset 'smoke' (pipeline test)
     python src/Hossain_DB_Gen.py --no-gui      # console progress bars instead of windows
+    python src/Hossain_DB_Gen.py --seed-from 17.5   # reuses the airfoils, polars and key points of another dataset
+                                                    # (same grid, filters and XFOIL settings): no XFOIL, no fits
 
 Smoke runs use their own temp folders and the dataset name 'smoke'; delete data/datasets/dataset_smoke,
 data/logs/dataset_smoke and data/dataset_build_data/*/*_dataset_smoke.rar afterwards.
 """
 import argparse
 import csv
+import hashlib
 import json
 import numpy as np
 import os
@@ -38,10 +41,13 @@ from simulation_support import Xfoil_Polar_Creator as XPR
 from simulation_support import Key_Point_Extraction, HossainWingRec_Creation, HossainWing60DEG_Creation, HossainWingFlat_Creation, AVL_Run_Case, DEFAULT_SWEEP_MODE
 from simulation_support.alpha_sweep import COMPLETION_FLAG
 from simulation_support.polar_creation import AOA_LOG_HEADER
+from simulation_support.geometry_checks import check_wings, zero_lift_check
+from simulation_support.key_point_processing import key_points_hash
+from simulation_support.support_files import BASE_AIRFOIL, CASE_FILE, NACA_KP_FILE, naca_kp_path
 from geometric_support import Airfoil_Generator, Validate_Airfoil, create_modification_combinations
 from geometric_support.filter_settings import DATASET_FILTERS, apply_filters, describe_filters
 from file_handling_support import compression_Alma, Training_Data_Generator, get_all_files_from
-from file_handling_support.dataset_names import dataset_number
+from file_handling_support.dataset_names import CURRENT_DATASET, dataset_number, dataset_number_arg
 from ux_support import recovery_json, recovery_Fabius, run_with_progress
 
 # Platform: binaries carry .exe on Windows
@@ -53,12 +59,15 @@ EXE_SUFFIX = ".exe" if IS_WINDOWS else ""
 _cli = argparse.ArgumentParser(description="Builds a Hossain wing dataset.", add_help=__name__ == "__main__")
 _cli.add_argument("--smoke", type=int, metavar="N", help="Pipeline test: every stage on N airfoils, as dataset 'smoke'.")
 _cli.add_argument("--no-gui", action="store_true", help="Console progress bars instead of progress windows.")
+_cli.add_argument("--seed-from", type=dataset_number_arg, metavar="DATASET",
+                  help="Starts from the airfoil, polar and key point archives of another dataset (copies them).")
 ARGS, _ = _cli.parse_known_args()
 SMOKE = ARGS.smoke
 USE_GUI = False if ARGS.no_gui else None # None: window when a display is available
 
-# Dataset number: a decimal number is a rebuild of an existing dataset (17.5 rebuilds 17 with the zero_out sweep)
-DATASET_NUM = "smoke" if SMOKE else dataset_number("17.5")
+# Dataset number: a decimal number is a rebuild of an existing dataset (17.5 rebuilds 17 with the zero_out sweep, 17.6
+# rebuilds 17.5 with the corrected rec wing and winglet key points)
+DATASET_NUM = "smoke" if SMOKE else dataset_number(CURRENT_DATASET)
 
 # Get the path to the src directory.
 current_dir = Path(__file__).resolve().parent
@@ -71,7 +80,6 @@ force_files_dir = project_root / "data" / "dataset_build_data" / "force files"
 polars_dir = project_root / "data" / "dataset_build_data" / "polars"
 geo_files_dir = project_root / "data" / "dataset_build_data" / "geometry files"
 support_files_dir = project_root / "data" / "support"
-naca_kp_dir = project_root / "data" / "support" / "naca_kp"
 logs_dir = project_root / "data" / "logs"
 datasets_dir = project_root / "data" / "datasets"
 binaries_dir = project_root / "bin"
@@ -679,13 +687,18 @@ def key_point_worker(args):
         progress_queue.put(1)
     return record
 
-def _load_key_point_records(path: Path):
+def _load_key_point_records(path: Path, kp_seed="any"):
+    '''Records of a key point file. Raises RuntimeError if they were fitted with another seed than kp_seed.'''
     if path.exists():
         try:
             with open(path) as f:
-                return {r["file_path"]: r for r in json.load(f)["records"]}
+                data = json.load(f)
+            records = {r["file_path"]: r for r in data["records"]}
         except (OSError, ValueError, KeyError):
-            pass
+            return {}
+        if kp_seed != "any" and data.get("kp_seed") != kp_seed:
+            raise RuntimeError(f"{path} was fitted with key point seed {data.get('kp_seed')}, this run uses {kp_seed}.")
+        return records
     return {}
 
 def _save_key_point_records(path: Path, records: dict, kp_seed):
@@ -701,7 +714,11 @@ def extract_key_points(kp_seed, cd_limit):
     lowest-drag point. Writes key_points.json (archived with the geometry files).
     '''
     polar_paths = sorted(get_all_files_from(polars_temp_dir, extension='txt'))
-    records = _load_key_point_records(key_points_file) or _load_key_point_records(key_points_partial)
+    records = _load_key_point_records(key_points_file, kp_seed) or _load_key_point_records(key_points_partial, kp_seed)
+    missing = set(records) - {p.name for p in polar_paths}
+    if missing:
+        raise RuntimeError(f"{len(missing):,} of the {len(records):,} polars with key points are not in {polars_temp_dir}: the "
+                           "archive was only partly restored. Move that folder away and start again.")
     pending = [p for p in polar_paths if p.name not in records]
     if records and pending:
         print(f"[INFO] Key points: {len(records):,} polar(s) already done, {len(pending):,} to go.")
@@ -755,6 +772,10 @@ def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
     '''
     from simulation_support.airfoil_simulation import laminar_cd_limit
 
+    # The wings must match their reference area and span (stops here otherwise, before any file is written)
+    naca_0012_kp_path = str(naca_kp_path(project_root)) # CDCL polar of the winglet sections (AVL 3.32 requires section-local CDCL)
+    check_wings({identifier: creator_class for creator_class, identifier in configs}, naca_0012_kp_path)
+
     # Recovery check
     rec_dependencies = [
         (airfoil_rar_path, airfoils_temp_dir),
@@ -791,8 +812,10 @@ def AVL_Geometric_File_Formation(configs, kp_seed=None, reynolds=2.5e5):
 
     # --- Geometry files, one progress window per wing configuration --- #
     airfoil_abs_paths = get_all_files_from(airfoils_temp_dir, extension='dat')
-    # NACA 0012 CDCL support file (AVL 3.32 requires section-local CDCL)
-    naca_0012_kp_path = os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt")
+    without_dat = {r["file_path"].replace("polar_", "").replace(".txt", "") for r in records} - {p.stem for p in airfoil_abs_paths}
+    if without_dat:
+        raise RuntimeError(f"{len(without_dat):,} airfoils with a polar have no .dat file in {airfoils_temp_dir}: the archive was "
+                           "only partly restored. Move that folder away and start again.")
     geo_counts = {}
     with open(geo_errors_path, "w", encoding="utf-8") as geo_log:
         geo_log.write("config,airfoil,error\n")
@@ -867,9 +890,10 @@ def avl_worker(args):
         if progress_queue:
             progress_queue.put(1)
 
-def Force_Computation(verbose=False):
+def Force_Computation(configs, settings, verbose=False):
     '''
-    Uses AVL to calculate the force coefficients from each geometric file using the global case file.
+    Uses AVL to calculate the force coefficients from each geometric file using the global case file. Before it starts,
+    the NACA 0012 at zero lift must give the section drag in every configuration (see geometry_checks).
     '''
     # Recovery check
     rec_dependencies = [(geo_rar_path, geo_files_temp_dir)]
@@ -877,11 +901,15 @@ def Force_Computation(verbose=False):
         return
 
     avl_exe = os.path.join(binaries_dir, f'avl{EXE_SUFFIX}')
-    case_file = os.path.join(support_files_dir, "Hossain_sqwing_case.run")
+    case_file = os.path.join(support_files_dir, CASE_FILE)
     support_files_temp_dir.mkdir(exist_ok=True)
-    case_file_temp = os.path.join(support_files_temp_dir, "Hossain_sqwing_case.run")
+    case_file_temp = os.path.join(support_files_temp_dir, CASE_FILE)
     shutil.copyfile(case_file, case_file_temp)
     os.makedirs(force_files_temp_dir, exist_ok=True)
+
+    checks = zero_lift_check(settings, {identifier: creator_class for creator_class, identifier in configs}, training_temp_root / "zero_lift")
+    shutil.rmtree(training_temp_root / "zero_lift", ignore_errors=True)
+    print("Zero-lift check passed: " + " | ".join(f"{i} CD {cd:.5f} (section drag {expected:.5f})" for i, (cd, expected) in checks.items()))
 
     geo_abs_paths = get_all_files_from(geo_files_temp_dir, extension='avl')
     geo_files_to_process = [g for g in geo_abs_paths if not _force_file_for(g).exists()]
@@ -1033,11 +1061,66 @@ def Training_Files_Integration(dataset_dir, n_cst, configs):
         f"(one per shape: {counts.get('classification_valid', 0):,} passed the geometric filters, "
         f"{counts.get('classification_invalid', 0):,} rejected)",
         f"Force files left out:      {len(generator_eff.skipped):>9,}",
+        "Forces of the regressor rows:",
+        *generator_eff.force_table(),
         f"Valid airfoils with a failure: {len({name for name, _, _, _ in failed}):,} of {valid_airfoils:,}, by first failed stage:",
         *[f"    {count:>8,}  {stage}" for stage, count in by_stage.most_common()],
     ], [training_files_rar_path, failed_airfoils_path])
 
     return
+
+def pipeline_settings(params):
+    '''Simulation settings of this dataset (the chain the mending repeats).'''
+    from simulation_support.airfoil_simulation import Simulation_Settings
+    return Simulation_Settings(
+        n_cst=params["n_cst"], aseq=list(params["ASEQ"]), reynolds=params["Re"], mach=params["Mach"],
+        base_airfoil=os.path.join(support_files_dir, BASE_AIRFOIL), naca_kp_file=str(naca_kp_path(project_root)),
+        case_file=os.path.join(support_files_dir, CASE_FILE),
+        xfoil_exe=os.path.join(binaries_dir, f'xfoil{EXE_SUFFIX}'), avl_exe=os.path.join(binaries_dir, f'avl{EXE_SUFFIX}'),
+        sweep_mode=params["sweep_mode"], kp_seed=params["kp_seed"],
+    )
+
+def seed_from_dataset(source, kp_seed, recovery_status):
+    '''
+    Starts this dataset from the archives of another one: copies its airfoils and polars under this dataset's names
+    and restores its key points, so stages 1 and 2 are skipped and stage 3 fits nothing. The source is only read.
+    Safe to repeat: a resumed run keeps what is there. Returns the lines for the parameter log.
+    '''
+    if SMOKE or source == DATASET_NUM:
+        sys.exit(f"[ERROR] --seed-from cannot be used with --smoke or with the dataset itself ({DATASET_NUM}).")
+    source_geo = geo_files_dir / f"geo_files_dataset_{source}.rar"
+    copies = [(airfoils_dir / f"airfoils_dataset_{source}.rar", airfoil_rar_path), (polars_dir / f"polars_dataset_{source}.rar", polar_rar_path)]
+    absent = [p for p in (*[s for s, _ in copies], source_geo) if not p.exists()]
+    if absent:
+        sys.exit("[ERROR] --seed-from: archive(s) not found:\n" + "\n".join(f"        {short_path(p)}" for p in absent))
+    if not all(target.exists() for _, target in copies):  # first start: nothing of another run may be mixed in
+        leftovers = [p for p in training_temp_root.iterdir()]
+        if recovery_status or leftovers:
+            sys.exit(f"[ERROR] --seed-from: files of an earlier run are in the way. Move them away and start again:\n"
+                     + (f"        {short_path(rec_json.recovery_file)}\n" if recovery_status else "")
+                     + (f"        {training_temp_root}\n" if leftovers else ""))
+        for origin, target in copies:
+            if not target.exists():
+                print(f"Copying {origin.name} -> {target.name}...")
+                partial = target.with_name(target.name + ".partial")
+                shutil.copyfile(origin, partial)
+                os.replace(partial, target)
+    if not geo_rar_path.exists() and not key_points_file.exists():
+        print(f"Restoring key_points.json from {source_geo.name}...")
+        rar_Alma.extract_file(source_geo, key_points_file.name, geo_files_temp_dir)
+        print(f"Key points of {len(_load_key_point_records(key_points_file, kp_seed)):,} polars (seed {kp_seed}).")
+
+    def sha256(path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    if not log_filename.exists():
+        return [f"Airfoils, polars and key points taken from dataset {source} (stages 1 and 2 were not repeated):",
+                *[f"  {p.name}  sha256 {sha256(p)}" for p in (*[s for s, _ in copies], source_geo)]]
+    return []
 
 def Database_Mending(dataset_dir, params, configs):
     '''
@@ -1053,7 +1136,6 @@ def Database_Mending(dataset_dir, params, configs):
     sweep (see simulation_support.alpha_sweep). Database_Corrector is no longer used here.
     '''
     from file_handling_support.database_correction import Dataset_Rectifier, grid_levels_from_ranges
-    from simulation_support.airfoil_simulation import Simulation_Settings
 
     # Recovery check
     rec_dependencies = [(training_files_rar_path, training_files_temp_dir)]
@@ -1066,14 +1148,7 @@ def Database_Mending(dataset_dir, params, configs):
     if not csv_path.exists():
         raise FileNotFoundError(f"{short_path(csv_path)} not found: {TRAINING_FILES_INTEGRATION.name} did not write the regressor CSV.")
 
-    settings = Simulation_Settings(
-        n_cst=params["n_cst"], aseq=list(params["ASEQ"]), reynolds=params["Re"], mach=params["Mach"],
-        base_airfoil=os.path.join(support_files_dir, 'naca0012_unit.csv'),
-        naca_kp_file=os.path.join(naca_kp_dir, "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"),
-        case_file=os.path.join(support_files_dir, "Hossain_sqwing_case.run"),
-        xfoil_exe=os.path.join(binaries_dir, f'xfoil{EXE_SUFFIX}'), avl_exe=os.path.join(binaries_dir, f'avl{EXE_SUFFIX}'),
-        sweep_mode=params["sweep_mode"], kp_seed=params["kp_seed"],
-    )
+    settings = pipeline_settings(params)
     rule = params["mending_rule"]
     rectifier = Dataset_Rectifier(
         csv_path=csv_path, settings=settings, work_dir=dataset_dir / "mending", temp_root=correction_temp_root,
@@ -1117,7 +1192,7 @@ if __name__ == "__main__":
     start = datetime.now()
     print(f"Database generation started at: {start_time}.")
     # === Geometric Generation Setup === #
-    base_airfoil = os.path.join(support_files_dir,'naca0012_unit.csv')
+    base_airfoil = os.path.join(support_files_dir, BASE_AIRFOIL)
     n_cst = 5
 
     # Ranges for values that modify CST Curves (starting_value, end_value, step)
@@ -1166,6 +1241,9 @@ if __name__ == "__main__":
     num_combinations = cmb_datalist.shape[0]*num_configs
     log_filename = logs_dir / f"Dataset_{DATASET_NUM}_{num_combinations}_data_points.log"
 
+    status = rec_json.get_recovery_status()
+    seed_lines = seed_from_dataset(ARGS.seed_from, KP_SEED, status) if ARGS.seed_from else []
+
     if not log_filename.exists():
         with open(log_filename, 'w') as log_file:
             log_file.write(f"Dataset {DATASET_NUM} Generation Parameters\n")
@@ -1191,11 +1269,14 @@ if __name__ == "__main__":
             log_file.write(f"  Mach = {Mach}\n")
             log_file.write(f"  ASEQ = {ASEQ}\n")
             log_file.write(f"  Base airfoil = {os.path.basename(base_airfoil)}\n")
-            log_file.write("  NACA key point file = naca_0012_M0-9281_RE250k_M0-093_RE250000.txt\n")
+            log_file.write(f"  NACA key point file = {NACA_KP_FILE}\n")
+            log_file.write(f"  NACA key point hash = {key_points_hash(naca_kp_path(project_root))}\n")
             log_file.write(f"  Sweep mode = {SWEEP_MODE}\n")
             log_file.write(f"  Key point seed = {KP_SEED}\n")
             log_file.write("\nDatabase mending:\n")
             log_file.write(f"  {MENDING_RULE}\n")
+            if seed_lines:
+                log_file.write("\n" + "\n".join(seed_lines) + "\n")
 
     mending_params = {"n_cst": n_cst, "ASEQ": ASEQ, "Re": Re, "Mach": Mach, "sweep_mode": SWEEP_MODE, "kp_seed": KP_SEED,
                       "ranges_lower": ranges_lower, "ranges_upper": ranges_upper, "mending_rule": MENDING_RULE}
@@ -1205,11 +1286,10 @@ if __name__ == "__main__":
         (AIRFOIL_GENESIS, lambda: Airfoil_Genesis(base_airfoil, n_cst, cmb_datalist, filters=geo_filters)),
         (POLAR_FORMULATION, lambda: Polar_Formulation(ASEQ, Re, Mach, sweep_mode=SWEEP_MODE)),
         (AVL_GEOMETRIC_FILE_FORMATION, lambda: AVL_Geometric_File_Formation(configs, kp_seed=KP_SEED, reynolds=Re)),
-        (FORCE_COMPUTATION, lambda: Force_Computation()),
+        (FORCE_COMPUTATION, lambda: Force_Computation(configs, pipeline_settings(mending_params))),
         (TRAINING_FILES_INTEGRATION, lambda: Training_Files_Integration(dataset_dir, n_cst, configs)),
         (DATABASE_MENDING, lambda: Database_Mending(dataset_dir, mending_params, configs)),
     ]
-    status = rec_json.get_recovery_status()
     for stage, run_stage in pipeline:
         if not status.get(stage.status_key):
             print(f"\n=== Stage {stage.number}/{len(pipeline)}: {stage.name} ===")

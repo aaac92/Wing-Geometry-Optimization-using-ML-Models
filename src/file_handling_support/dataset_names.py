@@ -1,6 +1,6 @@
 """
 Dataset numbers. A dataset is a whole number (17) or, for a rebuild of an existing dataset with a corrected
-pipeline, a decimal one (17.5 is the rebuild of 17). A third part marks an expansion of a dataset by the
+pipeline, a decimal one (17.5 and 17.6 are rebuilds of 17). A third part marks an expansion of a dataset by the
 iterative inference: 17.5.3 is dataset 17.5 plus the simulations of a 3-iteration run (models 1.5 -> 1.5.3).
 The number is kept as text so it appears in folder and file names exactly as written.
 
@@ -12,6 +12,9 @@ Folders: whole and one-decimal datasets sit at the top level, expansions inside 
 import argparse
 import re
 from pathlib import Path
+
+# The dataset in use: the default of the generator, the tuning scripts, the searches and the utilities
+CURRENT_DATASET = "17.6"
 
 _PATTERN = re.compile(r"^\d+(\.\d+){0,2}$")
 

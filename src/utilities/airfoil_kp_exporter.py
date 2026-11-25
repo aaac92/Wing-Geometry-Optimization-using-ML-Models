@@ -8,12 +8,12 @@ The winglet sections of the flat and 60DEG AVL geometries use a base airfoil's k
 (AVL 3.32 reads CDCL per SECTION; simulation_support.geo_file_creation pastes the third line of the file after CDCL).
 These files must come from the same simulation chain as the dataset.
 
-The current NACA 0012 file, data/support/naca_kp/naca_0012_M0-9281_RE250k_M0-093_RE250000.txt, was made from an old
+The NACA 0012 file of datasets 17 and 17.5, naca_0012_M0-9281_RE250k_M0-093_RE250000.txt, was made from an old
 XFOIL 6.99 polar (data/support/naca_polars/polar_naca_0012_M0-9281_RE250k.txt). That polar was a sequential sweep
 from -20 deg every 0.2 deg. Its CDmin is 0.00128, below the laminar limit (laminar_cd_limit(2.5e5) = 0.00531).
 
-This script regenerates such files with any protocol and seed, for NACA 0012 or for any other base airfoil a future
-dataset may use.
+This script makes such files with any protocol and seed, for NACA 0012 or for any other base airfoil a future dataset
+may use. The file in use is named in simulation_support.support_files (NACA_KP_FILE).
 
 Chain (the order of simulation_support.airfoil_simulation.simulate_airfoil_once)
 -----
@@ -39,7 +39,7 @@ An existing file is overwritten only after confirmation (old and new key points 
 Usage
 -----
     python src/utilities/airfoil_kp_exporter.py --airfoil naca0012_unit.csv --protocol zero_out --kp-seed 42 --output-dir <scratch>
-    python src/utilities/airfoil_kp_exporter.py --airfoil naca0012_unit.csv --protocol zero_out --kp-seed 42 --folder naca_kp --file-name naca_0012_M0-9281_RE250k_M0-093_RE250000.txt
+    python src/utilities/airfoil_kp_exporter.py --airfoil naca0012_unit.csv --protocol zero_out --kp-seed 42 --folder naca_kp --file-name naca_0012_M0-093_RE250000_zero_out_s42.txt
 """
 import argparse
 import math

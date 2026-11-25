@@ -30,6 +30,7 @@ from simulation_support.airfoil_simulation import (
     WORKER_STATE as _WORKER, worker_init as _rectifier_worker_init, worker_status as _worker_status,
     worker_progress as _worker_progress, simulate_airfoil_once,
 )
+from simulation_support.geometry_checks import check_wings
 from geometric_support import Airfoil_Generator
 try:
     from ux_support import Progress_GUI
@@ -1954,6 +1955,7 @@ class Dataset_Rectifier:
         requests = {k: n for k, n in requests.items() if n > 0}
         if not requests:
             return
+        check_wings({c: GEO_CREATORS_BY_IDENTIFIER[c] for c in self.config_cols}, self.settings.naca_kp_file)
         sid = self.settings.signature_id()
         mode = self.mode
         workers = 1 if self.single_process else min(self.workers, len(requests))

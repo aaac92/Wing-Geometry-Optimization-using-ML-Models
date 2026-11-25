@@ -51,6 +51,7 @@ from file_handling_support.database_correction import (  # noqa: E402
 )
 from simulation_support.airfoil_simulation import Simulation_Settings  # noqa: E402
 from file_handling_support.dataset_names import dataset_number_arg  # noqa: E402
+from simulation_support.support_files import LEGACY_NACA_KP_FILE, check_dataset_kp_file  # noqa: E402
 from simulation_support.alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_MODES  # noqa: E402
 
 # =============================================================================================== #
@@ -61,7 +62,7 @@ from simulation_support.alpha_sweep import DEFAULT_SWEEP_MODE, SWEEP_MODES  # no
 # Dataset 17: values from Hossain_DB_Gen.py at the time it was generated.
 KNOWN_FLOW_REGIMES = {
     "17": {"reynolds": 2.5e5, "mach": 0.09281, "aseq": [-20.0, 20.0, 0.5], "base_airfoil": "naca0012_unit.csv",
-         "naca_kp_file": "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"},
+         "naca_kp_file": LEGACY_NACA_KP_FILE},
 }
 DEFAULT_CASE_FILE = "Hossain_sqwing_case.run"
 DEFAULT_BASE_AIRFOIL = "naca0012_unit.csv"
@@ -332,6 +333,7 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.runs is None:
         args.runs = 5 if args.mode == "diagnose" else 1
+    check_dataset_kp_file(args.dataset, PROJECT_ROOT)
     values, sources, log_path = resolve_properties(args)
     if log_path is None:
         print(f"[INFO] No generation log found for dataset {args.dataset} in data/logs.")

@@ -16,6 +16,7 @@ from simulation_support import (
     HossainWing60DEG_Creation,
     HossainWingFlat_Creation,
     AVL_Run_Case,
+    naca_kp_path,
 )
 from geometric_support import Airfoil_Generator, Validate_Airfoil
 from geometric_support.filter_settings import DATASET_FILTERS, apply_filters
@@ -172,7 +173,7 @@ def main():
 
     support_files_dir = project_root / "data" / "support"
     base_airfoil_path = Path(inputs["base_airfoil"]) if inputs["base_airfoil"] else (support_files_dir / "naca0012_unit.csv")
-    naca_0012_kp_path = support_files_dir / "naca_kp" / "naca_0012_M0-9281_RE250k_M0-093_RE250000.txt"
+    naca_0012_kp_path = naca_kp_path(project_root)
     case_file_src = Path(inputs["run_file"]) if inputs["run_file"] else (support_files_dir / "Hossain_sqwing_case.run")
 
     airfoil_name = inputs["case_id"]

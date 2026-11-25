@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import warnings
@@ -320,6 +321,26 @@ def extract_polar_metadata(polar_path: Path) -> dict:
                         metadata['re'] = raw_re
                         
     return metadata
+
+
+def read_key_points_file(path) -> list:
+    """The six values of a key-point file (its last non-empty line, the one pasted after CDCL in the .avl files)."""
+    lines = [line for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    values = [float(v) for v in lines[-1].split()] if lines else []
+    if len(values) != 6:
+        raise ValueError(f"{path}: expected six key-point values in its last line, found {len(values)}.")
+    return values
+
+
+def key_points_hash(path) -> str:
+    """Short hash of the six values of a key-point file. Not of its bytes: line endings differ between machines."""
+    return hashlib.sha1(" ".join(repr(v) for v in read_key_points_file(path)).encode()).hexdigest()[:12]
+
+
+def key_points_result(kp) -> dict:
+    """The six key points in file order (as polar_key_points returns them) in the format of process_file()."""
+    return {'min_cl_point': {'CL': kp[0], 'CD': kp[1]}, 'min_cd_point': {'CL': kp[2], 'CD': kp[3]},
+            'max_cl_point': {'CL': kp[4], 'CD': kp[5]}}
 
 
 def write_key_points_file(result_dict: dict, output_path: Path, meta: dict):
