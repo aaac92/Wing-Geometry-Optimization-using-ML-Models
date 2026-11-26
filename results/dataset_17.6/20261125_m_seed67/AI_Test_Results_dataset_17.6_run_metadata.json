@@ -1,0 +1,360 @@
+{
+    "run_status": "completed",
+    "dataset": "17.6",
+    "dataset_csv": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv",
+    "wing_mode": "Hossain_config",
+    "master_seed": {
+        "hex": "67",
+        "decimal": 103
+    },
+    "round_seeds_hex": [
+        "1c14",
+        "c35",
+        "8c2",
+        "2f5",
+        "1593"
+    ],
+    "classifier": {
+        "name": "Calipso_1.6",
+        "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.6/classifier"
+    },
+    "models": [
+        {
+            "name": "Marbas_1.6",
+            "type": "lgbm",
+            "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.6/lgbm_regressor_sum_station",
+            "feature_mode": "sum_station"
+        },
+        {
+            "name": "Odysseus_1.6",
+            "type": "mlp",
+            "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.6/mlp_regressor",
+            "feature_mode": "raw"
+        },
+        {
+            "name": "Murata_1.6",
+            "type": "mlp",
+            "folder": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.6/mlp_regressor_sum_station",
+            "feature_mode": "sum_station"
+        }
+    ],
+    "skipped_models": [],
+    "lanes": [
+        "Marbas_1.6",
+        "Odysseus_1.6",
+        "Murata_1.6",
+        "consensus",
+        "random"
+    ],
+    "lane_option": null,
+    "no_update": false,
+    "hours": 24.0,
+    "workers": 11,
+    "fingerprints": {
+        "dataset_csv": "3ffa8d88adac9a60",
+        "classifier": "c10a78cdc3633027",
+        "models": {
+            "Marbas_1.6": "9b94402e39763223",
+            "Odysseus_1.6": "5b3a365c7bdcc6c9",
+            "Murata_1.6": "26cec23feb5b5399"
+        },
+        "simulation": {
+            "zero_out": "5216b32c3191",
+            "cold": "91b80fa0c859"
+        }
+    },
+    "test_split_seed": 42,
+    "settings": {
+        "iteration0": {
+            "rounds": 5,
+            "uniform": 400000,
+            "local": 600000,
+            "edge": 300000,
+            "top_in_window": 16,
+            "top_edge": 8,
+            "random_picks": 24,
+            "references": 5
+        },
+        "trust_region": {
+            "peak_share": 0.9,
+            "max_start_tracks": 6,
+            "r0": 1.0,
+            "r_min": 0.1,
+            "r_max": 3.0,
+            "picks_per_track": 16,
+            "uniform_samples": 20000,
+            "refine_samples": 10000,
+            "min_gain": 0.005,
+            "stall_patience": 2,
+            "drop_share": 0.95,
+            "merge_steps": 1.0
+        },
+        "fine_tune": {
+            "new_weight": 10,
+            "min_shapes": 5,
+            "local_anchor_steps": 1.5,
+            "local_anchor_max": 30000,
+            "random_anchors": 20000
+        },
+        "validation": {
+            "cold_top": 3,
+            "robust_designs": 3,
+            "robust_perturbations": 8,
+            "robust_sigma_steps": 0.1
+        },
+        "simulation": {
+            "ASEQ": [
+                -20,
+                20,
+                0.5
+            ],
+            "Re": 250000.0,
+            "Mach": 0.09281,
+            "sweep_mode": "zero_out",
+            "kp_seed": 42,
+            "naca_kp_file": "naca_0012_M0-093_RE250000_zero_out_s42.txt",
+            "naca_kp_hash": "002360262d7e",
+            "laminar_cd_limit": 0.005312
+        }
+    },
+    "peaks": [
+        {
+            "cst": [
+                0.0,
+                0.125,
+                0.0417,
+                0.125,
+                0.125,
+                0.125,
+                0.0417,
+                0.0833,
+                0.0833,
+                0.125
+            ],
+            "E": 21.787162162162165,
+            "config": "flat",
+            "E_by_config": {
+                "60DEG": 21.0037397157816,
+                "flat": 21.787162162162165,
+                "rec": 20.21889055472264
+            },
+            "peak_in": [
+                "60DEG",
+                "flat",
+                "rec"
+            ]
+        },
+        {
+            "cst": [
+                0.0,
+                0.125,
+                0.0417,
+                0.125,
+                0.125,
+                0.0625,
+                0.125,
+                0.0417,
+                0.125,
+                0.125
+            ],
+            "E": 21.757377049180327,
+            "config": "flat",
+            "E_by_config": {
+                "60DEG": 20.96301667875272,
+                "flat": 21.757377049180327
+            },
+            "peak_in": [
+                "60DEG",
+                "flat"
+            ]
+        },
+        {
+            "cst": [
+                0.0,
+                0.125,
+                0.0417,
+                0.125,
+                0.125,
+                0.0,
+                0.125,
+                0.0,
+                0.0833,
+                0.125
+            ],
+            "E": 20.4388843314192,
+            "config": "rec",
+            "E_by_config": {
+                "rec": 20.4388843314192
+            },
+            "peak_in": [
+                "rec"
+            ]
+        }
+    ],
+    "started": "2026-11-25 16:43:38",
+    "finished": "2026-11-25 18:23:44",
+    "active_run_time": "1:40:06",
+    "outcome": "SUCCESS!!",
+    "lane_outcomes": {
+        "Marbas_1.6": "SUCCESS??",
+        "Odysseus_1.6": "SUCCESS??",
+        "Murata_1.6": "SUCCESS??",
+        "consensus": "SUCCESS??",
+        "random": "SUCCESS!!"
+    },
+    "iterations": 7,
+    "stop_reason": "every lane converged",
+    "simulations": 1061,
+    "expansion": {
+        "status": "saved",
+        "version": "17.6.7",
+        "dataset_dir": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/dataset_17.6.7",
+        "models_dir": "/home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.6/dataset_17.6.7",
+        "diverted_to_run_folder": false,
+        "new_rows": 3015,
+        "new_shapes": 1005,
+        "below_laminar_limit": 1,
+        "models": {
+            "Marbas_1.6.7": {
+                "accepted": true,
+                "new_rows": 3015,
+                "new_held_out": 603,
+                "anchor_rows": 323232,
+                "mae_new_before": 1.8851690684121898,
+                "mae_new_after": 0.7464836014284125,
+                "mae_anchor_before": 0.2049930858945324,
+                "mae_anchor_after": 0.20474254084889837,
+                "trees_added": 58
+            },
+            "Odysseus_1.6.7": {
+                "accepted": true,
+                "new_rows": 3015,
+                "new_held_out": 603,
+                "anchor_rows": 323232,
+                "mae_new_before": 2.491571354431102,
+                "mae_new_after": 0.6778988434900692,
+                "mae_anchor_before": 0.22891343850806678,
+                "mae_anchor_after": 0.20151554163728275,
+                "best_epoch": 8
+            },
+            "Murata_1.6.7": {
+                "accepted": true,
+                "new_rows": 3015,
+                "new_held_out": 603,
+                "anchor_rows": 323232,
+                "mae_new_before": 3.465345270400419,
+                "mae_new_after": 0.6514223669694233,
+                "mae_anchor_before": 0.26229468671412465,
+                "mae_anchor_after": 0.21584693594826104,
+                "best_epoch": 6
+            }
+        },
+        "test_split": {
+            "by": "shape",
+            "seed": 42,
+            "test_size": 0.2,
+            "rows": 80808
+        },
+        "test_scores": {
+            "Marbas_1.6.7": {
+                "original_model": "Marbas_1.6",
+                "original": {
+                    "MAE": 0.26894186375264995,
+                    "R2_Score": 0.9794625363832652,
+                    "Max_Error": 10.191695956737579
+                },
+                "final": {
+                    "MAE": 0.2688923533976504,
+                    "R2_Score": 0.9794316749864677,
+                    "Max_Error": 10.239576428431075
+                },
+                "final_per_configuration": {
+                    "rec": {
+                        "rows": 26936,
+                        "MAE": 0.28355479170413117,
+                        "R2_Score": 0.9767037398115973,
+                        "Max_Error": 9.911849701185377
+                    },
+                    "flat": {
+                        "rows": 26936,
+                        "MAE": 0.26722282437976147,
+                        "R2_Score": 0.9804238845303594,
+                        "Max_Error": 10.239576428431075
+                    },
+                    "60DEG": {
+                        "rows": 26936,
+                        "MAE": 0.2558994441090585,
+                        "R2_Score": 0.9807242442657551,
+                        "Max_Error": 9.69919605773589
+                    }
+                }
+            },
+            "Odysseus_1.6.7": {
+                "original_model": "Odysseus_1.6",
+                "original": {
+                    "MAE": 0.2457140874206578,
+                    "R2_Score": 0.9806950470357862,
+                    "Max_Error": 9.267432689666748
+                },
+                "final": {
+                    "MAE": 0.2181043186462867,
+                    "R2_Score": 0.9818632162122797,
+                    "Max_Error": 8.943065166473389
+                },
+                "final_per_configuration": {
+                    "rec": {
+                        "rows": 26936,
+                        "MAE": 0.2301321571028951,
+                        "R2_Score": 0.9794080087352607,
+                        "Max_Error": 8.943065166473389
+                    },
+                    "flat": {
+                        "rows": 26936,
+                        "MAE": 0.2113681873799677,
+                        "R2_Score": 0.9828814453427726,
+                        "Max_Error": 8.676262855529785
+                    },
+                    "60DEG": {
+                        "rows": 26936,
+                        "MAE": 0.2128126114559973,
+                        "R2_Score": 0.9828955776645782,
+                        "Max_Error": 8.73496961593628
+                    }
+                }
+            },
+            "Murata_1.6.7": {
+                "original_model": "Murata_1.6",
+                "original": {
+                    "MAE": 0.27528892229760044,
+                    "R2_Score": 0.9802988095654626,
+                    "Max_Error": 9.025998592376709
+                },
+                "final": {
+                    "MAE": 0.22946095166452318,
+                    "R2_Score": 0.9818800563061757,
+                    "Max_Error": 9.15262746810913
+                },
+                "final_per_configuration": {
+                    "rec": {
+                        "rows": 26936,
+                        "MAE": 0.24104443224551098,
+                        "R2_Score": 0.9795139510024929,
+                        "Max_Error": 9.15262746810913
+                    },
+                    "flat": {
+                        "rows": 26936,
+                        "MAE": 0.22811210848854918,
+                        "R2_Score": 0.9828589554777789,
+                        "Max_Error": 8.885334968566895
+                    },
+                    "60DEG": {
+                        "rows": 26936,
+                        "MAE": 0.21922631425950936,
+                        "R2_Score": 0.9828706550448155,
+                        "Max_Error": 8.553865909576416
+                    }
+                }
+            }
+        }
+    }
+}

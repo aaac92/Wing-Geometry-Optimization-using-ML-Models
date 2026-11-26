@@ -1,0 +1,1 @@
+{"input_dim": 13, "y_min": -1.8606382608413696, "feature_engineer": {"mode": "raw", "lower_prefix": "cst_l_", "upper_prefix": "cst_u_", "n_stations": 9, "n_input": 13, "lower_idx": null, "upper_idx": null}}

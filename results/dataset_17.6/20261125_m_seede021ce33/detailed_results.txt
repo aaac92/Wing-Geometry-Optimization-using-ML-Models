@@ -1,0 +1,137 @@
+======================================================================================================================================================
+Iterative inference report, dataset 17.6
+======================================================================================================================================================
+Dataset best: E = 21.7872 (flat) | target 21.8056
+Dataset peaks: 3 local maxima within 10% of the best E of their configuration (60DEG 2, flat 2, rec 2) -> 3 track(s) per lane
+  peak 1: E 21.787 (flat), peak in 60DEG+flat+rec | cst_l_1=0.0000, cst_l_2=0.1250, cst_l_3=0.0417, cst_l_4=0.1250, cst_l_5=0.1250, cst_u_1=0.1250, cst_u_2=0.0417, cst_u_3=0.0833, cst_u_4=0.0833, cst_u_5=0.1250
+  peak 2: E 21.757 (flat), peak in 60DEG+flat | cst_l_1=0.0000, cst_l_2=0.1250, cst_l_3=0.0417, cst_l_4=0.1250, cst_l_5=0.1250, cst_u_1=0.0625, cst_u_2=0.1250, cst_u_3=0.0417, cst_u_4=0.1250, cst_u_5=0.1250
+  peak 3: E 20.439 (rec), peak in rec | cst_l_1=0.0000, cst_l_2=0.1250, cst_l_3=0.0417, cst_l_4=0.1250, cst_l_5=0.1250, cst_u_1=0.0000, cst_u_2=0.1250, cst_u_3=0.0000, cst_u_4=0.0833, cst_u_5=0.1250
+
+--- Lane Marbas_1.6: Marbas_1.6 (LGBM, sum_station features) ------------------------------------------------------------
+Outcome: SUCCESS?? | finished: converged: best E gained less than 0.5% for 2 iterations in a row
+Iter Tracks Shapes  Total   Best E     Gain Stall  Pick MAE per model
+   0      3     24     30   23.311   +0.00%     0  Marbas_1.6 0.458, Odysseus_1.6 0.921, Murata_1.6 1.470
+   1      2     48     78   23.945   +2.72%     0  Marbas_1.6 2.710
+   2      2     32    110   23.945   +0.00%     1  Marbas_1.6 1.084
+   3      2     32    142   23.945   +0.00%     2  Marbas_1.6 0.624
+Fine-tuning: 3 of 3 updates kept
+  track T2 (dataset peak): E 23.945, radius 0.500 steps, 4 steps | active at the end
+  track T3 (dataset peak): E 23.572, radius 1.500 steps, 4 steps | active at the end
+  track T1 (dataset peak): E 23.489, radius 2.000 steps, 2 steps | merged into track T2
+  design scd44255fb8: E 23.9446 (flat) all configs rec=20.680, flat=23.945, 60DEG=23.076 | cold E 23.520 (agrees, pre-stall same branch 1.000)
+     window outside 1.57 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=21.498, Odysseus_1.6=16.259, Murata_1.6=11.369 | lane's updated models: Marbas_1.6=23.057
+  design s380b31b06c: E 23.6421 (flat) all configs rec=20.584, flat=23.642, 60DEG=22.778 | cold E 23.243 (differs, pre-stall same branch 0.969)
+     window outside 0.99 steps from the nearest dataset shape | filters pass | classifier 1.000
+     predictions original: Marbas_1.6=21.219, Odysseus_1.6=17.847, Murata_1.6=16.257 | lane's updated models: Marbas_1.6=23.060
+  design sbcfe65b1da: E 23.6370 (flat) all configs rec=20.353, flat=23.637, 60DEG=22.753 | cold E 22.567 (differs, pre-stall same branch 0.970)
+     window outside 1.53 steps from the nearest dataset shape | filters pass | classifier 1.000
+     predictions original: Marbas_1.6=21.220, Odysseus_1.6=16.015, Murata_1.6=12.938 | lane's updated models: Marbas_1.6=23.143
+
+--- Lane Odysseus_1.6: Odysseus_1.6 (MLP, raw features) ------------------------------------------------------------
+Outcome: SUCCESS?? | finished: converged: best E gained less than 0.5% for 2 iterations in a row
+Iter Tracks Shapes  Total   Best E     Gain Stall  Pick MAE per model
+   0      3     24     30   21.911   +0.00%     0  Marbas_1.6 1.080, Odysseus_1.6 0.771, Murata_1.6 0.706
+   1      3     48     78   22.251   +1.55%     0  Odysseus_1.6 0.321
+   2      1     48    126   22.287   +0.16%     1  Odysseus_1.6 0.710
+   3      1     16    142   22.559   +1.22%     0  Odysseus_1.6 1.567
+   4      1     16    158   22.820   +1.16%     0  Odysseus_1.6 1.111
+   5      1     16    174   22.820   +0.00%     1  Odysseus_1.6 6.098
+   6      1     16    190   23.374   +2.43%     0  Odysseus_1.6 0.692
+   7      1     16    206   23.374   +0.00%     1  Odysseus_1.6 1.019
+   8      1     16    222   23.673   +1.28%     0  Odysseus_1.6 0.457
+   9      1     16    238   24.426   +3.18%     0  Odysseus_1.6 1.331
+  10      1     16    254   24.426   +0.00%     1  Odysseus_1.6 2.431
+  11      1     16    270   24.426   +0.00%     2  Odysseus_1.6 0.557
+Fine-tuning: 10 of 11 updates kept
+  track T3 (dataset peak): E 24.426, radius 0.750 steps, 11 steps | active at the end
+  track T2 (dataset peak): E 22.251, radius 1.000 steps, 2 steps | merged into track T3
+  track T1 (dataset peak): E 22.222, radius 3.000 steps, 3 steps | merged into track T3
+  design sf058cae814: E 24.4258 (flat) all configs rec=19.508, flat=24.426, 60DEG=23.703 | cold E 24.377 (differs, pre-stall same branch 0.933)
+     window outside 1.66 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=18.647, Odysseus_1.6=18.088, Murata_1.6=15.603 | lane's updated models: Odysseus_1.6=22.784
+  design s32e5e3a963: E 24.2661 (flat) all configs rec=21.715, flat=24.266, 60DEG=23.342 | cold E 24.266 (differs, pre-stall same branch 0.933)
+     window outside 1.00 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=19.851, Odysseus_1.6=19.099, Murata_1.6=17.834 | lane's updated models: Odysseus_1.6=23.838
+  design sd7f2684274: E 24.2491 (flat) all configs rec=21.126, flat=24.249, 60DEG=23.320 | cold E 23.535 (differs, pre-stall same branch 0.938)
+     window outside 0.84 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=19.945, Odysseus_1.6=17.747, Murata_1.6=15.623 | lane's updated models: Odysseus_1.6=23.789
+
+--- Lane Murata_1.6: Murata_1.6 (MLP, sum_station features) ------------------------------------------------------------
+Outcome: SUCCESS?? | finished: converged: best E gained less than 0.5% for 2 iterations in a row
+Iter Tracks Shapes  Total   Best E     Gain Stall  Pick MAE per model
+   0      3     24     30   21.811   +0.00%     0  Marbas_1.6 2.362, Odysseus_1.6 0.730, Murata_1.6 1.221
+   1      2     48     78   22.090   +1.28%     0  Murata_1.6 0.675
+   2      2     32    110   22.449   +1.62%     0  Murata_1.6 2.028
+   3      2     32    142   23.942   +6.65%     0  Murata_1.6 1.212
+   4      1     32    174   24.115   +0.72%     0  Murata_1.6 1.070
+   5      1     16    190   24.460   +1.43%     0  Murata_1.6 1.125
+   6      1     16    206   24.460   +0.00%     1  Murata_1.6 4.720
+   7      1     16    222   24.678   +0.89%     0  Murata_1.6 0.702
+   8      1     16    238   24.678   +0.00%     1  Murata_1.6 1.066
+   9      1     16    254   24.678   +0.00%     2  Murata_1.6 0.674
+Fine-tuning: 9 of 9 updates kept
+  track T3 (dataset peak): E 24.678, radius 0.750 steps, 9 steps | active at the end
+  track T1 (dataset peak): E 21.806, radius 0.500 steps, 1 steps | merged into track T2
+  track T2 (dataset peak): E 23.942, radius 1.500 steps, 5 steps | merged into track T3
+  design s69d96368dd: E 24.6781 (flat) all configs rec=21.155, flat=24.678, 60DEG=23.782 | cold E 23.879 (differs, pre-stall same branch 0.903)
+     window outside 1.18 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=19.420, Odysseus_1.6=18.631, Murata_1.6=17.452 | lane's updated models: Murata_1.6=23.846
+  design s809042df64: E 24.4905 (flat) all configs rec=19.824, flat=24.491, 60DEG=23.728 | cold E 23.140 (differs, pre-stall same branch 0.900)
+     window outside 1.16 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=19.113, Odysseus_1.6=18.399, Murata_1.6=16.541 | lane's updated models: Murata_1.6=23.757
+  design sc6ff8ddd36: E 24.4788 (flat) all configs rec=20.299, flat=24.479, 60DEG=23.654 | cold E 24.823 (differs, pre-stall same branch 0.967)
+     window outside 1.30 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=19.320, Odysseus_1.6=18.416, Murata_1.6=16.764 | lane's updated models: Murata_1.6=23.829
+
+--- Lane consensus: consensus of Marbas_1.6, Odysseus_1.6, Murata_1.6 ------------------------------------------------------------
+Outcome: SUCCESS?? | finished: converged: best E gained less than 0.5% for 2 iterations in a row
+Iter Tracks Shapes  Total   Best E     Gain Stall  Pick MAE per model
+   0      3     24     30   22.551   +0.00%     0  Marbas_1.6 0.611, Odysseus_1.6 0.348, Murata_1.6 0.565
+   1      2     48     78   23.569   +4.51%     0  Marbas_1.6 1.202, Odysseus_1.6 0.793, Murata_1.6 1.170
+   2      2     32    110   23.569   +0.00%     1  Marbas_1.6 1.168, Odysseus_1.6 1.176, Murata_1.6 1.272
+   3      2     32    142   23.569   +0.00%     2  Marbas_1.6 1.106, Odysseus_1.6 1.271, Murata_1.6 2.040
+Fine-tuning: 9 of 9 updates kept
+  track T3 (dataset peak): E 23.569, radius 0.500 steps, 3 steps | active at the end
+  track T2 (dataset peak): E 23.252, radius 1.500 steps, 4 steps | active at the end
+  track T1 (dataset peak): E 22.439, radius 2.000 steps, 2 steps | merged into track T2
+  design sa0483561fa: E 23.5689 (flat) all configs rec=20.830, flat=23.569, 60DEG=22.725 | cold E 23.468 (differs, pre-stall same branch 0.969)
+     window outside 1.00 steps from the nearest dataset shape | filters pass | classifier 1.000
+     predictions original: Marbas_1.6=21.329, Odysseus_1.6=19.876, Murata_1.6=18.675 | lane's updated models: Marbas_1.6=23.511, Odysseus_1.6=22.414, Murata_1.6=22.985
+  design s95f2d3e47c: E 23.3656 (flat) all configs rec=20.840, flat=23.366, 60DEG=22.511 | cold E 22.732 (differs, pre-stall same branch 0.969)
+     window outside 0.85 steps from the nearest dataset shape | filters pass | classifier 1.000
+     predictions original: Marbas_1.6=20.914, Odysseus_1.6=19.590, Murata_1.6=18.183 | lane's updated models: Marbas_1.6=23.065, Odysseus_1.6=22.670, Murata_1.6=22.692
+  design sd09913cb11: E 23.3549 (flat) all configs rec=20.463, flat=23.355, 60DEG=22.490 | cold E 21.030 (differs, pre-stall same branch 0.938)
+     window outside 1.31 steps from the nearest dataset shape | filters pass | classifier 1.000
+     predictions original: Marbas_1.6=21.416, Odysseus_1.6=17.378, Murata_1.6=14.951 | lane's updated models: Marbas_1.6=23.582, Odysseus_1.6=22.423, Murata_1.6=22.151
+
+--- Lane random: random picks inside the trust regions (no models) ------------------------------------------------------------
+Outcome: SUCCESS?? | finished: converged: best E gained less than 0.5% for 2 iterations in a row
+Iter Tracks Shapes  Total   Best E     Gain Stall  Pick MAE per model
+   0      3     24     30   21.806   +0.00%     0  
+   1      2     48     78   23.405   +7.33%     0  
+   2      2     32    110   23.405   +0.00%     1  
+   3      2     32    142   23.721   +1.35%     0  
+   4      2     32    174   23.992   +1.14%     0  
+   5      2     32    206   23.992   +0.00%     1  
+   6      2     32    238   24.142   +0.62%     0  
+   7      2     32    270   24.142   +0.00%     1  
+   8      2     32    302   24.373   +0.96%     0  
+   9      2     32    334   24.373   +0.00%     1  
+  10      2     32    366   24.373   +0.00%     2  
+  track T1 (dataset peak): E 24.373, radius 0.250 steps, 10 steps | active at the end
+  track T3 (dataset peak): E 24.160, radius 0.250 steps, 10 steps | active at the end
+  track T2 (dataset peak): E 23.050, radius 2.000 steps, 1 steps | merged into track T3
+  design s3d47a28573: E 24.3731 (flat) all configs rec=21.402, flat=24.373, 60DEG=23.449 | cold E 24.044 (differs, pre-stall same branch 0.970)
+     window outside 0.98 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=20.274, Odysseus_1.6=16.980, Murata_1.6=15.295
+  design s92725ed524: E 24.1800 (flat) all configs rec=21.085, flat=24.180, 60DEG=23.284 | cold E 24.164 (agrees, pre-stall same branch 1.000)
+     window outside 0.98 steps from the nearest dataset shape | filters fail: sharpness: Angular curvature continuity failed | classifier 1.000
+     predictions original: Marbas_1.6=19.976, Odysseus_1.6=17.611, Murata_1.6=15.929
+  design scf8ee8ee73: E 24.1595 (flat) all configs rec=20.934, flat=24.160, 60DEG=23.262 | cold E 23.799 (differs, pre-stall same branch 0.938)
+     window outside 1.43 steps from the nearest dataset shape | filters pass | classifier 1.000
+     predictions original: Marbas_1.6=19.822, Odysseus_1.6=16.813, Murata_1.6=14.493
+
+Loop iterations completed: 11 | stop: every lane converged
+Finished 21:58:15 earlier than the 24 h ceiling (active run time 2:01:45).
+======================================================================================================================================================

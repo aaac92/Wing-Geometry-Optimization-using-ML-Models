@@ -1,0 +1,50 @@
+
+    ____   _   _   ____   ____  _____  ____   ____   _  _
+   / ___| | | | | / ___| / ___|| ____|/ ___| / ___| | || |
+   \___ \ | | | || |    | |    |  _|  \___ \ \___ \ | || |
+    ___) || |_| || |___ | |___ | |___  ___) | ___) ||_||_|
+   |____/  \___/  \____| \____||_____||____/ |____/ (_)(_)
+
+====================================================================================================
+Goal: a wing design with simulated E above the best of dataset 17.6.
+Target: E > 21.8056  (dataset best 21.7872, re-simulated 21.8056)
+SUCCESS!! = one of the lane's top 3 designs passes the full validation: it beats the target, the cold-start (history-free) simulation agrees and every geometric filter passes.
+SUCCESS?? = the lane's best design beats the target, but none of its top designs passes the full validation.
+
+Lane                   Outcome         Best E vs target Validated E vs target  Shapes  Iter   100%   101%   102%   105%   (shapes simulated to reach that share of the dataset best)
+Marbas_1.6             SUCCESS??      24.2727   +11.31%           -         -     158     3     13     24     25     26
+Odysseus_1.6           SUCCESS??      22.8648    +4.86%           -         -     174     3     12     24     41      -
+Murata_1.6             SUCCESS??      22.4389    +2.90%           -         -     174     3     35     35     46      -
+consensus              SUCCESS??      24.2648   +11.28%           -         -     270     7      7     27     27     39
+random                 SUCCESS!!      23.4941    +7.74%     23.4941    +7.74%     174     3     31     31     31     31
+
+Marbas_1.6: best design s4ac86032b1 E = 24.2727 (flat) | cold-start: differs | window: outside (cst_l_1 +0.54 steps, cst_l_2 +1.05 steps, cst_l_4 +0.29 steps, cst_l_5 +0.71 steps, cst_u_1 +0.15 steps, cst_u_5 +0.64 steps) | filters: fail (sharpness: Angular curvature continuity failed)
+    CST lower: [0.0336, 0.1687, 0.0438, 0.1369, 0.214]  CST upper: [0.1341, 0.002, 0.106, 0.046, 0.2044]
+    robustness: 8 perturbations, E 19.31 to 24.32 (hold rate 75%)
+    none of this lane's top 3 designs passes the full validation
+Odysseus_1.6: best design sa43f2c2d21 E = 22.8648 (flat) | cold-start: agrees | window: outside (cst_l_1 +0.81 steps, cst_l_4 +0.14 steps, cst_l_5 +0.03 steps) | filters: fail (sharpness: Angular curvature continuity failed)
+    CST lower: [0.0509, 0.1083, 0.0809, 0.131, 0.1282]  CST upper: [0.1155, 0.076, 0.0225, 0.0998, 0.123]
+    robustness: 8 perturbations, E 19.16 to 22.05 (hold rate 88%)
+    none of this lane's top 3 designs passes the full validation
+Murata_1.6: best design sc0e3c8b4e5 E = 22.4389 (flat) | cold-start: differs | window: outside (cst_l_1 +1.00 steps, cst_l_2 +0.37 steps, cst_l_4 +1.00 steps, cst_u_1 +0.74 steps, cst_u_5 +0.01 steps) | filters: fail (sharpness: Angular curvature continuity failed)
+    CST lower: [0.0625, 0.1404, 0.0125, 0.1666, 0.1184]  CST upper: [0.171, 0.0146, 0.0968, 0.0736, 0.1259]
+    robustness: 8 perturbations, E 21.33 to 22.69 (hold rate 100%)
+    none of this lane's top 3 designs passes the full validation
+consensus: best design sd0ce30cb7a E = 24.2648 (flat) | cold-start: differs | window: outside (cst_l_1 +1.39 steps, cst_l_2 +0.02 steps, cst_l_4 +1.35 steps, cst_l_5 +0.74 steps, cst_u_1 +0.49 steps, cst_u_2 -0.01 steps, cst_u_5 +0.68 steps) | filters: fail (sharpness: Angular curvature continuity failed)
+    CST lower: [0.0866, 0.1257, 0.0999, 0.1813, 0.2172]  CST upper: [0.1559, -0.0004, 0.1055, 0.008, 0.2104]
+    robustness: 8 perturbations, E 23.48 to 24.25 (hold rate 100%)
+    none of this lane's top 3 designs passes the full validation
+random: best design s64ef06e189 E = 23.4941 (flat) | cold-start: agrees | window: outside (cst_l_1 +0.46 steps, cst_l_4 +0.82 steps, cst_l_5 +0.73 steps, cst_u_1 -0.04 steps, cst_u_2 +0.39 steps, cst_u_3 -0.01 steps, cst_u_5 +0.58 steps) | filters: pass
+    CST lower: [0.0285, 0.1125, 0.0719, 0.1591, 0.2162]  CST upper: [-0.0025, 0.1413, -0.0004, 0.0673, 0.1973]
+    robustness: 8 perturbations, E 22.80 to 23.75 (hold rate 100%)
+
+Loop iterations completed: 7 | stop: every lane converged
+Finished 22:19:55 earlier than the 24 h ceiling (active run time 1:40:05).
+New versions: dataset 17.6.7 (3015 new rows) and its models in /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/models/dataset_17.6/dataset_17.6.7
+Final models on the dataset's test split (by shape, seed 42, 80,808 rows the models never saw): original -> final, a lower MAE means the fine-tuning improved the model on unseen shapes
+    Marbas_1.6 -> Marbas_1.6.7: test split: MAE 0.2689 -> 0.2689 (-0.0000) | R2 0.97946 -> 0.97943
+    Odysseus_1.6 -> Odysseus_1.6.7: test split: MAE 0.2457 -> 0.2181 (-0.0276) | R2 0.98070 -> 0.98186
+    Murata_1.6 -> Murata_1.6.7: test split: MAE 0.2753 -> 0.2295 (-0.0458) | R2 0.98030 -> 0.98188
+Run: 20261125_m_seed67 | master seed 0x67
+Full details: detailed_results.txt
+====================================================================================================

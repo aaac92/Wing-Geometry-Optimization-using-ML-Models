@@ -1,0 +1,8 @@
+Model: Murata_1.6.11 (regressor)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv
+Test split: by shape, seed 42, 20% of 134,680 shapes (404,040 rows, 3 configuration(s) per shape) -> 26,936 shapes, 80,808 rows
+MAE 0.2472 | R2 0.98141 | largest error 8.843
+    rec      MAE 0.2597 | R2 0.97890 | largest error 8.843 | 26,936 rows
+    flat     MAE 0.2456 | R2 0.98245 | largest error 8.838 | 26,936 rows
+    60DEG    MAE 0.2364 | R2 0.98246 | largest error 8.489 | 26,936 rows
+Scored: 2026-11-25 16:37:36

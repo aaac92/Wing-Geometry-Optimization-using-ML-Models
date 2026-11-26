@@ -1,0 +1,8 @@
+Model: Odysseus_1.6.11 (regressor)
+Dataset: /home/aaac92/Documents/GitHub/Wing-Geometry-Optimization-using-ML-Models/data/datasets/dataset_17.6/regressor_dataset_17.6.csv
+Test split: by shape, seed 42, 20% of 134,680 shapes (404,040 rows, 3 configuration(s) per shape) -> 26,936 shapes, 80,808 rows
+MAE 0.2226 | R2 0.98168 | largest error 8.869
+    rec      MAE 0.2377 | R2 0.97924 | largest error 8.869 | 26,936 rows
+    flat     MAE 0.2180 | R2 0.98264 | largest error 8.829 | 26,936 rows
+    60DEG    MAE 0.2122 | R2 0.98275 | largest error 8.482 | 26,936 rows
+Scored: 2026-11-25 16:37:15
