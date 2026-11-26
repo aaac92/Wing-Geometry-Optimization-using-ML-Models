@@ -24,7 +24,7 @@ Usage
 -----
     python src/utilities/results_plotter.py                     # thesis runs A, B and C
     python src/utilities/results_plotter.py --show              # also open the figures
-    python src/utilities/results_plotter.py --runs results/dataset_17.5/<run folder> --labels D --out <folder>
+    python src/utilities/results_plotter.py --runs results/dataset_17.6/<run folder> --labels D --out <folder>
 """
 import argparse
 import json
@@ -41,7 +41,7 @@ from matplotlib import font_manager
 utilities_dir = Path(__file__).resolve().parent
 src_dir = utilities_dir.parent
 project_root = src_dir.parent
-results_dir = project_root / "results" / "dataset_17.5"
+results_dir = project_root / "results" / "dataset_17.6"
 sys.path.insert(0, str(src_dir))
 
 from geometric_support.custom_graphs import plot_convergence, plot_parity  # noqa: E402
@@ -52,9 +52,9 @@ from inference_and_testing import (RE, Simulation_Store, config_identifiers, par
 
 # Thesis runs, in the order the thesis labels them
 THESIS_RUNS = {
-    "A": results_dir / "20261111_m_seede021ce33",
-    "B": results_dir / "20261111_m_seed67",
-    "C": results_dir / "20261111_m_seed69",
+    "A": results_dir / "20261125_m_seede021ce33",
+    "B": results_dir / "20261125_m_seed67",
+    "C": results_dir / "20261125_m_seed69",
 }
 DEFAULT_OUT = results_dir / "figures_es"
 FILE_NAMES = {"convergence": "convergencia_carriles_{label}.png", "parity": "paridad_predicciones_{label}.png"}
@@ -62,15 +62,15 @@ DPI = 300
 
 # Values the thesis reports, per run folder: target, dataset best and {lane: (final best E, shapes to reach 100%)}
 EXPECTED = {
-    "20261111_m_seede021ce33": {"target": 26.6587, "dataset_best": 26.6368, "lanes": {
-        "Marbas": (29.3258, 7), "Odysseus_1.5": (29.3175, 23), "Murata_1.5": (28.9676, 30),
-        "consensus": (30.8218, 18), "random": (29.3368, 32)}},
-    "20261111_m_seed67": {"target": 26.6587, "dataset_best": 26.6368, "lanes": {
-        "Marbas": (29.4016, 7), "Odysseus_1.5": (29.3639, 35), "Murata_1.5": (28.3174, 30),
-        "consensus": (29.5011, 11), "random": (27.7905, 30)}},
-    "20261111_m_seed69": {"target": 26.6587, "dataset_best": 26.6368, "lanes": {
-        "Marbas": (29.9040, 6), "Odysseus_1.5": (28.8960, 25), "Murata_1.5": (28.2136, 30),
-        "consensus": (28.7907, 7), "random": (28.5426, 34)}},
+    "20261125_m_seede021ce33": {"target": 21.8056, "dataset_best": 21.7872, "lanes": {
+        "Marbas_1.6": (23.9446, 8), "Odysseus_1.6": (24.4258, 8), "Murata_1.6": (24.6781, 18),
+        "consensus": (23.5689, 8), "random": (24.3731, 33)}},
+    "20261125_m_seed67": {"target": 21.8056, "dataset_best": 21.7872, "lanes": {
+        "Marbas_1.6": (24.2727, 13), "Odysseus_1.6": (22.8648, 12), "Murata_1.6": (22.4389, 35),
+        "consensus": (24.2648, 7), "random": (23.4941, 31)}},
+    "20261125_m_seed69": {"target": 21.8056, "dataset_best": 21.7872, "lanes": {
+        "Marbas_1.6": (23.7140, 9), "Odysseus_1.6": (23.0808, 11), "Murata_1.6": (22.6790, 47),
+        "consensus": (23.8488, 9), "random": (23.5322, 35)}},
 }
 TOLERANCE = 5e-5   # the thesis values have four decimals
 
@@ -79,7 +79,10 @@ LANE_LABELS = {"consensus": "Consenso", "random": "Aleatorio"}
 
 # Convergence palette: one color per lane, the same in every run
 CV_COLORS = {
-    'cv_Marbas': '#3B9574',
+    'cv_Marbas_1.6': '#3B9574',
+    'cv_Odysseus_1.6': '#2A4E68',
+    'cv_Murata_1.6': '#D1B8E1',
+    'cv_Marbas': '#3B9574',          # the lanes of the 17.5 runs
     'cv_Odysseus_1.5': '#2A4E68',
     'cv_Murata_1.5': '#D1B8E1',
     'cv_consensus': '#81C6AA',
@@ -88,14 +91,18 @@ CV_COLORS = {
     'cv_target': '#808080',
 }
 CV_STYLES = {
-    'Murata_1.5': {'linewidth': 3},     # light colors, drawn thicker
+    'Murata_1.6': {'linewidth': 3},     # light colors, drawn thicker
+    'Murata_1.5': {'linewidth': 3},
     'consensus': {'linewidth': 3},
     'random': {'linestyle': '--'},      # control lane
 }
 
 # Parity palette: each model keeps the color of its lane
 PP_COLORS = {
-    'pp_Marbas': '#3B9574',
+    'pp_Marbas_1.6': '#3B9574',
+    'pp_Odysseus_1.6': '#2A4E68',
+    'pp_Murata_1.6': '#D1B8E1',
+    'pp_Marbas': '#3B9574',          # the models of the 17.5 runs
     'pp_Odysseus_1.5': '#2A4E68',
     'pp_Murata_1.5': '#D1B8E1',
     'pp_perfect': '#484C68',
@@ -258,7 +265,7 @@ def padded(low: float, high: float, share: float) -> tuple:
 def parse_args():
     parser = argparse.ArgumentParser(description="Spanish-labelled convergence and parity figures of inference runs.")
     parser.add_argument('--runs', nargs='+', default=None, metavar='RUN_FOLDER',
-                        help="Run folders (default: the thesis runs A, B and C of results/dataset_17.5).")
+                        help="Run folders (default: the thesis runs A, B and C of results/dataset_17.6).")
     parser.add_argument('--labels', nargs='+', default=None,
                         help="One label per run, used in the file names (default: A B C).")
     parser.add_argument('--out', default=str(DEFAULT_OUT), help=f"Output folder (default: {short(DEFAULT_OUT)}).")
